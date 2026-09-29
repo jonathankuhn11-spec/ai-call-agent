@@ -1,0 +1,21 @@
+[
+  {
+    "zeit": "2026-09-29 18:07",
+    "label": "Baseline",
+    "gespraeche": 10,
+    "pass_rate": 0.1,
+    "halluzinationen": 43,
+    "tool_fehler": 0,
+    "latenz": 4.599754340847333
+  },
+  {
+    "zeit": "2026-09-29 18:36",
+    "label": "Guardrails im Code",
+    "modell": "qwen2.5:7b",
+    "gespraeche": 10,
+    "pass_rate": 0.1,
+    "halluzinationen": 62,
+    "tool_fehler": 0,
+    "latenz": 2.8667307058970133
+  }
+]

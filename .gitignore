@@ -1,0 +1,7 @@
+﻿*.duckdb
+*.duckdb.wal
+.venv/
+__pycache__/
+test*.py
+eval_7b.json
+.env
