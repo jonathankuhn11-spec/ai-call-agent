@@ -16,6 +16,8 @@ from typing import Literal, Optional
 
 import duckdb
 import ollama
+
+import jev
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 MODEL = "qwen2.5:7b"
@@ -24,6 +26,7 @@ FIRMA = "SonnenWerk Energie"   # fiktiver Kunde
 AGENT_NAME = "Lena"
 MAX_TOOL_STEPS = 5             # Schutz gegen Tool-Endlosschleifen pro Turn
 VERBOSE = True
+USE_JEV = True                 # False = nur Regeln (Vergleich mit/ohne Jev)
 
 def log(*a, **k):
     if VERBOSE:
@@ -323,22 +326,34 @@ BOOKING_CLAIM = re.compile(
     r"\b(buche|gebucht|reserviere|trage)\b\W+(\w+\W+){0,6}?termin", re.IGNORECASE)
 TIME_CLAIM = re.compile(r"\b\d{1,2}([:.]\d{2})?\s*uhr\b|\b\d{1,2}:\d{2}\b", re.IGNORECASE)
 
-def fact_check(text: str, tools: "Tools") -> Optional[str]:
-    if BOOKING_CLAIM.search(text) and not tools.booked:
+def fact_check(text: str, tools: "Tools", log_flags: Optional[list] = None) -> Optional[str]:
+    probs = jev.check_reply(text) if (USE_JEV and jev.available()) else None
+    if probs is not None:
+        claims_booking = probs["behauptet_buchung"] > jev.CLAIM_THRESHOLD
+        names_time = probs["nennt_termin"] > jev.CLAIM_THRESHOLD
+        if log_flags is not None and probs["nennt_preis"] > jev.CLAIM_THRESHOLD:
+            log_flags.append("preis_oder_zahl_genannt")
+        log(f"   [JEV] Antwortprüfung: buchung={probs['behauptet_buchung']:.2f} "
+            f"termin={probs['nennt_termin']:.2f} preis={probs['nennt_preis']:.2f}")
+    else:
+        claims_booking = bool(BOOKING_CLAIM.search(text))
+        names_time = bool(TIME_CLAIM.search(text))
+    if claims_booking and not tools.booked:
         return ("SYSTEM-KORREKTUR: Du hast behauptet, einen Termin zu buchen oder gebucht zu haben, "
                 "aber book_appointment wurde nicht erfolgreich aufgerufen. Nichts ist gebucht. "
                 "Behaupte keine Buchung. Führe das Gespräch nach Leitfaden weiter. "
                 "Buchen darfst du nur bei qualifizierten Leads, nachdem der Kunde einen angebotenen Termin gewählt hat.")
-    if TIME_CLAIM.search(text) and not tools.offered:
-        return ("SYSTEM-KORREKTUR: Du hast Uhrzeiten genannt, ohne check_slots aufzurufen. "
+    if names_time and not tools.offered:
+        return ("SYSTEM-KORREKTUR: Du hast Termine genannt, ohne check_slots aufzurufen. "
                 "Diese Termine sind erfunden. Rufe check_slots auf und nenne nur diese Termine.")
     return None
 
 
-# Robuster LLM-Aufruf: Wiederholungsschleifen und Serverfehler dürfen den Anruf nie crashen
+# Robuster LLM-Aufruf: Wiederholungsschleifen, Timeouts und Serverfehler dürfen den Anruf nie crashen
 LLM_OPTIONS = {"temperature": 0.3, "repeat_penalty": 1.15, "num_predict": 300}
 LLM_TIMEOUT = 120   # Sekunden pro Aufruf; danach Abbruch statt endlos hängen
 _client = ollama.Client(timeout=LLM_TIMEOUT)
+
 
 def safe_chat(**kwargs):
     opts = {**LLM_OPTIONS, **kwargs.pop("options", {})}
@@ -363,7 +378,7 @@ def agent_turn(messages, tools: Tools, log_flags: list, _retry: int = 0) -> str:
         messages.append(msg)
         if not msg.tool_calls:
             text = (msg.content or "").strip()
-            correction = fact_check(text, tools)
+            correction = fact_check(text, tools, log_flags)
             if correction:
                 log_flags.append("halluzination_blockiert")
                 log(f"   [GUARDRAIL] Halluzination blockiert: {text[:70]}...")
@@ -429,7 +444,7 @@ def run_call(con, lead_id: int, get_input=None) -> dict:
         log(f"Lead {lead_id} nicht gefunden."); return {}
     lead = dict(zip(cols, row))
     tools, flags = Tools(con, lead_id), []
-    greeting = (f"Guten Tag, hier ist {AGENT_NAME} von {FIRMA}. "
+    greeting = (f"Guten Tag, hier ist {AGENT_NAME}, die digitale KI-Assistentin von {FIRMA}. "
                 f"Sie hatten sich für eine Solaranlage interessiert, passt es gerade kurz?")
     messages = [{"role": "system", "content": system_prompt(lead)},
                 {"role": "user", "content": "(Anruf wird angenommen) Ja, hallo?"},
@@ -448,12 +463,35 @@ def run_call(con, lead_id: int, get_input=None) -> dict:
             break
         messages.append({"role": "user", "content": user})
 
-        if is_opt_out(user):   # hart im Code, das LLM wird gar nicht gefragt
-            tools.run("update_lead", {"status": "opt_out", "notiz": "Opt-out per Input-Guardrail"})
-            tools.ended = "opt_out"
-            bye = "Verstanden, ich trage Sie aus und wünsche Ihnen einen schönen Tag."
+        # --- Entscheidung vor dem LLM: Jev, sonst Regex
+        last_agent = next((m["content"] if isinstance(m, dict) else (m.content or "")
+                           for m in reversed(messages[:-1])
+                           if (m["role"] if isinstance(m, dict) else m.role) == "assistant"), "")
+        intent, conf, source = "antwortet", None, "regeln"
+        if USE_JEV and jev.available():
+            res = jev.classify_intent(user, last_agent)
+            if res:
+                label, conf = res
+                log(f"   [JEV] absicht={label} (conf {conf:.2f})")
+                if label in ("opt_out", "keine_zeit", "falsche_person") and conf >= jev.INTENT_THRESHOLD:
+                    intent, source = label, "jev"
+        if intent == "antwortet" and is_opt_out(user):   # Regex als Sicherheitsnetz
+            intent, source = "opt_out", "regex"
+
+        if intent != "antwortet":   # deterministisch beenden, das LLM wird nicht gefragt
+            if intent == "opt_out":
+                tools.run("update_lead", {"status": "opt_out", "notiz": f"Opt-out ({source})"})
+                bye = "Verstanden, ich trage Sie aus und wünsche Ihnen einen schönen Tag."
+            elif intent == "keine_zeit":
+                tools.run("update_lead", {"status": "rueckruf", "notiz": f"Rückrufwunsch: {user[:200]}"})
+                bye = "Kein Problem, dann melde ich mich zu einem besseren Zeitpunkt noch einmal. Einen schönen Tag!"
+            else:
+                bye = "Oh, Entschuldigung für die Störung. Dann versuche ich es ein anderes Mal. Schönen Tag noch!"
+            tools.ended = {"opt_out": "opt_out", "keine_zeit": "rueckruf_vereinbart",
+                           "falsche_person": "falsche_person"}[intent]
+            flags.append(f"entscheidung_{source}")
             messages.append({"role": "assistant", "content": bye})
-            log("   [GUARDRAIL] Opt-out erkannt -> CRM gesperrt, Gespräch beendet")
+            log(f"   [ENTSCHEIDUNG] {intent} via {source} -> Gespräch beendet")
             log(f"{AGENT_NAME}: {bye}   (fest)\n")
             turns += 1
             break
@@ -505,6 +543,7 @@ def run_call(con, lead_id: int, get_input=None) -> dict:
             "status": final[0], "eigentuemer": final[1], "gebaeudetyp": final[2],
             "termin_im_system": booked, "extrahiert": extracted,
             "latenz_avg": sum(latencies) / len(latencies) if latencies else 0.0,
+            "jev_aktiv": bool(USE_JEV and jev.available()),
             "transkript": transcript}
 
 

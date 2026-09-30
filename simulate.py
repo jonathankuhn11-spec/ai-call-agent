@@ -95,6 +95,7 @@ def main():
     ap.add_argument("-v", "--verbose", action="store_true")
     ap.add_argument("--label", help="Name der Iteration, z. B. 'Baseline' oder 'Fix Preisfrage'")
     ap.add_argument("--model", help="Agent-Modell überschreiben, z. B. qwen2.5:14b (Kunde bleibt gleich)")
+    ap.add_argument("--no-jev", action="store_true", help="Jev abschalten, nur Regeln (für Vergleich)")
     ap.add_argument("--customer-model", help="Kunden-Modell überschreiben. Gleiches Modell wie Agent = kein Modellwechsel im RAM")
     a = ap.parse_args()
     agent.VERBOSE = a.verbose
@@ -103,6 +104,10 @@ def main():
         agent.MODEL = a.model
     if a.customer_model:
         CUSTOMER_MODEL = a.customer_model
+    if a.no_jev:
+        agent.USE_JEV = False
+    import jev
+    print(f"Jev: {'aktiv' if agent.USE_JEV and jev.available() else 'aus (nur Regeln)'}")
     print(f"Agent-Modell: {agent.MODEL} | Kunden-Modell: {CUSTOMER_MODEL}")
 
     wanted = set(a.persona.split(",")) if a.persona else None
@@ -123,7 +128,7 @@ def main():
             except Exception as e:           # technischer Fehler: protokollieren, weitermachen
                 r = {"ergebnis": "technischer_fehler", "turns": 0, "tool_fehler": 0,
                      "flags": [f"exception: {type(e).__name__}: {str(e)[:100]}"],
-                     "termin_im_system": False, "latenz_avg": 0.0, "transkript": []}
+                     "termin_im_system": False, "latenz_avg": 0.0, "jev_aktiv": False, "transkript": []}
             con.close()
             errs = evaluate(p, r)
             results.append({"persona": p["id"], "run": run + 1, "bestanden": not errs, "fehler": errs,
@@ -141,6 +146,11 @@ def main():
     halluz = sum(r["flags"].count("halluzination_blockiert") for r in results)
     print("\n=== UAT-Report ===")
     print(f"Gespräche: {n} | Bestanden: {passed}/{n} ({passed / n:.0%}) | Dauer: {time.time() - t_start:.0f}s")
+    import jev
+    if jev.STATS["calls"] or jev.STATS["fehler"]:
+        lat = jev.STATS["latenzen"]
+        print(f"Jev: {jev.STATS['calls']} Aufrufe | Ø {sum(lat) / max(len(lat), 1) * 1000:.0f} ms | "
+              f"{jev.STATS['fehler']} Fehler mit Fallback")
     print(f"Ø Turns: {sum(r['turns'] for r in results) / n:.1f} | "
           f"Ø Latenz: {sum(r['latenz_avg'] for r in results) / n:.1f}s | "
           f"Tool-Fehler: {sum(r['tool_fehler'] for r in results)} | Halluzinationen blockiert: {halluz}")
@@ -153,7 +163,7 @@ def main():
     if os.path.exists("eval_history.json"):
         with open("eval_history.json", encoding="utf-8") as f:
             history = json.load(f)
-    history.append({"zeit": time.strftime("%Y-%m-%d %H:%M"), "label": a.label or f"Lauf {len(history) + 1}", "modell": agent.MODEL,
+    history.append({"zeit": time.strftime("%Y-%m-%d %H:%M"), "label": a.label or f"Lauf {len(history) + 1}", "modell": agent.MODEL, "jev": agent.USE_JEV,
                     "gespraeche": n, "pass_rate": passed / n, "halluzinationen": halluz,
                     "tool_fehler": sum(r["tool_fehler"] for r in results),
                     "latenz": sum(r["latenz_avg"] for r in results) / n})
