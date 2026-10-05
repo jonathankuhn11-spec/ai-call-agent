@@ -9,7 +9,7 @@ einem Dashboard, das jede Iteration gegen die vorige stellt.
 
 **Kunde (fiktiv):** SonnenWerk Energie · **Use Case:** Outbound-Qualifizierung und Terminbuchung ·
 **Stack:** Python, Ollama (Qwen 2.5, lokal), Pydantic, DuckDB, Jev (TypeSafe AI, optional), Streamlit ·
-**Status:** zwei Betriebsarten, UAT 10 von 10 im geführten Modus mit Qwen 2.5 7B, lokaler Sprach-Layer (Push-to-talk); Telefonie offen
+**Status:** zwei Betriebsarten, UAT 49 von 50 im geführten Modus mit Qwen 2.5 7B, lokaler Sprach-Layer (Push-to-talk); Telefonie offen
 
 ## Das Problem
 
@@ -127,14 +127,19 @@ Jev ab dem geführten Modus aktiv. Jede Iteration folgt aus der Analyse der Tran
 | geführt v2 | geführt | Pflichtfelder im Extraktionsschema, feldweise Normalisierung | 5 / 10 |
 | geführt v3 | geführt | dreiwertige Felder, Plausibilitätsschutz, Regex-Opt-out vor Jev | 5 / 10 |
 | geführt v4 | geführt | Regel vor Modell für die gestellte Frage | **10 / 10** |
+| geführt v5, 5 Durchläufe je Persona | geführt | Formulierungs-Guardrails verschärft; „weiß nicht"-Varianten | **49 / 50** |
 
 `eval_history.json` enthält zwei weitere Einträge (4/10, 6/10), bei denen versehentlich der jeweils vorige Stand
 noch einmal lief.
 
-**Der Lauf v4 im Detail:** 235 Sekunden für zehn Gespräche, im Mittel 3 Turns, 0 Tool-Fehler. Alle vier
-Buchungs-Personas erhalten einen Termin, der im CRM steht, der Mieter und das Mehrfamilienhaus werden
-disqualifiziert, der Preisfrager bekommt keinen Preis, Rückruf, falsche Person und beide Absagen enden nach
-einem Turn ohne LLM-Aufruf. Die vollständigen Transkripte samt Extraktionen stehen in `eval_results.json`.
+**Der Lauf v5 im Detail:** 50 Gespräche, jede Persona fünfmal mit anderen Formulierungen des simulierten
+Kunden, im Mittel 2,7 Turns und 4,3 Sekunden je Turn, 0 Tool-Fehler. Alle Buchungs-Personas erhalten in allen
+20 Gesprächen einen Termin, der im CRM steht; Mieter und Mehrfamilienhaus werden zehnmal disqualifiziert, der
+Preisfrager bekommt in keinem der fünf Gespräche einen Preis. Der einzige Fehlschlag ist aufschlussreich: Der
+„aggressive" Kunde sagte „Ich habe momentan keine Zeit für solche Anrufe, bitte rufen Sie später nochmal an",
+und der Agent vereinbarte genau das. Erwartet war ein Opt-out, der simulierte Kunde war aber nicht aggressiv,
+sondern beschäftigt. Hier irrte der Test, nicht der Agent. Die vollständigen Transkripte samt Extraktionen
+stehen in `eval_results.json`.
 
 **Was die Transkripte des freien Modus zeigen:** Das 7B-Modell verliert den Leitfaden. Es bestätigt dem
 Mieter eine Beratung statt ihn zu disqualifizieren, kündigt Termine an, ohne `check_slots` aufzurufen (bei der
@@ -148,10 +153,12 @@ Leitfaden: Ein leeres Schema wurde mit `{}` beantwortet, ein Schema mit Pflichtf
 Regel vor dem Modell. In v4 stimmen alle Ergebnisse, die vom LLM formulierten Sätze sind aber nicht immer
 sauber: Das Modell hängte in zwei Fällen Zusatzinformationen oder ein „Tschüss" an und ließ in einem Fall seine
 Anweisung durchscheinen. Die Formulierungs-Guardrails wurden deshalb verschärft (Kernbegriff der Vorlage muss
-erhalten bleiben, keine Verabschiedung mitten im Gespräch, keine Meta-Sprache); der nächste protokollierte Lauf
-zeigt die Wirkung.
+erhalten bleiben, keine Verabschiedung mitten im Gespräch, keine Meta-Sprache). In v5 verwarfen sie 99 von 137
+Formulierungen, und in den 50 Transkripten gibt es keinen auffälligen Satz mehr. Die Konsequenz ist ehrlich:
+Mit einem 7B-Modell klingt der Betrieb mit `--templates` kaum anders und ist schneller; die LLM-Formulierung
+lohnt sich erst mit einem größeren Modell.
 
-Eine Stichprobe von zehn Gesprächen bei Kundentemperatur 0,8 ist klein. `--runs 3` macht die Varianz sichtbar.
+50 Gespräche bei Kundentemperatur 0,8 sind eine brauchbare, keine große Stichprobe. `--runs 20` liefert 200.
 
 ## Sprach-Layer
 
