@@ -41,8 +41,9 @@ if len(history) >= 1:
     h = pd.DataFrame(history)
     h["Pass-Rate %"] = (h["pass_rate"] * 100).round(0)
     st.line_chart(h.set_index("label")[["Pass-Rate %"]])
-    st.dataframe(h[["zeit", "label", "gespraeche", "Pass-Rate %", "halluzinationen", "tool_fehler"]],
-                 hide_index=True, width="stretch")
+    cols = [c for c in ("zeit", "label", "modus", "modell", "gespraeche", "Pass-Rate %", "halluzinationen", "tool_fehler")
+            if c in h.columns]
+    st.dataframe(h[cols], hide_index=True, width="stretch")
 
 # ---- Pro Persona
 st.subheader("Ergebnis pro Persona")

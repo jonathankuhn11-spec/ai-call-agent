@@ -447,79 +447,71 @@ def post_call_extraction(con, lead_id: int, transcript: list) -> dict:
     return filled
 
 
-def run_call(con, lead_id: int, get_input=None) -> dict:
-    """get_input(messages) -> str. Standard: Tastatur. Der Simulator übergibt hier einen LLM-Kunden."""
-    get_input = get_input or (lambda _msgs: input("Kunde: "))
+MAX_TURNS = 15   # freier Modus; der geführte Modus (guided.py) braucht weniger
+
+
+def route_intent(user: str, last_agent: str) -> tuple:
+    """Entscheidung vor dem LLM. Rückgabe: (absicht, quelle).
+
+    absicht: antwortet | opt_out | keine_zeit | falsche_person
+    quelle:  jev | regex | regeln
+    """
+    if is_opt_out(user):                     # eindeutige Opt-out-Formulierungen, vor allem Beleidigungen,
+        return "opt_out", "regex"            # entscheidet die Regex; die darf kein Modell zum Rückruf machen
+    jev_answered = False
+    if USE_JEV and jev.available():
+        res = jev.classify_intent(user, last_agent)
+        if res:
+            jev_answered = True
+            label, conf = res
+            log(f"   [JEV] absicht={label} (conf {conf:.2f})")
+            if label in ("opt_out", "keine_zeit", "falsche_person") and conf >= jev.INTENT_THRESHOLD:
+                return label, "jev"
+    return "antwortet", "jev" if jev_answered else "regeln"
+
+
+def end_deterministically(tools: "Tools", intent: str, source: str, user: str) -> str:
+    """Beendet das Gespräch ohne LLM: CRM-Status setzen, festen Abschiedssatz zurückgeben."""
+    if intent == "opt_out":
+        tools.run("update_lead", {"status": "opt_out", "notiz": f"Opt-out ({source})"})
+        bye = "Verstanden, ich trage Sie aus und wünsche Ihnen einen schönen Tag."
+    elif intent == "keine_zeit":
+        tools.run("update_lead", {"status": "rueckruf", "notiz": f"Rückrufwunsch: {user[:200]}"})
+        bye = "Kein Problem, dann melde ich mich zu einem besseren Zeitpunkt noch einmal. Einen schönen Tag!"
+    else:
+        bye = "Oh, Entschuldigung für die Störung. Dann versuche ich es ein anderes Mal. Schönen Tag noch!"
+    tools.ended = {"opt_out": "opt_out", "keine_zeit": "rueckruf_vereinbart",
+                   "falsche_person": "falsche_person"}[intent]
+    log(f"   [ENTSCHEIDUNG] {intent} via {source} -> Gespräch beendet")
+    return bye
+
+
+def last_assistant_text(messages) -> str:
+    for m in reversed(messages):
+        role = m["role"] if isinstance(m, dict) else m.role
+        if role == "assistant":
+            return m["content"] if isinstance(m, dict) else (m.content or "")
+    return ""
+
+
+def load_lead(con, lead_id: int):
     cols = ["id", "name", "telefon", "plz", "quelle", "status"]
     row = con.execute(f"SELECT {', '.join(cols)} FROM leads WHERE id = ?", [lead_id]).fetchone()
-    if row is None:
-        log(f"Lead {lead_id} nicht gefunden."); return {}
-    lead = dict(zip(cols, row))
-    tools, flags = Tools(con, lead_id), []
-    greeting = (f"Guten Tag, hier ist {AGENT_NAME}, die digitale KI-Assistentin von {FIRMA}. "
-                f"Sie hatten sich für eine Solaranlage interessiert, passt es gerade kurz?")
-    messages = [{"role": "system", "content": system_prompt(lead)},
-                {"role": "user", "content": "(Anruf wird angenommen) Ja, hallo?"},
-                {"role": "assistant", "content": greeting}]
-    start, turns, latencies = datetime.now(), 0, []
+    return dict(zip(cols, row)) if row else None
 
-    log(f"\n=== Anruf bei {lead['name']} ({lead['telefon']}) — '/q' zum Auflegen ===\n")
-    log("Kunde: Ja, hallo?")
-    log(f"{AGENT_NAME}: {greeting}   (fest)\n")
-    while True:
-        user = get_input(messages).strip()
-        if get_input.__name__ != "<lambda>":   # Simulator-Eingaben sichtbar machen
-            log(f"Kunde: {user}")
-        if user.lower() in ("/q", "/quit") or turns >= 15:
-            tools.ended = tools.ended or ("timeout" if turns >= 15 else "aufgelegt")
-            break
-        messages.append({"role": "user", "content": user})
 
-        # --- Entscheidung vor dem LLM: Jev, sonst Regex
-        last_agent = next((m["content"] if isinstance(m, dict) else (m.content or "")
-                           for m in reversed(messages[:-1])
-                           if (m["role"] if isinstance(m, dict) else m.role) == "assistant"), "")
-        intent, conf, source = "antwortet", None, "regeln"
-        if USE_JEV and jev.available():
-            res = jev.classify_intent(user, last_agent)
-            if res:
-                label, conf = res
-                log(f"   [JEV] absicht={label} (conf {conf:.2f})")
-                if label in ("opt_out", "keine_zeit", "falsche_person") and conf >= jev.INTENT_THRESHOLD:
-                    intent, source = label, "jev"
-        if intent == "antwortet" and is_opt_out(user):   # Regex als Sicherheitsnetz
-            intent, source = "opt_out", "regex"
+def greeting_text() -> str:
+    return (f"Guten Tag, hier ist {AGENT_NAME}, die digitale KI-Assistentin von {FIRMA}. "
+            f"Sie hatten sich für eine Solaranlage interessiert, passt es gerade kurz?")
 
-        if intent != "antwortet":   # deterministisch beenden, das LLM wird nicht gefragt
-            if intent == "opt_out":
-                tools.run("update_lead", {"status": "opt_out", "notiz": f"Opt-out ({source})"})
-                bye = "Verstanden, ich trage Sie aus und wünsche Ihnen einen schönen Tag."
-            elif intent == "keine_zeit":
-                tools.run("update_lead", {"status": "rueckruf", "notiz": f"Rückrufwunsch: {user[:200]}"})
-                bye = "Kein Problem, dann melde ich mich zu einem besseren Zeitpunkt noch einmal. Einen schönen Tag!"
-            else:
-                bye = "Oh, Entschuldigung für die Störung. Dann versuche ich es ein anderes Mal. Schönen Tag noch!"
-            tools.ended = {"opt_out": "opt_out", "keine_zeit": "rueckruf_vereinbart",
-                           "falsche_person": "falsche_person"}[intent]
-            flags.append(f"entscheidung_{source}")
-            messages.append({"role": "assistant", "content": bye})
-            log(f"   [ENTSCHEIDUNG] {intent} via {source} -> Gespräch beendet")
-            log(f"{AGENT_NAME}: {bye}   (fest)\n")
-            turns += 1
-            break
 
-        t0 = time.time()
-        reply = agent_turn(messages, tools, flags)
-        latencies.append(time.time() - t0)
-        turns += 1
-        log(f"{AGENT_NAME}: {reply}   ({latencies[-1]:.1f}s)\n")
-        if tools.ended:
-            break
-
+def finish_call(con, lead_id: int, tools: "Tools", flags: list, messages: list, turns: int,
+                latencies: list, start, extract: bool = True, extra: Optional[dict] = None) -> dict:
+    """Gemeinsamer Abschluss beider Modi: Extraktion, Ground Truth aus dem CRM, Protokoll, Ergebnis."""
     transcript = [{"role": m["role"] if isinstance(m, dict) else m.role,
                    "content": m["content"] if isinstance(m, dict) else (m.content or "")}
                   for m in messages if (m["role"] if isinstance(m, dict) else m.role) != "system"]
-    extracted = post_call_extraction(con, lead_id, transcript)
+    extracted = post_call_extraction(con, lead_id, transcript) if extract else {}
 
     # Ground Truth: Ergebnis aus CRM-Zustand, nicht aus der Behauptung des Modells
     st_now = con.execute("SELECT status FROM leads WHERE id = ?", [lead_id]).fetchone()[0]
@@ -556,7 +548,55 @@ def run_call(con, lead_id: int, get_input=None) -> dict:
             "termin_im_system": booked, "extrahiert": extracted,
             "latenz_avg": sum(latencies) / len(latencies) if latencies else 0.0,
             "jev_aktiv": bool(USE_JEV and jev.available()),
-            "transkript": transcript}
+            "transkript": transcript, **(extra or {})}
+
+
+def run_call(con, lead_id: int, get_input=None) -> dict:
+    """Freier Modus: Das LLM führt das Gespräch mit Tool-Calling, der Code prüft jede Entscheidung.
+
+    get_input(messages) -> str. Standard: Tastatur. Der Simulator übergibt hier einen LLM-Kunden.
+    """
+    get_input = get_input or (lambda _msgs: input("Kunde: "))
+    lead = load_lead(con, lead_id)
+    if lead is None:
+        log(f"Lead {lead_id} nicht gefunden."); return {}
+    tools, flags = Tools(con, lead_id), []
+    greeting = greeting_text()
+    messages = [{"role": "system", "content": system_prompt(lead)},
+                {"role": "user", "content": "(Anruf wird angenommen) Ja, hallo?"},
+                {"role": "assistant", "content": greeting}]
+    start, turns, latencies = datetime.now(), 0, []
+
+    log(f"\n=== Anruf bei {lead['name']} ({lead['telefon']}) — '/q' zum Auflegen ===\n")
+    log("Kunde: Ja, hallo?")
+    log(f"{AGENT_NAME}: {greeting}   (fest)\n")
+    while True:
+        user = get_input(messages).strip()
+        if get_input.__name__ != "<lambda>":   # Simulator-Eingaben sichtbar machen
+            log(f"Kunde: {user}")
+        if user.lower() in ("/q", "/quit") or turns >= MAX_TURNS:
+            tools.ended = tools.ended or ("timeout" if turns >= MAX_TURNS else "aufgelegt")
+            break
+        messages.append({"role": "user", "content": user})
+
+        intent, source = route_intent(user, last_assistant_text(messages[:-1]))
+        if intent != "antwortet":   # deterministisch beenden, das LLM wird nicht gefragt
+            bye = end_deterministically(tools, intent, source, user)
+            flags.append(f"entscheidung_{source}")
+            messages.append({"role": "assistant", "content": bye})
+            log(f"{AGENT_NAME}: {bye}   (fest)\n")
+            turns += 1
+            break
+
+        t0 = time.time()
+        reply = agent_turn(messages, tools, flags)
+        latencies.append(time.time() - t0)
+        turns += 1
+        log(f"{AGENT_NAME}: {reply}   ({latencies[-1]:.1f}s)\n")
+        if tools.ended:
+            break
+
+    return finish_call(con, lead_id, tools, flags, messages, turns, latencies, start, extra={"modus": "frei"})
 
 
 def show_kpis(con):
@@ -576,6 +616,7 @@ if __name__ == "__main__":
     ap.add_argument("--reset", action="store_true")
     ap.add_argument("--kpis", action="store_true")
     ap.add_argument("--model", help="Ollama-Modell, Standard: " + MODEL)
+    ap.add_argument("--guided", action="store_true", help="geführter Modus: Leitfaden im Code (guided.py)")
     a = ap.parse_args()
     if a.model:
         MODEL = a.model
@@ -586,6 +627,9 @@ if __name__ == "__main__":
         lid = a.lead or (con.execute("SELECT MIN(id) FROM leads WHERE status = 'offen'").fetchone()[0])
         if lid is None:
             print("Keine offenen Leads. Mit --reset neu aufsetzen.")
+        elif a.guided:
+            import guided
+            guided.run_guided_call(con, lid)
         else:
             run_call(con, lid)
     con.close()

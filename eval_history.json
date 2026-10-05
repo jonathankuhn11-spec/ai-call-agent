@@ -17,5 +17,83 @@
     "halluzinationen": 62,
     "tool_fehler": 0,
     "latenz": 2.8667307058970133
+  },
+  {
+    "zeit": "2026-10-05 02:30",
+    "label": "7B geführt",
+    "modus": "guided",
+    "formulierung": true,
+    "modell": "qwen2.5:7b",
+    "jev": true,
+    "gespraeche": 10,
+    "pass_rate": 0.4,
+    "halluzinationen": 0,
+    "tool_fehler": 0,
+    "latenz": 1.885812520980835
+  },
+  {
+    "zeit": "2026-10-05 02:34",
+    "label": "7B geführt v2",
+    "modus": "guided",
+    "formulierung": true,
+    "modell": "qwen2.5:7b",
+    "jev": true,
+    "gespraeche": 10,
+    "pass_rate": 0.4,
+    "halluzinationen": 0,
+    "tool_fehler": 0,
+    "latenz": 1.7820159912109375
+  },
+  {
+    "zeit": "2026-10-05 02:38",
+    "label": "7B geführt v2",
+    "modus": "guided",
+    "formulierung": true,
+    "modell": "qwen2.5:7b",
+    "jev": true,
+    "gespraeche": 10,
+    "pass_rate": 0.5,
+    "halluzinationen": 0,
+    "tool_fehler": 0,
+    "latenz": 4.49111020565033
+  },
+  {
+    "zeit": "2026-10-05 02:47",
+    "label": "7B geführt v3",
+    "modus": "guided",
+    "formulierung": true,
+    "modell": "qwen2.5:7b",
+    "jev": true,
+    "gespraeche": 10,
+    "pass_rate": 0.6,
+    "halluzinationen": 0,
+    "tool_fehler": 0,
+    "latenz": 4.433940279483795
+  },
+  {
+    "zeit": "2026-10-05 02:57",
+    "label": "7B geführt v3",
+    "modus": "guided",
+    "formulierung": true,
+    "modell": "qwen2.5:7b",
+    "jev": true,
+    "gespraeche": 10,
+    "pass_rate": 0.5,
+    "halluzinationen": 0,
+    "tool_fehler": 0,
+    "latenz": 4.060950189658574
+  },
+  {
+    "zeit": "2026-10-05 03:10",
+    "label": "7B geführt v4",
+    "modus": "guided",
+    "formulierung": true,
+    "modell": "qwen2.5:7b",
+    "jev": true,
+    "gespraeche": 10,
+    "pass_rate": 1.0,
+    "halluzinationen": 0,
+    "tool_fehler": 0,
+    "latenz": 4.519750724974132
   }
 ]

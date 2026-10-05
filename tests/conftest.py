@@ -4,6 +4,7 @@ Alle Tests laufen ohne Ollama und ohne Jev-Zugang: Das LLM wird durch ein Skript
 ersetzt, die Jev-API durch einen Stub. Geprüft wird damit genau der Teil, der in
 Produktion deterministisch sein muss: Geschäftsregeln, Guardrails, Routing.
 """
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -45,14 +46,16 @@ class ScriptedLLM:
     (format=...) liefert immer ein leeres JSON-Objekt.
     """
 
-    def __init__(self, script):
+    def __init__(self, script, extractions=None):
         self.script = list(script)
+        self.extractions = list(extractions or [])
         self.calls = []
 
     def __call__(self, **kwargs):
         self.calls.append(kwargs)
         if "format" in kwargs:
-            return SimpleNamespace(message=SimpleNamespace(content="{}"))
+            payload = self.extractions.pop(0) if self.extractions else {}
+            return SimpleNamespace(message=SimpleNamespace(content=json.dumps(payload)))
         if not self.script:
             raise AssertionError("Das LLM-Skript ist aufgebraucht, der Agent fragt öfter als erwartet.")
         step = self.script.pop(0)
@@ -65,8 +68,8 @@ class ScriptedLLM:
 @pytest.fixture
 def llm(monkeypatch):
     """Factory: llm([...]) installiert ein Skript und gibt es zurück."""
-    def install(script):
-        scripted = ScriptedLLM(script)
+    def install(script, extractions=None):
+        scripted = ScriptedLLM(script, extractions)
         monkeypatch.setattr(agent, "safe_chat", scripted)
         return scripted
     return install

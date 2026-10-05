@@ -2,7 +2,9 @@
 UAT mit simulierten Kunden: Ein zweites LLM spielt Kunden-Personas, der Agent führt das Gespräch.
 Jede Persona hat ein erwartetes Ergebnis. Am Ende: Pass-Rate, Fehlerarten, KPIs.
 
-Start:  python simulate.py                 -> alle Personas, je 1 Durchlauf
+Start:  python simulate.py                 -> alle Personas, geführter Modus, je 1 Durchlauf
+        python simulate.py --mode free     -> freier Modus: das LLM führt mit Tool-Calling
+        python simulate.py --templates     -> geführt, nur Vorlagensätze (schnellster Lauf)
         python simulate.py --runs 3        -> jede Persona 3x (Varianz messen!)
         python simulate.py --persona mieter -v   -> eine Persona mit komplettem Gesprächsverlauf
 """
@@ -12,6 +14,7 @@ import os
 import time
 
 import agent
+import guided
 import jev
 
 SIM_DB = "eval.duckdb"
@@ -96,7 +99,13 @@ def main():
     ap.add_argument("--model", help="Agent-Modell überschreiben, z. B. qwen2.5:14b (Kunde bleibt gleich)")
     ap.add_argument("--no-jev", action="store_true", help="Jev abschalten, nur Regeln (für Vergleich)")
     ap.add_argument("--customer-model", help="Kunden-Modell überschreiben. Gleiches Modell wie Agent = kein Modellwechsel im RAM")
+    ap.add_argument("--mode", choices=["guided", "free"], default="guided",
+                    help="guided: Leitfaden im Code (Standard); free: das LLM führt mit Tool-Calling")
+    ap.add_argument("--templates", action="store_true", help="geführter Modus ohne LLM-Formulierung, nur Vorlagensätze")
     a = ap.parse_args()
+    if a.templates:
+        guided.FORMULATE = False
+    runner = guided.run_guided_call if a.mode == "guided" else agent.run_call
     agent.VERBOSE = a.verbose
     global CUSTOMER_MODEL
     if a.model:
@@ -106,7 +115,7 @@ def main():
     if a.no_jev:
         agent.USE_JEV = False
     print(f"Jev: {'aktiv' if agent.USE_JEV and jev.available() else 'aus (nur Regeln)'}")
-    print(f"Agent-Modell: {agent.MODEL} | Kunden-Modell: {CUSTOMER_MODEL}")
+    print(f"Modus: {a.mode}{' (nur Vorlagen)' if a.templates else ''} | Agent-Modell: {agent.MODEL} | Kunden-Modell: {CUSTOMER_MODEL}")
 
     wanted = set(a.persona.split(",")) if a.persona else None
     personas = [p for p in PERSONAS if not wanted or p["id"] in wanted]
@@ -122,7 +131,7 @@ def main():
                 os.remove(SIM_DB)
             con = agent.init_db(reset=True, path=SIM_DB)
             try:
-                r = agent.run_call(con, 1, get_input=make_customer(p))
+                r = runner(con, 1, get_input=make_customer(p))
             except Exception as e:           # technischer Fehler: protokollieren, weitermachen
                 r = {"ergebnis": "technischer_fehler", "turns": 0, "tool_fehler": 0,
                      "flags": [f"exception: {type(e).__name__}: {str(e)[:100]}"],
@@ -160,7 +169,9 @@ def main():
     if os.path.exists("eval_history.json"):
         with open("eval_history.json", encoding="utf-8") as f:
             history = json.load(f)
-    history.append({"zeit": time.strftime("%Y-%m-%d %H:%M"), "label": a.label or f"Lauf {len(history) + 1}", "modell": agent.MODEL, "jev": agent.USE_JEV,
+    history.append({"zeit": time.strftime("%Y-%m-%d %H:%M"), "label": a.label or f"Lauf {len(history) + 1}",
+                    "modus": a.mode, "formulierung": guided.FORMULATE if a.mode == "guided" else None,
+                    "modell": agent.MODEL, "jev": agent.USE_JEV,
                     "gespraeche": n, "pass_rate": passed / n, "halluzinationen": halluz,
                     "tool_fehler": sum(r["tool_fehler"] for r in results),
                     "latenz": sum(r["latenz_avg"] for r in results) / n})

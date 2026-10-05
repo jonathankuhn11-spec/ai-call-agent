@@ -69,12 +69,13 @@ def test_uncertain_jev_hands_over_to_the_model(con, quiet, llm, jev_stub):
     assert any("tools" in c for c in scripted.calls)      # das LLM hat übernommen
 
 
-def test_jev_outage_falls_back_to_regex(con, quiet, llm, jev_stub):
+def test_jev_outage_falls_back_to_regex_and_model(con, quiet, llm, jev_stub):
     jev_stub["down"] = True
-    llm([])
-    r = agent.run_call(con, 1, get_input=customer("Rufen Sie mich nicht mehr an."))
+    llm(["Sind Sie Eigentümer der Immobilie?"])
+    r = agent.run_call(con, 1, get_input=customer("Ja, hallo?", "Rufen Sie mich nicht mehr an."))
+    assert jev.STATS["fehler"] >= 1                              # Jev wurde gefragt und war weg
     assert r["ergebnis"] == "opt_out" and "entscheidung_regex" in r["flags"]
-    assert jev.STATS["fehler"] >= 1
+    assert r["turns"] == 2
 
 
 def test_llm_outage_never_crashes_the_call(con, no_jev, quiet, monkeypatch):
