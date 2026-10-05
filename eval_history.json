@@ -95,5 +95,18 @@
     "halluzinationen": 0,
     "tool_fehler": 0,
     "latenz": 4.519750724974132
+  },
+  {
+    "zeit": "2026-10-05 11:53",
+    "label": "7B geführt v5, 5 Durchläufe",
+    "modus": "guided",
+    "formulierung": true,
+    "modell": "qwen2.5:7b",
+    "jev": true,
+    "gespraeche": 50,
+    "pass_rate": 0.98,
+    "halluzinationen": 0,
+    "tool_fehler": 0,
+    "latenz": 4.306966099739075
   }
 ]

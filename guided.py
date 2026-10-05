@@ -33,6 +33,8 @@ MUST = ["eigentuemer", "gebaeudetyp"]                   # ohne diese keine Quali
 SHOULD = ["dachflaeche_m2", "jahresverbrauch_kwh"]       # Soll-Angaben: fehlen sie, wird trotzdem gebucht
 FIELDS = MUST + SHOULD
 
+KEYWORDS = {"eigentuemer": ("Eigentümer",), "gebaeudetyp": ("Gebäude",),
+            "dachflaeche_m2": ("Dach",), "jahresverbrauch_kwh": ("verbrauch",)}
 QUESTIONS = {
     "eigentuemer": "Sind Sie Eigentümer der Immobilie?",
     "gebaeudetyp": "Um welche Art von Gebäude handelt es sich, zum Beispiel Einfamilienhaus, "
@@ -166,8 +168,10 @@ class Antwort(BaseModel):
 YES_WORDS = re.compile(r"\b(ja|jo|jep|jup|klar|genau|stimmt|richtig|natürlich|sicher|selbstverständlich|"
                        r"eigentümer|eigentuemer|besitzer|gehört (mir|uns)|ist meins|mein haus|unser haus)\b", re.IGNORECASE)
 NO_WORDS = re.compile(r"\b(nein|nee|nö|nicht|kein|keine|keiner)\b", re.IGNORECASE)
-DONT_KNOW = re.compile(r"weiß (ich )?nicht|keine ahnung|kann ich nicht sagen|wüsste ich nicht|normal halt|"
-                       r"müsste ich nachschauen|schwer zu sagen", re.IGNORECASE)
+DONT_KNOW = re.compile(r"wei(ß|ss) (ich |es )?(ich )?(leider )?nicht|keine ahnung|kann (ich|das|ich das|ich ihnen|"
+                       r"ich ihnen das|ich leider)( leider)? nicht (sagen|beantworten|nennen)|wüsste ich nicht|normal halt|"
+                       r"müsste ich nachschauen|schwer zu sagen|nicht genau|müsste ich nachsehen|hab ich nicht im kopf",
+                       re.IGNORECASE)
 BUILDING_KEYWORDS = [
     (re.compile(r"doppelhaus|dhh|haushälfte|haushaelfte", re.IGNORECASE), "doppelhaushaelfte"),
     (re.compile(r"reihen|rh\b", re.IGNORECASE), "reihenhaus"),
@@ -325,21 +329,42 @@ def extract(user: str, question: str, offered: list) -> Optional[Antwort]:
         return Antwort()
 
 
-def formulate(template: str, user: str, tools: Tools, must_contain: tuple = ()) -> str:
+FAREWELL = re.compile(r"tschüss|tschüs|wiederhören|wiedersehen|schönen tag|bis später|bis dann|bis bald", re.IGNORECASE)
+META = re.compile(r"\bsatz\b|vorlage|\btext\b|system|prompt|extraktion|formulier|anweisung|kunde sagte", re.IGNORECASE)
+
+
+def formulation_ok(text: str, template: str, tools: Tools, must_contain: tuple, ending: bool) -> bool:
+    """Darf der vom LLM formulierte Satz gesprochen werden? Jeder Zweifel heißt nein."""
+    low = text.lower()
+    if not text or guardrail_check(text) or agent.fact_check(text, tools):
+        return False
+    if not all(x.lower() in low for x in must_contain):          # Kern der Vorlage muss erhalten sein
+        return False
+    if len(text.split()) > 2 * len(template.split()) + 15:        # keine Zusatzinformationen
+        return False
+    if not ending and FAREWELL.search(text):                      # mitten im Gespräch verabschieden
+        return False
+    if low.startswith(("nein", "ja")) and not template.lower().startswith(("nein", "ja")):
+        return False
+    if META.search(text):                                         # "da der Satz keinen Termintext enthält"
+        return False
+    return True
+
+
+def formulate(template: str, user: str, tools: Tools, must_contain: tuple = (), ending: bool = False) -> str:
     """Lässt das LLM den Vorlagensatz natürlich aussprechen. Bei jedem Zweifel gilt die Vorlage."""
     if not FORMULATE:
         return template
-    resp = agent.safe_chat(model=agent.MODEL, options={"temperature": 0.4, "num_predict": 120},
-                     messages=[{"role": "system", "content":
-                                f"Du bist {AGENT_NAME}, Telefon-Agentin von {agent.FIRMA}. Formuliere den "
-                                "folgenden Satz natürlich und freundlich, wie am Telefon, in höchstens zwei "
-                                "kurzen Sätzen. Ändere den Inhalt nicht: keine zusätzlichen Fragen, keine "
-                                "Preise, keine Zahlen, keine Termine, die nicht im Satz stehen. Siezen. "
-                                "Kein Markdown. Antworte nur mit dem Satz."},
-                               {"role": "user", "content": f'Der Kunde sagte: "{user}"\nSag jetzt: {template}'}])
-    text = (resp.message.content or "").strip() if resp else ""
-    if not text or guardrail_check(text) or agent.fact_check(text, tools) \
-            or not all(x in text for x in must_contain) or len(text.split()) > 2 * len(template.split()) + 15:
+    resp = agent.safe_chat(model=agent.MODEL, options={"temperature": 0.3, "num_predict": 90},
+                           messages=[{"role": "system", "content":
+                                      f"Du bist {AGENT_NAME}, Telefon-Agentin von {agent.FIRMA}. Sprich den folgenden "
+                                      "Satz natürlich und freundlich aus, wie am Telefon, in höchstens zwei kurzen "
+                                      "Sätzen. Der Inhalt bleibt exakt gleich: keine zusätzlichen Fragen oder "
+                                      "Informationen, keine Preise, keine Zahlen, keine Termine, die nicht im Satz "
+                                      "stehen, keine Verabschiedung, kein Kommentar. Siezen. Antworte nur mit dem Satz."},
+                                     {"role": "user", "content": f"Sag jetzt: {template}"}])
+    text = (resp.message.content or "").strip().strip('"') if resp else ""
+    if not formulation_ok(text, template, tools, must_contain, ending):
         log("   [FORMULIERUNG] verworfen, Vorlage gesprochen")
         return template
     return text
@@ -444,7 +469,7 @@ class Leitfaden:
         if field:
             self.asked[field] += 1
             self.pending = field
-            return prefix + QUESTIONS[field], (), False
+            return prefix + QUESTIONS[field], KEYWORDS[field] + (("Beratung",) if prefix else ()), False
 
         # --- Qualifiziert: Termine anbieten
         self.pending = None
@@ -542,8 +567,8 @@ def run_guided_call(con, lead_id: int, get_input=None) -> dict:
                                  "content": json.dumps({"extraktion": gefunden}, ensure_ascii=False)})
                 if antwort.kein_interesse or antwort.falsche_person or antwort.keine_zeit:
                     flags.append("entscheidung_extraktion")
-            template, must_contain, _ = plan.step(user, antwort)
-            reply = formulate(template, user, tools, must_contain)
+            template, must_contain, ending = plan.step(user, antwort)
+            reply = formulate(template, user, tools, must_contain, ending)
             if reply == template:
                 flags.append("vorlage_gesprochen")
 

@@ -91,9 +91,9 @@ def test_opt_out_is_decided_before_any_llm_call(con, no_jev, quiet, templates, l
 
 
 def test_formulation_is_used_when_it_passes_the_guardrails(con, no_jev, quiet, llm):
-    llm(["Sagen Sie, gehört Ihnen die Immobilie denn selbst?"], extractions=[{}])
+    llm(["Darf ich fragen, sind Sie Eigentümer der Immobilie?"], extractions=[{}])
     r = guided.run_guided_call(con, 1, get_input=customer("Ja, hallo?"))
-    assert r["transkript"][-1]["content"] == "Sagen Sie, gehört Ihnen die Immobilie denn selbst?"
+    assert r["transkript"][-1]["content"] == "Darf ich fragen, sind Sie Eigentümer der Immobilie?"
     assert "vorlage_gesprochen" not in r["flags"]
 
 
@@ -266,3 +266,31 @@ def test_tenant_saying_no_interest_is_disqualified_not_opted_out(con, no_jev, qu
     llm([], extractions=[{}])
     r = guided.run_guided_call(con, 1, get_input=customer("Ich wohne zur Miete, dann hab ich wohl kein Interesse."))
     assert r["ergebnis"] == "disqualifiziert" and r["status"] == "disqualifiziert"
+
+
+@pytest.mark.parametrize("text", [
+    "Nein, ich muss fragen, sind Sie Eigentümer der Immobilie?",                 # Ja/Nein-Auftakt
+    "Egal ob Eigentümer oder Mieter, Solarpanele gehen fast immer. Tschüss.",     # Zusatzinfo und Verabschiedung
+    "Wir können den Termin leider nicht vereinbaren, da der Satz keinen Termintext enthält.",  # Meta-Sprache
+    "Haben Sie eine Wohnung oder ein Haus?",                                      # Kern der Vorlage fehlt
+    "",
+])
+def test_bad_formulations_fall_back_to_the_template(con, text):
+    tools = agent.Tools(con, 1)
+    assert not guided.formulation_ok(text, guided.QUESTIONS["eigentuemer"], tools, ("Eigentümer",), ending=False)
+
+
+def test_good_formulation_passes(con):
+    tools = agent.Tools(con, 1)
+    assert guided.formulation_ok("Darf ich fragen, sind Sie Eigentümer der Immobilie?",
+                                 guided.QUESTIONS["eigentuemer"], tools, ("Eigentümer",), ending=False)
+    tools.booked, tools.offered = True, {1}
+    assert guided.formulation_ok("Wunderbar, der Termin am Di 06.10. 09:00 Uhr ist eingetragen. Auf Wiederhören!",
+                                 "Perfekt, ich habe den Termin am Di 06.10. 09:00 Uhr für Sie eingetragen.",
+                                 tools, ("Di 06.10. 09:00 Uhr",), ending=True)
+
+
+@pytest.mark.parametrize("text", ["Das kann ich Ihnen nicht sagen.", "Ich kann das nicht sagen.",
+                                  "Weiß ich leider nicht.", "Hab ich nicht im Kopf."])
+def test_dont_know_variants_skip_optional_questions(text):
+    assert guided.parse_pending("dachflaeche_m2", text, []) == {"weiss_nicht": True}

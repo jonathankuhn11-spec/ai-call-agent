@@ -9,7 +9,7 @@ einem Dashboard, das jede Iteration gegen die vorige stellt.
 
 **Kunde (fiktiv):** SonnenWerk Energie · **Use Case:** Outbound-Qualifizierung und Terminbuchung ·
 **Stack:** Python, Ollama (Qwen 2.5, lokal), Pydantic, DuckDB, Jev (TypeSafe AI, optional), Streamlit ·
-**Status:** Text-Agent in zwei Betriebsarten mit vollständigem Eval-Kreislauf; Sprach-Layer offen
+**Status:** zwei Betriebsarten, UAT 10 von 10 im geführten Modus mit Qwen 2.5 7B, lokaler Sprach-Layer (Push-to-talk); Telefonie offen
 
 ## Das Problem
 
@@ -116,24 +116,62 @@ Fehlschlag mit vollständigem Transkript.
 
 ## Ergebnisse
 
-Iterationsprotokoll aus `eval_history.json`, 10 Gespräche je Lauf, Agent und Kunde jeweils Qwen 2.5 7B:
+Iterationsprotokoll aus `eval_history.json`. Je Lauf 10 Personas, Agent und simulierter Kunde jeweils Qwen 2.5 7B,
+Jev ab dem geführten Modus aktiv. Jede Iteration folgt aus der Analyse der Transkripte des Vorlaufs.
 
-| Lauf | Bestanden | Halluzinationen blockiert | Beobachtung |
+| Lauf | Modus | Änderung gegenüber dem Vorlauf | Bestanden |
 | --- | --- | --- | --- |
-| Baseline | 1 / 10 | 43 | Regeln nur im Prompt |
-| Guardrails im Code | 1 / 10 | 62 | Buchungen und erfundene Termine werden blockiert; 8 von 10 Gesprächen laufen trotzdem in den Timeout nach 15 Turns |
+| Baseline (29.09.) | frei | Regeln nur im Prompt | 1 / 10 |
+| Guardrails im Code (29.09.) | frei | Buchungen und erfundene Termine werden blockiert (62 Korrekturen in 10 Gesprächen) | 1 / 10 |
+| geführt v1 (05.10.) | geführt | Leitfaden als Zustandsautomat, LLM nur für Extraktion und Formulierung | 4 / 10 |
+| geführt v2 | geführt | Pflichtfelder im Extraktionsschema, feldweise Normalisierung | 5 / 10 |
+| geführt v3 | geführt | dreiwertige Felder, Plausibilitätsschutz, Regex-Opt-out vor Jev | 5 / 10 |
+| geführt v4 | geführt | Regel vor Modell für die gestellte Frage | **10 / 10** |
 
-Was die Transkripte zeigen: Das 7B-Modell verliert den Leitfaden. Es bestätigt dem Mieter eine Beratung statt
-ihn zu disqualifizieren, kündigt Termine an, ohne `check_slots` aufzurufen (bei der Persona „Werbung gesehen"
-29 blockierte Behauptungen in einem Gespräch), und gibt am Ende Tool-Namen wie `falsche_person` als Text aus,
-statt das Tool aufzurufen. Die Guardrails verhindern den Schaden, aber sie beenden das Gespräch nicht.
+`eval_history.json` enthält zwei weitere Einträge (4/10, 6/10), bei denen versehentlich der jeweils vorige Stand
+noch einmal lief.
 
-Beide Läufe sind freier Modus. Daraus folgen drei Umbauten, die im aktuellen Code stehen: Gesprächsenden
-entscheidet die Jev-Schicht vor dem LLM, Status und Buchung werden ausschließlich aus dem CRM abgeleitet, und
-der Leitfaden selbst wurde als geführter Modus in den Code verlegt. In einem Probelauf mit Qwen 2.5 14B im
-freien Modus bestanden 5 von 5 Gesprächen, dieser Lauf brach jedoch vor dem Schreiben der Ergebnisdatei ab
-und ist deshalb nicht protokolliert. Die nächsten protokollierten Läufe sind der geführte Modus mit 7B, mit
-und ohne LLM-Formulierung, dann der freie Modus mit 14B als Vergleich.
+**Der Lauf v4 im Detail:** 235 Sekunden für zehn Gespräche, im Mittel 3 Turns, 0 Tool-Fehler. Alle vier
+Buchungs-Personas erhalten einen Termin, der im CRM steht, der Mieter und das Mehrfamilienhaus werden
+disqualifiziert, der Preisfrager bekommt keinen Preis, Rückruf, falsche Person und beide Absagen enden nach
+einem Turn ohne LLM-Aufruf. Die vollständigen Transkripte samt Extraktionen stehen in `eval_results.json`.
+
+**Was die Transkripte des freien Modus zeigen:** Das 7B-Modell verliert den Leitfaden. Es bestätigt dem
+Mieter eine Beratung statt ihn zu disqualifizieren, kündigt Termine an, ohne `check_slots` aufzurufen (bei der
+Persona „Werbung gesehen" 29 blockierte Behauptungen in einem Gespräch), und gibt am Ende Tool-Namen wie
+`falsche_person` als Text aus, statt das Tool aufzurufen. Die Guardrails verhindern den Schaden, aber sie
+beenden das Gespräch nicht. Daraus folgte der geführte Modus.
+
+**Was die Transkripte des geführten Modus zeigen:** Von v1 bis v3 scheiterte die Extraktion, nicht der
+Leitfaden: Ein leeres Schema wurde mit `{}` beantwortet, ein Schema mit Pflichtfeldern mit `false` statt
+`null`, und Jev las aus „Wann hätten Sie denn Zeit?" einen Rückrufwunsch. Jede dieser Schwächen bekam eine
+Regel vor dem Modell. In v4 stimmen alle Ergebnisse, die vom LLM formulierten Sätze sind aber nicht immer
+sauber: Das Modell hängte in zwei Fällen Zusatzinformationen oder ein „Tschüss" an und ließ in einem Fall seine
+Anweisung durchscheinen. Die Formulierungs-Guardrails wurden deshalb verschärft (Kernbegriff der Vorlage muss
+erhalten bleiben, keine Verabschiedung mitten im Gespräch, keine Meta-Sprache); der nächste protokollierte Lauf
+zeigt die Wirkung.
+
+Eine Stichprobe von zehn Gesprächen bei Kundentemperatur 0,8 ist klein. `--runs 3` macht die Varianz sichtbar.
+
+## Sprach-Layer
+
+`voice.py` macht aus dem Text-Agenten einen Sprach-Agenten, komplett lokal und ohne Account:
+
+```
+Mikrofon ──► faster-whisper (STT, int8 auf CPU) ──► geführter Modus ──► Piper (TTS) ──► Lautsprecher
+```
+
+- **Push-to-talk:** Enter drücken, sprechen, Enter drücken. Leere Erkennungen werden zweimal freundlich
+  wiederholt, dann an den Agenten übergeben.
+- **Vorlagen aus dem Cache:** Alle festen Sätze des Leitfadens (Begrüßung, Fragen, Absagen) werden beim Start
+  einmal synthetisiert und als WAV gecacht. Nur frei formulierte Sätze und Terminangebote kosten TTS-Latenz.
+- **Jeder Satz genau einmal:** Die Steuerung spricht jeden Agentensatz exakt einmal, inklusive des Abschieds
+  nach dem Gesprächsende; das ist getestet.
+- **Latenz je Turn** wird für Erkennung, Agent und Ausgabe getrennt gemessen und am Ende ausgegeben.
+
+Einrichtung: `pip install -r requirements-voice.txt`, Piper-Stimme `de_DE-thorsten-medium` (zwei Dateien)
+nach `voices/` laden, Links im Kopf von `voice.py`. Dann `python voice.py`; mit `--no-mic` tippt der Kunde und
+der Agent spricht, mit `--no-tts` umgekehrt. Telefonie (SIP) ist nicht angebunden, die Demo läuft am Rechner.
 
 ## Reproduzieren
 
@@ -164,14 +202,15 @@ macOS und Linux: statt der vierten Zeile `source .venv/bin/activate`.
 | UAT ohne Jev (Vergleich) | `python simulate.py --label "7B geführt ohne Jev" --no-jev` |
 | Eine Persona mit Gesprächsverlauf | `python simulate.py --persona mieter -v` |
 | Dashboard | `python -m streamlit run dashboard.py` |
+| Sprach-Agent (Mikrofon und Lautsprecher) | `python voice.py` |
 | Tests | `python -m pytest -q` |
 
 Jev ist optional. Mit einem API-Key von TypeSafe AI in einer Datei `.env` (Vorlage: [`.env.example`](.env.example))
 übernimmt Jev Absichtserkennung und Faktencheck; ohne Key laufen dieselben Entscheidungen über die Regex-Schicht.
 Die Datei `.env` steht in der `.gitignore`.
 
-Die 83 Tests brauchen weder Ollama noch Jev: Das LLM wird durch skriptierte Antworten und Extraktionen
-ersetzt, die Jev-API durch einen Stub. Geprüft wird genau der Teil, der in Produktion deterministisch sein
+Die 97 Tests brauchen weder Ollama noch Jev noch Audio-Hardware: Das LLM wird durch skriptierte Antworten
+und Extraktionen ersetzt, die Jev-API durch einen Stub, Mikrofon und Stimme durch Attrappen. Geprüft wird genau der Teil, der in Produktion deterministisch sein
 muss: Geschäftsregeln, Validierung, Guardrails, Intent-Routing, Fallbacks, der Leitfaden des geführten Modus
 und die Bewertungslogik des UAT.
 
@@ -181,18 +220,20 @@ und die Bewertungslogik des UAT.
 agent.py          Freier Modus: Agent-Loop mit Tool-Calling; Tools mit Geschäftsregeln, Guardrails, Faktencheck, Mock-CRM
 guided.py         Geführter Modus: Leitfaden als Zustandsautomat, Extraktion und Formulierung durch das LLM
 jev.py            Jev-Anbindung: Fragenkatalog, Schwellen, Timeout, Fallback
+voice.py          Sprach-Layer: faster-whisper, Piper mit Vorlagen-Cache, Push-to-talk, Latenzmessung
 simulate.py       UAT: Personas, Bewertung, Iterationsprotokoll
 dashboard.py      Streamlit-Dashboard über eval_results.json und eval_history.json
 SCOPING.md        Deployment-Scoping: Problem, KPIs, Kriterien, Edge Cases, Recht, Pilotplan
-tests/            83 Tests mit skriptiertem LLM und Jev-Stub
+tests/            97 Tests mit skriptiertem LLM, Jev-Stub und Audio-Attrappen
 eval_history.json Kennzahlen je Lauf
 eval_results.json Transkripte und Bewertung des letzten Laufs
 ```
 
 ## Grenzen
 
-- **Text statt Sprache.** Der Agent liest und schreibt Text. Spracherkennung, Sprachsynthese und Telefonie
-  (SIP) sind nicht angebunden; in der Demo spielt die Tastatur den Kunden, im UAT ein zweites Modell.
+- **Keine Telefonie.** Der Sprach-Layer läuft am Rechner mit Mikrofon und Lautsprecher; SIP-Anbindung,
+  Barge-in (Unterbrechen während der Agent spricht) und Streaming-TTS fehlen. Im UAT spielt weiterhin ein
+  zweites Modell den Kunden, in Text.
 - **Simulierte Kunden.** Agent und Kunde teilen sich Modell und Schwächen. Ein Testkunde, der sich vom
   Agenten verwirren lässt, maskiert Fehler ebenso wie er welche erzeugt.
 - **Kleine Stichprobe.** Zehn Personas mit je einem Lauf bei Temperatur 0,8 schwanken stark. `--runs 3`
@@ -208,7 +249,7 @@ eval_results.json Transkripte und Bewertung des letzten Laufs
 ## Nächste Schritte
 
 1. Protokollierte UAT-Läufe: geführt mit 7B (mit und ohne Formulierung), frei mit 14B, je drei Durchläufe pro Persona
-2. Sprach-Layer: Mikrofon → faster-whisper → Agent → Piper (lokal, ohne Account)
+2. Sprach-Layer: Telefonie per SIP, Streaming-TTS satzweise, Barge-in; Latenzbudget unter 1,5 s je Turn
 3. Mehr Personas: Senior mit Rückfragen, Zweifler, Kunde mit Kind im Hintergrund
 4. Latenz messen und senken: Tool-Aufrufe pro Turn, Antwortlänge, Streaming
 5. Telefonie-Anbindung per SIP für einen echten Pilot
