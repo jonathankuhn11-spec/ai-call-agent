@@ -1,7 +1,16 @@
-﻿*.duckdb
+# Geheimnisse
+.env
+
+# Lokale Datenbanken und Zwischenstände
+*.duckdb
 *.duckdb.wal
+eval_7b.json
+
+# Eigene Ad-hoc-Skripte im Projektordner (die Testsuite liegt in tests/)
+/test*.py
+
+# Python
 .venv/
 __pycache__/
-test*.py
-eval_7b.json
-.env
+*.pyc
+.pytest_cache/

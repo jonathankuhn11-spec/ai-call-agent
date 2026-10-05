@@ -11,9 +11,8 @@ import json
 import os
 import time
 
-import ollama
-
 import agent
+import jev
 
 SIM_DB = "eval.duckdb"
 CUSTOMER_MODEL = agent.MODEL
@@ -106,7 +105,6 @@ def main():
         CUSTOMER_MODEL = a.customer_model
     if a.no_jev:
         agent.USE_JEV = False
-    import jev
     print(f"Jev: {'aktiv' if agent.USE_JEV and jev.available() else 'aus (nur Regeln)'}")
     print(f"Agent-Modell: {agent.MODEL} | Kunden-Modell: {CUSTOMER_MODEL}")
 
@@ -146,7 +144,6 @@ def main():
     halluz = sum(r["flags"].count("halluzination_blockiert") for r in results)
     print("\n=== UAT-Report ===")
     print(f"Gespräche: {n} | Bestanden: {passed}/{n} ({passed / n:.0%}) | Dauer: {time.time() - t_start:.0f}s")
-    import jev
     if jev.STATS["calls"] or jev.STATS["fehler"]:
         lat = jev.STATS["latenzen"]
         print(f"Jev: {jev.STATS['calls']} Aufrufe | Ø {sum(lat) / max(len(lat), 1) * 1000:.0f} ms | "

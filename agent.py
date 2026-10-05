@@ -1,11 +1,15 @@
 """
-Voice-Agent-Prototyp (Tag 1: Text-Version)
-Use Case: Outbound-Lead-Qualifizierung für PV-Anlagen + Terminbuchung
-Stack: Ollama (lokales LLM) · Pydantic (Validierung) · DuckDB (Mock-CRM)
+Call-Agent für Outbound-Lead-Qualifizierung (PV-Anlagen) mit Terminbuchung.
+Stack: Ollama (lokales LLM) · Pydantic (Validierung) · DuckDB (Mock-CRM) · Jev (optionale Entscheidungsschicht)
 
-Start:  python agent.py            -> ruft den nächsten offenen Lead an
-        python agent.py --lead 3   -> bestimmten Lead anrufen
-        python agent.py --reset    -> Datenbank neu aufsetzen
+Das Modell formuliert, der Code entscheidet: Geschäftsregeln, Buchung und Gesprächsende
+werden hier erzwungen, nicht im Prompt erbeten.
+
+Start:  python agent.py                      -> ruft den nächsten offenen Lead an (Tastatur spielt den Kunden)
+        python agent.py --lead 3             -> bestimmten Lead anrufen
+        python agent.py --model qwen2.5:14b  -> anderes Ollama-Modell
+        python agent.py --reset              -> Datenbank neu aufsetzen
+        python agent.py --kpis               -> Auswertung der bisherigen Anrufe
 """
 import argparse
 import json
@@ -368,12 +372,19 @@ def safe_chat(**kwargs):
 
 
 # ---------------------------------------------------------------- Agent-Loop
+def _fallback(messages, text: str) -> str:
+    """Feste Ersatzantwort: landet wie jede Antwort im Verlauf, damit Transkript und Kunde sie sehen."""
+    messages.append({"role": "assistant", "content": text})
+    return text
+
+
 def agent_turn(messages, tools: Tools, log_flags: list, _retry: int = 0) -> str:
     for _ in range(MAX_TOOL_STEPS):
         resp = safe_chat(model=MODEL, messages=messages, tools=TOOL_SCHEMAS)
         if resp is None:
             log_flags.append("llm_fehler")
-            return "Entschuldigung, die Verbindung ist gerade schlecht. Können Sie das bitte wiederholen?"
+            return _fallback(messages, "Entschuldigung, die Verbindung ist gerade schlecht. "
+                                       "Können Sie das bitte wiederholen?")
         msg = resp.message
         messages.append(msg)
         if not msg.tool_calls:
@@ -386,7 +397,7 @@ def agent_turn(messages, tools: Tools, log_flags: list, _retry: int = 0) -> str:
                 if _retry < 2:
                     messages.append({"role": "user", "content": correction})
                     return agent_turn(messages, tools, log_flags, _retry + 1)
-                return "Einen Moment bitte, ich prüfe kurz die freien Termine."
+                return _fallback(messages, "Einen Moment bitte, ich prüfe kurz die freien Termine.")
             flags = guardrail_check(text)
             if flags:
                 log_flags.extend(flags)
@@ -398,7 +409,8 @@ def agent_turn(messages, tools: Tools, log_flags: list, _retry: int = 0) -> str:
                   f"-> {json.dumps(result, ensure_ascii=False, default=str)}")
             messages.append({"role": "tool", "content": json.dumps(result, ensure_ascii=False, default=str),
                              "tool_name": tc.function.name})
-    return "Entschuldigung, einen Moment bitte."
+    log_flags.append("tool_limit")
+    return _fallback(messages, "Entschuldigung, einen Moment bitte.")
 
 
 class Extraktion(BaseModel):
@@ -563,7 +575,10 @@ if __name__ == "__main__":
     ap.add_argument("--lead", type=int)
     ap.add_argument("--reset", action="store_true")
     ap.add_argument("--kpis", action="store_true")
+    ap.add_argument("--model", help="Ollama-Modell, Standard: " + MODEL)
     a = ap.parse_args()
+    if a.model:
+        MODEL = a.model
     con = init_db(reset=a.reset)
     if a.kpis:
         show_kpis(con)

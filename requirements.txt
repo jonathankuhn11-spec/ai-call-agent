@@ -1,0 +1,8 @@
+# Getestet mit Python 3.12. Ollama muss separat installiert sein: https://ollama.com/download
+ollama==0.6.3
+duckdb==1.5.6
+pydantic==2.13.5
+httpx==0.28.1
+streamlit==1.65.0
+pandas==2.3.3
+pytest==9.1.1
