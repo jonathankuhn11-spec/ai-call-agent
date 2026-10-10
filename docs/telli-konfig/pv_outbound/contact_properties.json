@@ -1,0 +1,52 @@
+[
+  {
+    "key": "quelle",
+    "dataType": "string",
+    "label": "Lead-Quelle",
+    "description": "Website-Formular, Solarrechner, Empfehlung, Anzeige"
+  },
+  {
+    "key": "plz",
+    "dataType": "string",
+    "label": "Postleitzahl",
+    "description": "Routing an die Fachberatung"
+  },
+  {
+    "key": "eigentuemer",
+    "dataType": "boolean",
+    "label": "Eigentümer",
+    "description": "Aus dem CRM, falls bekannt"
+  },
+  {
+    "key": "gebaeudetyp",
+    "dataType": "select",
+    "label": "Gebäudetyp",
+    "description": "Aus dem CRM, falls bekannt",
+    "options": [
+      {
+        "value": "einfamilienhaus",
+        "label": "einfamilienhaus"
+      },
+      {
+        "value": "doppelhaushaelfte",
+        "label": "doppelhaushaelfte"
+      },
+      {
+        "value": "reihenhaus",
+        "label": "reihenhaus"
+      },
+      {
+        "value": "mehrfamilienhaus",
+        "label": "mehrfamilienhaus"
+      },
+      {
+        "value": "gewerbe",
+        "label": "gewerbe"
+      },
+      {
+        "value": "sonstiges",
+        "label": "sonstiges"
+      }
+    ]
+  }
+]

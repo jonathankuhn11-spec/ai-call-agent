@@ -1,0 +1,49 @@
+[
+  {
+    "key": "ergebnis",
+    "dataType": "category",
+    "instructions": "Wie das Gespräch tatsächlich geendet hat. termin_gebucht nur, wenn der Agent eine Buchung bestätigt hat. opt_out, wenn der Kunde keinen Kontakt mehr will.",
+    "options": [
+      "termin_gebucht",
+      "disqualifiziert",
+      "rueckruf_vereinbart",
+      "opt_out",
+      "falsche_person",
+      "kein_interesse",
+      "sonstiges"
+    ]
+  },
+  {
+    "key": "rueckruf_zeitpunkt",
+    "dataType": "string",
+    "instructions": "Nur bei rueckruf_vereinbart: Wunschzeitpunkt als ISO 8601, sonst Wortlaut des Kunden."
+  },
+  {
+    "key": "eigentuemer",
+    "dataType": "boolean",
+    "instructions": "Nur wenn der Kunde es ausdrücklich gesagt hat."
+  },
+  {
+    "key": "gebaeudetyp",
+    "dataType": "category",
+    "instructions": "Nur wenn genannt.",
+    "options": [
+      "einfamilienhaus",
+      "doppelhaushaelfte",
+      "reihenhaus",
+      "mehrfamilienhaus",
+      "gewerbe",
+      "sonstiges"
+    ]
+  },
+  {
+    "key": "dachflaeche_m2",
+    "dataType": "number",
+    "instructions": "Nur wenn der Kunde eine Zahl genannt hat (5 bis 2000)."
+  },
+  {
+    "key": "jahresverbrauch_kwh",
+    "dataType": "number",
+    "instructions": "Nur wenn der Kunde eine Zahl genannt hat (500 bis 100000)."
+  }
+]

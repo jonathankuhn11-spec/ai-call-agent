@@ -63,7 +63,8 @@ def test_tool_definitions_match_the_http_tools(client):
     assert client.get("/tools/definitions").status_code == 401
     d = client.get("/tools/definitions", headers=BETRIEB).json()
     namen = [t["name"] for t in d["telli_custom_tools"]]
-    assert namen == ["lookup_lead", "check_slots", "update_lead", "book_appointment"]
+    assert namen == ["lookup_lead", "update_lead", "check_slots", "book_appointment", "cancel_appointment"]   # Reihenfolge des Use Case
+    assert "verify_customer" not in namen                                                                   # gehört zum Inbound-Fall
     update = next(t for t in d["telli_custom_tools"] if t["name"] == "update_lead")
     assert update["method"] == "POST" and update["url"].endswith("/tools/update_lead")
     assert update["headers"][0]["value_type"] == "Secret"
@@ -138,7 +139,10 @@ def test_webhook_rejects_bad_signatures_and_ignores_other_events(sim, client):
     from integrations.signatur import svix_kopfzeilen
     from conftest import WEBHOOK_SECRET
     kopf = svix_kopfzeilen(WEBHOOK_SECRET, "msg_r", body)
-    assert client.post("/webhooks/telli", content=body, headers=kopf).json() == {"status": "ignoriert", "event": "call_rescheduled"}
+    assert client.post("/webhooks/telli", content=body, headers=kopf).json()["status"] == "lead_unbekannt"
+    body = json.dumps({"event": "contact_status_changed"}).encode()
+    kopf = svix_kopfzeilen(WEBHOOK_SECRET, "msg_c", body)
+    assert client.post("/webhooks/telli", content=body, headers=kopf).json() == {"status": "ignoriert", "event": "contact_status_changed"}
 
 
 def test_health_and_metrics(client, sim):
@@ -204,9 +208,12 @@ def test_hubspot_mirror_and_lead_push_are_wired_from_config(con, konfig, quiet):
     from integrations.hubspot import HubSpotCRM
     from integrations.server import erstelle_app
     konfig.hubspot_token = "pat-x"
+    konfig.telli_api_key = "alt,neu"                                                   # Rotation: Client nimmt den neuesten
     app = erstelle_app(konfig, con=con, planer_starten=False)
     assert isinstance(app.state.ctx.nachbereitung.spiegel, HubSpotCRM)
     assert app.state.ctx.lead_push is not None and app.state.ctx.lead_push.agent_id == "agent_test"
+    assert app.state.ctx.telli_client.client.headers["Authorization"] == "Bearer neu"
+    assert app.state.ctx.abgleich is not None
 
 
 def test_prod_environment_refuses_to_start_without_secrets(con):
@@ -249,3 +256,136 @@ def test_a_failing_planer_step_does_not_stop_the_others(app, telli_attrappe):
     app.state.ctx.outbox.zustellen = lambda **kw: (_ for _ in ()).throw(RuntimeError("Outbox kaputt"))
     bericht = planer.tick(push=True)
     assert bericht["outbox"] == {"fehler": "RuntimeError: Outbox kaputt"} and len(bericht["push"]["angelegt"]) == 5
+
+
+def test_cancel_tool_releases_the_slot_and_emits_an_event(sim, app, kundensystem):
+    crm = app.state.ctx.crm
+    assert sim.tool("cancel_appointment", "c", "1")["ok"] is False                       # nichts zu stornieren
+    sim.tool("update_lead", "c", "1", status="qualifiziert", eigentuemer=True, gebaeudetyp="einfamilienhaus")
+    slots = sim.tool("check_slots", "c", "1")["freie_termine"]
+    sim.tool("book_appointment", "c", "1", slot_id=slots[0]["slot_id"])
+    assert sim.tool("lookup_lead", "c", "1")["naechster_termin"].endswith("Uhr")
+    r = sim.tool("cancel_appointment", "c", "1", grund="Bin im Urlaub")
+    assert r["ok"] and r["grund"] == "Bin im Urlaub"
+    assert crm.termin(1) is None and crm.stornierungen(1)[0]["grund"] == "Bin im Urlaub"
+    assert crm.con.execute("SELECT lead_id FROM slots WHERE id = ?", [slots[0]["slot_id"]]).fetchone()[0] is None
+    assert crm.erinnerungen(1)[0]["status"] == "entfallen"
+    app.state.ctx.planer.tick()
+    assert [e["typ"] for e in kundensystem["empfangen"]] == ["termin.abgesagt"]
+    assert sim.tool("lookup_lead", "c", "1")["naechster_termin"] is None
+    assert sim.tool("book_appointment", "c", "1", slot_id=slots[0]["slot_id"])["ok"]       # Slot wieder buchbar
+
+
+def test_reminder_is_sent_24h_before_the_appointment(sim, app, kundensystem):
+    crm = app.state.ctx.crm
+    sim.tool("update_lead", "c", "1", status="qualifiziert", eigentuemer=True, gebaeudetyp="einfamilienhaus")
+    slots = sim.tool("check_slots", "c", "1")["freie_termine"]
+    sim.tool("book_appointment", "c", "1", slot_id=slots[0]["slot_id"])
+    erinnerung = crm.erinnerungen(1)[0]
+    assert erinnerung["status"] == "offen" and erinnerung["faellig_am"] == crm.termin(1)["start"] - __import__("datetime").timedelta(hours=24)
+    assert app.state.ctx.planer.tick()["erinnerungen"] == {"gesendet": 0}                  # noch nicht fällig
+    crm.con.execute("UPDATE erinnerungen SET faellig_am = now()::TIMESTAMP - INTERVAL 1 MINUTE")
+    assert app.state.ctx.planer.tick()["erinnerungen"] == {"gesendet": 1}
+    assert app.state.ctx.planer.tick()["erinnerungen"] == {"gesendet": 0}                  # genau einmal
+    ereignis = next(e for e in kundensystem["empfangen"] if e["typ"] == "termin.erinnerung")
+    assert ereignis["body"]["daten"]["name"] == "Thomas Becker" and ereignis["body"]["daten"]["start"].endswith("Z")
+    sim.tool("book_appointment", "c", "1", slot_id=slots[1]["slot_id"])                     # Umbuchung: neue Erinnerung
+    assert [e["status"] for e in crm.erinnerungen(1)] == ["gesendet", "offen"]
+
+
+def _signiert(body: dict, msg_id: str):
+    from conftest import WEBHOOK_SECRET
+    from integrations.signatur import svix_kopfzeilen
+    roh = json.dumps(body).encode()
+    return roh, svix_kopfzeilen(WEBHOOK_SECRET, msg_id, roh)
+
+
+def test_call_rescheduled_stores_the_next_attempt(client, app, kundensystem):
+    crm = app.state.ctx.crm
+    crm.telli_kontakt_speichern(2, "ct_2", "loop_2")
+    roh, kopf = _signiert({"event": "call_rescheduled",
+                           "call": {"loop_id": "loop_2", "contact_id": "ct_2", "agent_id": "agent_test",
+                                    "to_number": "+49251000002", "next_call_at": "2026-10-13T08:00:00.000Z"},
+                           "contact": {"contact_id": "ct_2", "next_call_at": "2026-10-13T08:00:00.000Z"}}, "msg_rs1")
+    r = client.post("/webhooks/telli", content=roh, headers=kopf).json()
+    assert r["status"] == "verarbeitet" and r["lead_id"] == 2 and r["naechster_anruf"] == "2026-10-13T08:00:00.000Z"
+    assert crm.telli_kontakt(2)["next_call_at"] == __import__("datetime").datetime(2026, 10, 13, 10, 0)     # Wanduhrzeit Berlin
+    assert "Nächster Anrufversuch" in crm.notizen(2)[0]
+    assert client.post("/webhooks/telli", content=roh, headers=kopf).json()["status"] == "duplikat"
+    assert [e["typ"] for e in kundensystem["empfangen"]] == ["anruf.geplant"]
+    # nur Telefonnummer bekannt (Kontakt nicht aus dem Lead-Push): Auflösung über die Nummer
+    roh, kopf = _signiert({"event": "call_rescheduled", "call": {"loop_id": "loop_x", "to_number": "+49 251 000003",
+                                                                 "next_call_at": "2026-10-14T08:00:00.000Z"}}, "msg_rs2")
+    assert client.post("/webhooks/telli", content=roh, headers=kopf).json()["lead_id"] == 3
+    k = crm.telli_kontakt(3)
+    assert k["next_call_at"] == __import__("datetime").datetime(2026, 10, 14, 10, 0) and k["loop_id"] == "loop_x"   # Zeile wurde angelegt
+    assert crm.leads_ohne_anrufplanung() == [] or all(l["id"] != 3 for l in crm.leads_ohne_anrufplanung())           # kein zweiter Loop
+    roh, kopf = _signiert({"event": "call_rescheduled", "call": {"loop_id": "loop_x", "to_number": "+49 251 000003",
+                                                                 "next_call_at": "2026-10-14T08:00:00.000Z"}}, "msg_rs3")
+    assert client.post("/webhooks/telli", content=roh, headers=kopf).json()["status"] == "duplikat"               # Replay, neue ID
+    assert len(crm.notizen(3)) == 1
+
+
+def test_auto_dialer_gave_up_creates_a_follow_up_task(client, app, kundensystem):
+    crm = app.state.ctx.crm
+    crm.telli_kontakt_speichern(4, "ct_4", "loop_4")
+    roh, kopf = _signiert({"event": "auto_dialer_status_changed", "auto_dialer": {"status": "in_dialer", "updated_at": "2026-10-10T08:00:00Z"},
+                           "contact": {"contact_id": "ct_4"}}, "msg_ad1")
+    r = client.post("/webhooks/telli", content=roh, headers=kopf).json()
+    assert r["status"] == "verarbeitet" and r["dialer"] == "in_dialer" and crm.aufgaben(4) == []
+    roh, kopf = _signiert({"event": "auto_dialer_status_changed",
+                           "auto_dialer": {"status": "not_in_dialer", "reason": "scheduler_gave_up_smart"},
+                           "contact": {"id": "ct_4", "externalId": "4"}}, "msg_ad2")
+    r = client.post("/webhooks/telli", content=roh, headers=kopf).json()
+    assert r["aufgabe_id"] == 1 and crm.aufgaben(4)[0]["titel"].startswith("Nicht erreicht")
+    assert crm.telli_kontakt(4)["dialer_status"] == "not_in_dialer" and crm.telli_kontakt(4)["dialer_grund"] == "scheduler_gave_up_smart"
+    assert [e["typ"] for e in kundensystem["empfangen"]] == ["aufgabe.erstellt", "dialer.beendet"]
+    roh, kopf = _signiert({"event": "auto_dialer_status_changed",
+                           "auto_dialer": {"status": "not_in_dialer", "reason": "last_call_was_connected"},
+                           "contact": {"contact_id": "ct_4"}}, "msg_ad3")
+    assert "aufgabe_id" not in client.post("/webhooks/telli", content=roh, headers=kopf).json()      # Erfolg: keine Aufgabe
+    assert len(crm.aufgaben(4)) == 1
+
+
+def _telli_call(call_id, contact_id, ergebnis="kein_interesse", state="ended", status="connected"):
+    return {"call_id": call_id, "contact_id": contact_id, "attempt": 1, "direction": "outbound", "to_number": "+49251000001",
+            "state": state, "status": status, "ended_reason": "agent-ended-call",
+            "started_at_iso": "2026-10-10T09:00:00.000Z", "ended_at_iso": "2026-10-10T09:03:00.000Z",
+            "transcriptObject": [{"role": "agent", "content": "Guten Tag"}, {"role": "user", "content": "Nein danke"}],
+            "outcomes": [{"key": "ergebnis", "dataType": "category", "value": ergebnis}], "collected_data": None, "appointments": []}
+
+
+def test_reconciliation_catches_calls_whose_webhook_never_arrived(client, app, telli_attrappe, kundensystem):
+    crm, planer = app.state.ctx.crm, app.state.ctx.planer
+    client.post("/push", headers=BETRIEB)                                             # Kontakte ct_1..ct_5 existieren
+    telli_attrappe["anrufe"]["ct_1"] = [_telli_call("call_a", "ct_1", "kein_interesse"),
+                                        _telli_call("call_laeuft", "ct_1", state="in_progress", status=None)]
+    telli_attrappe["anrufe"]["ct_2"] = [_telli_call("call_b", "ct_2", "opt_out")]
+    assert "abgleich" not in planer.tick()                                               # nicht fällig: kein Abgleich im Takt
+    assert client.post("/abgleich").status_code == 401
+    bericht = client.post("/abgleich", headers=BETRIEB).json()
+    assert bericht["kontakte"] == 5 and bericht["offen"] == 1
+    assert [(n["lead_id"], n["call_id"], n["ergebnis"]) for n in bericht["nachgeholt"]] == [(1, "call_a", "kein_interesse"), (2, "call_b", "opt_out")]
+    assert crm.lead(1)["status"] == "kein_interesse" and crm.lead(2)["status"] == "opt_out" and crm.gesperrt(crm.lead(2)["telefon"])
+    assert crm.anrufe(1)[0]["ergebnis"] == "kein_interesse"
+    # trifft der Webhook doch noch ein, passiert nichts doppelt
+    roh, kopf = _signiert({"event": "call_ended", "call": _telli_call("call_a", "ct_1"), "contact": {"external_contact_id": "1"}}, "msg_spaet")
+    assert client.post("/webhooks/telli", content=roh, headers=kopf).json()["status"] == "duplikat"
+    assert len(crm.anrufe(1)) == 1
+    # zweiter Abgleich kurz danach: Kontakte sind frisch abgeglichen, nichts zu tun; nach Ablauf erneut, alles bekannt
+    assert client.post("/abgleich", headers=BETRIEB).json()["kontakte"] == 0
+    crm.con.execute("UPDATE telli_kontakte SET abgleich_am = abgleich_am - INTERVAL 2 HOUR")
+    b = client.post("/abgleich", headers=BETRIEB).json()
+    assert b["kontakte"] == 5 and b["bekannt"] == 1 + 1 and b["nachgeholt"] == []
+    assert client.get("/metrics", headers=BETRIEB).json()["abgleich"]["kontakte"] == 5
+
+
+def test_single_call_can_be_fetched_and_processed_after_an_outage(client, app, telli_attrappe):
+    crm = app.state.ctx.crm
+    crm.telli_kontakt_speichern(3, "ct_3", "loop_3")
+    telli_attrappe["anrufe"]["ct_3"] = [_telli_call("call_c", "ct_3", "rueckruf_vereinbart")]
+    r = client.post("/abgleich/call_c", headers=BETRIEB).json()
+    assert r["status"] == "verarbeitet" and r["lead_id"] == 3 and crm.lead(3)["status"] == "rueckruf"
+    assert client.post("/abgleich/call_c", headers=BETRIEB).json()["status"] == "duplikat"
+    r = client.post("/abgleich/gibt_es_nicht", headers=BETRIEB)
+    assert r.status_code == 404 and "Call not found" in r.json()["detail"]

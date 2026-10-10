@@ -1,0 +1,220 @@
+[
+  {
+    "name": "lookup_lead",
+    "description": "Liest Name, Status, bekannte Qualifizierungsangaben und den nächsten Termin des Leads aus dem CRM. Zu Beginn des Gesprächs aufrufen, um Bekanntes nicht erneut zu fragen. WANN: Einmal direkt nach der Begrüßung, still. NICHT: Nie ein zweites Mal im selben Gespräch. SAGEN: Nichts.",
+    "method": "POST",
+    "url": "https://backend.kunde.example/tools/lookup_lead",
+    "response_timeout_s": 3,
+    "headers": [
+      {
+        "key": "Authorization",
+        "value_type": "Secret",
+        "value": "Bearer <TOOL_SECRET>"
+      }
+    ],
+    "body": [
+      {
+        "key": "call_id",
+        "value_type": "System Variable",
+        "value": "call.id"
+      },
+      {
+        "key": "external_id",
+        "value_type": "System Variable",
+        "value": "contact.externalId"
+      },
+      {
+        "key": "phone_number",
+        "value_type": "System Variable",
+        "value": "contact.phoneNumber"
+      }
+    ]
+  },
+  {
+    "name": "update_lead",
+    "description": "Speichert Infos im CRM. Nach JEDER neuen Info des Kunden sofort aufrufen. Nur Felder mitschicken, die du kennst. WANN: Sofort nach jeder neuen Angabe; Statuswechsel am Ende (qualifiziert, disqualifiziert, rueckruf, opt_out). NICHT: Nicht bei bloßem „Ja, hallo“; nie mit Werten, die der Kunde nicht gesagt hat; keine Zahl raten. SAGEN: Nichts. BEISPIEL: {\"status\": \"in_qualifizierung\", \"eigentuemer\": true, \"gebaeudetyp\": \"einfamilienhaus\"}",
+    "method": "POST",
+    "url": "https://backend.kunde.example/tools/update_lead",
+    "response_timeout_s": 3,
+    "headers": [
+      {
+        "key": "Authorization",
+        "value_type": "Secret",
+        "value": "Bearer <TOOL_SECRET>"
+      }
+    ],
+    "body": [
+      {
+        "key": "call_id",
+        "value_type": "System Variable",
+        "value": "call.id"
+      },
+      {
+        "key": "external_id",
+        "value_type": "System Variable",
+        "value": "contact.externalId"
+      },
+      {
+        "key": "phone_number",
+        "value_type": "System Variable",
+        "value": "contact.phoneNumber"
+      },
+      {
+        "key": "status",
+        "value_type": "LLM Parameter",
+        "data_type": "String",
+        "description": "Einer von: in_qualifizierung, qualifiziert, disqualifiziert, rueckruf, kein_interesse, opt_out",
+        "required": true
+      },
+      {
+        "key": "eigentuemer",
+        "value_type": "LLM Parameter",
+        "data_type": "Boolean",
+        "description": "true oder false",
+        "required": false
+      },
+      {
+        "key": "gebaeudetyp",
+        "value_type": "LLM Parameter",
+        "data_type": "String",
+        "description": "Einer von: einfamilienhaus, doppelhaushaelfte, reihenhaus, mehrfamilienhaus, gewerbe, sonstiges",
+        "required": false
+      },
+      {
+        "key": "dachflaeche_m2",
+        "value_type": "LLM Parameter",
+        "data_type": "Number",
+        "description": "Zahl in Quadratmetern, z. B. 60",
+        "required": false
+      },
+      {
+        "key": "jahresverbrauch_kwh",
+        "value_type": "LLM Parameter",
+        "data_type": "Number",
+        "description": "Zahl in kWh, z. B. 4500",
+        "required": false
+      },
+      {
+        "key": "notiz",
+        "value_type": "LLM Parameter",
+        "data_type": "String",
+        "description": "",
+        "required": false
+      }
+    ]
+  },
+  {
+    "name": "check_slots",
+    "description": "Liefert zwei freie Beratungstermine. Nur aufrufen, wenn der Lead qualifiziert ist. WANN: Erst wenn der Status „qualifiziert“ gespeichert ist. NICHT: Vor der Qualifizierung, bei Mietern, bei Mehrfamilienhaus. SAGEN: „Einen Moment, ich schaue nach freien Terminen.“ Danach beide Termine vorlesen und warten.",
+    "method": "POST",
+    "url": "https://backend.kunde.example/tools/check_slots",
+    "response_timeout_s": 3,
+    "headers": [
+      {
+        "key": "Authorization",
+        "value_type": "Secret",
+        "value": "Bearer <TOOL_SECRET>"
+      }
+    ],
+    "body": [
+      {
+        "key": "call_id",
+        "value_type": "System Variable",
+        "value": "call.id"
+      },
+      {
+        "key": "external_id",
+        "value_type": "System Variable",
+        "value": "contact.externalId"
+      },
+      {
+        "key": "phone_number",
+        "value_type": "System Variable",
+        "value": "contact.phoneNumber"
+      }
+    ]
+  },
+  {
+    "name": "book_appointment",
+    "description": "Bucht den Termin, den der Kunde ausdrücklich gewählt hat. slot_id aus check_slots. WANN: Nur nachdem der Kunde einen der vorgelesenen Termine gewählt hat. NICHT: Niemals ungefragt; niemals mit einer slot_id, die nicht aus check_slots kam. SAGEN: Danach: „Perfekt, ich habe den Termin am … für Sie eingetragen.“ BEISPIEL: {\"slot_id\": 7, \"art\": \"video\"}",
+    "method": "POST",
+    "url": "https://backend.kunde.example/tools/book_appointment",
+    "response_timeout_s": 3,
+    "headers": [
+      {
+        "key": "Authorization",
+        "value_type": "Secret",
+        "value": "Bearer <TOOL_SECRET>"
+      }
+    ],
+    "body": [
+      {
+        "key": "call_id",
+        "value_type": "System Variable",
+        "value": "call.id"
+      },
+      {
+        "key": "external_id",
+        "value_type": "System Variable",
+        "value": "contact.externalId"
+      },
+      {
+        "key": "phone_number",
+        "value_type": "System Variable",
+        "value": "contact.phoneNumber"
+      },
+      {
+        "key": "slot_id",
+        "value_type": "LLM Parameter",
+        "data_type": "Number",
+        "description": "",
+        "required": true
+      },
+      {
+        "key": "art",
+        "value_type": "LLM Parameter",
+        "data_type": "String",
+        "description": "Einer von: video, vor_ort",
+        "required": false
+      }
+    ]
+  },
+  {
+    "name": "cancel_appointment",
+    "description": "Sagt den bevorstehenden Beratungstermin des Kunden ab. Nur aufrufen, wenn der Kunde das ausdrücklich will. Danach bei Interesse mit check_slots einen neuen Termin anbieten. WANN: Nur wenn der Kunde seinen Termin ausdrücklich absagen oder verschieben will. NICHT: Nie auf Verdacht, nie bei „ich überlege noch“. SAGEN: „Ich habe den Termin am … abgesagt.“ BEISPIEL: {\"grund\": \"Urlaub\"}",
+    "method": "POST",
+    "url": "https://backend.kunde.example/tools/cancel_appointment",
+    "response_timeout_s": 3,
+    "headers": [
+      {
+        "key": "Authorization",
+        "value_type": "Secret",
+        "value": "Bearer <TOOL_SECRET>"
+      }
+    ],
+    "body": [
+      {
+        "key": "call_id",
+        "value_type": "System Variable",
+        "value": "call.id"
+      },
+      {
+        "key": "external_id",
+        "value_type": "System Variable",
+        "value": "contact.externalId"
+      },
+      {
+        "key": "phone_number",
+        "value_type": "System Variable",
+        "value": "contact.phoneNumber"
+      },
+      {
+        "key": "grund",
+        "value_type": "LLM Parameter",
+        "data_type": "String",
+        "description": "Kurzer Grund in den Worten des Kunden",
+        "required": false
+      }
+    ]
+  }
+]

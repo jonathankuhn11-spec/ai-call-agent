@@ -1,0 +1,10 @@
+{
+  "url": "https://backend.kunde.example/webhooks/telli",
+  "events": [
+    "call_ended",
+    "call_rescheduled",
+    "auto_dialer_status_changed"
+  ],
+  "signatur": "Svix (svix-id, svix-timestamp, svix-signature); Geheimnis in TELLI_WEBHOOK_SECRET",
+  "antwort": "2xx innerhalb von 15 s; Verarbeitung dedupliziert über svix-id und call_id"
+}

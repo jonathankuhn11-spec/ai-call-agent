@@ -23,7 +23,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from integrations.crm import CRM, LocalCRM
-from integrations.modelle import ERGEBNISSE, CallEndedEreignis, Ereignis, iso_lesen, iso_utc
+from integrations.modelle import (DIALER_AUFGEGEBEN, ERGEBNISSE, AutoDialerEreignis, CallEndedEreignis, CallRescheduledEreignis,
+                                  Ereignis, iso_lesen, iso_utc)
 from integrations.outbox import Outbox
 
 OUTCOME_SCHLUESSEL = {
@@ -57,11 +58,83 @@ class Nachbereitung:
         self.jetzt = jetzt or (lambda: datetime.now(timezone.utc))
 
     # ------------------------------------------------------------ Einstieg
+    def ereignis_verarbeiten(self, daten: dict[str, Any], message_id: str) -> dict[str, Any]:
+        """Verteiler für alle Webhook-Ereignisse der Plattform (Feld `event`)."""
+        art = daten.get("event") or ("call_ended" if "call" in daten or "call_id" in daten else None)
+        if art == "call_ended":
+            return self.verarbeiten(CallEndedEreignis.lesen(daten), message_id)
+        if art == "call_rescheduled":
+            return self.anruf_neu_geplant(CallRescheduledEreignis.model_validate(daten), message_id)
+        if art == "auto_dialer_status_changed":
+            return self.dialer_status(AutoDialerEreignis.model_validate(daten), message_id)
+        return {"status": "ignoriert", "event": art}
+
+    def _lead_aus_kontakt(self, ereignis) -> Optional[dict]:
+        """Lead über externe ID, telli-Kontakt-ID oder Telefonnummer, in dieser Reihenfolge."""
+        ext = ereignis.externe_id()
+        lead = self.crm.lead(ext) if ext else None
+        if lead is None:
+            lead = self.crm.lead_per_telli_kontakt(ereignis.kontakt_id())
+        if lead is None and ereignis.telefon():
+            lead = self.crm.lead_per_telefon(ereignis.telefon())
+        return lead
+
+    def anruf_neu_geplant(self, ereignis: CallRescheduledEreignis, message_id: str) -> dict[str, Any]:
+        """call_rescheduled: nächsten Anrufzeitpunkt merken, damit Vertrieb und Reporting ihn sehen."""
+        if self.crm.webhook_bekannt(message_id):
+            return {"status": "duplikat", "event": "call_rescheduled"}
+        lead = self._lead_aus_kontakt(ereignis)
+        with self.crm.transaktion():
+            self.crm.webhook_merken(message_id, ereignis.call.call_id, "call_rescheduled")
+            if lead is None:
+                return {"status": "lead_unbekannt", "event": "call_rescheduled", "contact_id": ereignis.kontakt_id()}
+            naechster = _zeit(ereignis.naechster_anruf())
+            bisher = self.crm.telli_kontakt(lead["id"]) or {}
+            if naechster and bisher.get("next_call_at") == self.crm.wandzeit(naechster):
+                return {"status": "duplikat", "event": "call_rescheduled", "lead_id": lead["id"]}   # Replay mit neuer Nachrichten-ID
+            self.crm.anruf_geplant_setzen(lead["id"], naechster, ereignis.call.loop_id, ereignis.kontakt_id())
+            self.crm.notiz(lead["id"], f"Nächster Anrufversuch laut Plattform: {ereignis.naechster_anruf() or 'unbekannt'}")
+            self._ereignis("anruf.geplant", lead["id"], {"naechster_anruf": iso_utc(naechster) if naechster else None,
+                                                         "loop_id": ereignis.call.loop_id}, self.jetzt())
+        return {"status": "verarbeitet", "event": "call_rescheduled", "lead_id": lead["id"],
+                "naechster_anruf": iso_utc(naechster) if naechster else None}
+
+    def dialer_status(self, ereignis: AutoDialerEreignis, message_id: str) -> dict[str, Any]:
+        """auto_dialer_status_changed: Hat der Dialer aufgegeben, bekommt der Vertrieb eine Aufgabe."""
+        if self.crm.webhook_bekannt(message_id):
+            return {"status": "duplikat", "event": "auto_dialer_status_changed"}
+        lead = self._lead_aus_kontakt(ereignis)
+        status, grund = ereignis.auto_dialer.status, ereignis.auto_dialer.reason
+        aus: dict[str, Any] = {"status": "verarbeitet", "event": "auto_dialer_status_changed", "dialer": status, "grund": grund}
+        with self.crm.transaktion():
+            self.crm.webhook_merken(message_id, None, "auto_dialer_status_changed")
+            if lead is None:
+                return {"status": "lead_unbekannt", "event": "auto_dialer_status_changed", "contact_id": ereignis.kontakt_id()}
+            self.crm.dialer_status_setzen(lead["id"], status, grund, ereignis.kontakt_id())
+            aus["lead_id"] = lead["id"]
+            if status == "not_in_dialer" and grund in DIALER_AUFGEGEBEN:
+                aktuell = self.crm.lead(lead["id"]) or lead
+                if aktuell.get("status") in ("offen", "in_qualifizierung"):
+                    faellig = self.jetzt() + timedelta(hours=RUECKRUF_STANDARD_H)
+                    aid = self.crm.aufgabe(lead["id"], "Nicht erreicht: manuell nachfassen", faellig,
+                                           f"Auto-Dialer beendet ({grund}); Lead wurde nie erreicht.")
+                    aus["aufgabe_id"] = aid
+                    self._ereignis("aufgabe.erstellt", lead["id"], {"aufgabe_id": aid, "titel": "Nicht erreicht: manuell nachfassen",
+                                                                     "faellig": iso_utc(faellig)}, self.jetzt())
+                self._ereignis("dialer.beendet", lead["id"], {"grund": grund}, self.jetzt())
+        return aus
+
     def verarbeiten(self, ereignis: CallEndedEreignis, message_id: str) -> dict[str, Any]:
         call = ereignis.call
         if self.crm.webhook_bekannt(message_id, call.call_id):
             return {"status": "duplikat", "call_id": call.call_id}
         lead = self._lead(ereignis)
+        if lead is None and call.direction == "inbound" and ereignis.telefon():
+            # Unbekannter Anrufer: als Lead aufnehmen, damit Rückruf, Notiz und Protokoll einen Platz haben
+            with self.crm.transaktion():
+                name = " ".join(x for x in ((ereignis.contact.first_name if ereignis.contact else None),
+                                            (ereignis.contact.last_name if ereignis.contact else None)) if x) or "Unbekannter Anrufer"
+                lead = self.crm.lead_anlegen(name, ereignis.telefon(), "Inbound-Anruf")
         if lead is None:
             with self.crm.transaktion():
                 self.crm.webhook_merken(message_id, call.call_id, "call_ended")
@@ -70,7 +143,7 @@ class Nachbereitung:
         jetzt = self.jetzt()
         start = _zeit(call.started_at_iso)
         ende = _zeit(call.ended_at_iso) or jetzt
-        flags: list[str] = ["plattform:telli", f"attempt:{call.attempt or 1}"]
+        flags: list[str] = ["plattform:telli", f"attempt:{call.attempt or 1}", f"call:{call.call_id}"]
         if call.started_at_iso and start is None:
             flags.append("zeitstempel_unlesbar")
         with self.crm.transaktion():
@@ -128,8 +201,26 @@ class Nachbereitung:
             if gebucht or call.gebuchter_termin():
                 flags.append("buchung_trotz_opt_out")
             return "opt_out", flags, gebucht
+        # Inbound-Service: Ticket, Absage und Umbuchung aus diesem Gespräch sind Tatsachen des Backends
+        tickets = self.crm.tickets(lead["id"], seit=gespraechsbeginn)
+        storniert = self.crm.stornierungen(lead["id"], seit=gespraechsbeginn)
+        if tickets:
+            if behauptet not in (None, "ticket_erstellt"):
+                flags.append("ergebnis_korrigiert")
+            return "ticket_erstellt", flags, gebucht
+        if storniert and gebucht:
+            if behauptet not in (None, "termin_verschoben"):
+                flags.append("ergebnis_korrigiert")
+            return "termin_verschoben", flags, gebucht
+        if storniert:
+            if behauptet not in (None, "termin_abgesagt"):
+                flags.append("ergebnis_korrigiert")
+            return "termin_abgesagt", flags, None
+        if behauptet in ("termin_verschoben", "termin_abgesagt", "ticket_erstellt") and not gebucht:
+            flags.append(f"{behauptet}_behauptet_ohne_beleg")           # Agent behauptet etwas, das im Backend nicht passiert ist
+            return "sonstiges", flags, None
         if gebucht:
-            if behauptet not in (None, "termin_gebucht"):
+            if behauptet not in (None, "termin_gebucht", "termin_verschoben"):
                 flags.append("ergebnis_korrigiert")
             return "termin_gebucht", flags, gebucht
         if call.gebuchter_termin():                       # Termin über native Kalenderanbindung der Plattform
@@ -144,8 +235,13 @@ class Nachbereitung:
                 return "disqualifiziert", flags, None
             flags.append("disqualifiziert_ohne_grund")
             return "rueckruf_vereinbart", flags, None
-        if behauptet in ("rueckruf_vereinbart", "falsche_person", "kein_interesse"):
+        if behauptet in ("rueckruf_vereinbart", "falsche_person", "kein_interesse", "termin_bestaetigt", "weitergeleitet"):
             return behauptet, flags, None
+        if behauptet == "nicht_verifiziert":
+            if call.call_id and self.crm.verifiziert(call.call_id, lead["id"]):
+                flags.append("ergebnis_korrigiert")                     # Verifizierung war erfolgreich, Agent meldet das Gegenteil
+                return "sonstiges", flags, None
+            return "nicht_verifiziert", flags, None
         if call.ended_reason == "contact-ended-call" and call.kundenturns() <= 1:
             return "sonstiges", flags + ["frueh_aufgelegt"], None
         return "sonstiges", flags, None
@@ -180,6 +276,15 @@ class Nachbereitung:
             if (self.crm.lead(lid) or lead).get("status") != "qualifiziert":
                 status_neu = "qualifiziert"      # extern gebucht, aber nie qualifiziert: Regel prüft, Flag bei Ablehnung
             self._ereignis("termin.gebucht", lid, {"start": start, "extern": "termin_extern" in flags, "call_id": call.call_id}, jetzt)
+        elif ergebnis == "termin_verschoben":
+            start = iso_utc(self.crm.start_utc(gebucht["start"])) if gebucht else None
+            aus["termin"] = start
+            self._ereignis("termin.gebucht", lid, {"start": start, "extern": False, "call_id": call.call_id, "umbuchung": True}, jetzt)
+        elif ergebnis == "nicht_verifiziert":
+            aufgabe = ("Prüfen: nicht_verifiziert", jetzt + timedelta(hours=RUECKRUF_STANDARD_H),
+                       f"Anruf {call.call_id}: Verifizierung fehlgeschlagen, Anrufer wollte Termin- oder Vertragsdaten.")
+        elif ergebnis == "weitergeleitet":
+            flags.append("transfer")
         elif ergebnis == "nicht_erreicht" and (call.attempt or 1) >= 3:
             flags.append("mehrfach_nicht_erreicht")
 
@@ -196,6 +301,11 @@ class Nachbereitung:
             aus["aufgabe_id"] = aid
             self._ereignis("aufgabe.erstellt", lid, {"aufgabe_id": aid, "titel": titel, "faellig": iso_utc(faellig)}, jetzt)
 
+        if gebucht and ergebnis not in ("termin_gebucht", "termin_verschoben"):   # Buchung bleibt ein Ereignis, egal wie das Gespräch endete
+            start = iso_utc(self.crm.start_utc(gebucht["start"]))
+            aus["termin"] = start
+            self._ereignis("termin.gebucht", lid, {"start": start, "extern": False, "call_id": call.call_id,
+                                                   "umbuchung": bool(self.crm.stornierungen(lid, seit=gebucht["gebucht_am"] - timedelta(hours=GESPRAECHSFENSTER_H)))}, jetzt)
         notiz = self._notiz(call, ergebnis, flags)
         self.crm.notiz(lid, notiz)
         if self.spiegel is not None:
@@ -226,6 +336,22 @@ class Nachbereitung:
         if call.recording_url:   # der Link läuft nach einer Stunde ab und wird nicht gespeichert (Checkliste F)
             zeilen.append("Aufzeichnung vorhanden, abrufbar über die Plattform (Call-ID).")
         return "\n".join(zeilen)
+
+    # ------------------------------------------------------------ Terminerinnerungen
+    def erinnerungen_senden(self, sperre=None) -> dict[str, int]:
+        """Fällige Erinnerungen (24 h vor dem Termin) als Ereignis an das Kundensystem (SMS, E-Mail)."""
+        from contextlib import nullcontext
+        sperre = sperre or nullcontext()
+        gesendet = 0
+        with sperre, self.crm.transaktion():
+            for e in self.crm.erinnerungen_faellig():
+                lead = self.crm.lead(e["lead_id"]) or {}
+                self._ereignis("termin.erinnerung", e["lead_id"], {
+                    "name": lead.get("name"), "telefon": lead.get("telefon"), "art": e["art"],
+                    "start": iso_utc(self.crm.start_utc(e["start"])), "appointment_id": e["appointment_id"]}, self.jetzt())
+                self.crm.erinnerung_gesendet(e["id"])
+                gesendet += 1
+        return {"gesendet": gesendet}
 
     # ------------------------------------------------------------ Spiegelung ins Kunden-CRM
     def _spiegel_vormerken(self, lead: dict, ergebnis: str, status_neu: Optional[str], notiz: str,

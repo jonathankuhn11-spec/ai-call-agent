@@ -141,13 +141,13 @@ def test_invalid_customer_secret_fails_at_startup(con):
         Outbox(con, "https://kunde.example/x", "whsec_###")
 
 
-def test_scheduler_tick_retries_without_further_webhooks(con, konfig, kundensystem, quiet):
+def test_scheduler_tick_retries_without_further_webhooks(con, konfig, kundensystem, telli_attrappe, quiet):
     """Nach einem Ausfall holt der Planer die Zustellung im Takt nach, ohne dass ein neuer Webhook kommt."""
     from integrations.server import erstelle_app
     uhr = Uhr()
     kundensystem["jetzt"] = uhr
     outbox = Outbox(con, "https://kunde.example/webhooks", KUNDEN_SECRET, client=kundensystem["client"], jetzt=uhr)
-    app = erstelle_app(konfig, con=con, outbox=outbox, planer_starten=False)
+    app = erstelle_app(konfig, con=con, outbox=outbox, telli_client=telli_attrappe["client"], planer_starten=False)
     kundensystem["ausfaelle"] = 1
     outbox.einreihen(ereignis(9))
     assert app.state.ctx.planer.tick()["outbox"] == {"zugestellt": 0, "wiederholen": 1, "tot": 0}

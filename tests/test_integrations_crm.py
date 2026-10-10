@@ -80,7 +80,7 @@ def test_notes_tasks_blocklist_and_push_candidates(crm):
     crm.telli_kontakt_speichern(1, "ct_1")
     assert [l["id"] for l in crm.leads_fuer_push()] == [3, 4, 5]    # Lead 1 schon bei telli
     crm.telli_kontakt_speichern(1, "ct_1", "loop_9")
-    assert crm.telli_kontakt(1) == {"contact_id": "ct_1", "loop_id": "loop_9"}
+    assert {k: crm.telli_kontakt(1)[k] for k in ("contact_id", "loop_id")} == {"contact_id": "ct_1", "loop_id": "loop_9"}
 
 
 def test_webhook_deduplication_by_message_and_call(crm):

@@ -16,13 +16,36 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Tests (ohne Ollama, ohne Jev-Zugang, ohne Plattform-Account)
         run: python -m pytest -q
-      - name: Integrationsschicht, Demo im Prozess (Plattform-Simulator gegen Server und Attrappen-Kundensystem)
+      - name: Integrationsschicht, Demo im Prozess (beide Use Cases, Plattform-Simulator, Attrappen-Kundensystem)
         run: python -m integrations demo
-      - name: Tool-Definitionen für die Plattform-Konfiguration erzeugen
+      - name: Lasttest (40 Gespräche, 10 parallel, Outbox liefert währenddessen an ein langsames Kundensystem)
+        run: python scripts/lasttest.py --gespraeche 40 --parallel 10 --schwelle-ms 300
+      - name: Konfigurationspakete für den Plattform-Builder erzeugen (müssen mit docs/telli-konfig übereinstimmen)
         run: |
-          python -m integrations definitions --url https://backend.kunde.example > tool-definitionen.json
-          python -c "import json; d = json.load(open('tool-definitionen.json')); print(len(d['telli_custom_tools']), 'Custom Tools')"
+          python -m integrations konfigpaket --alle --out telli-konfig
+          diff -r telli-konfig docs/telli-konfig
       - uses: actions/upload-artifact@v5
         with:
-          name: tool-definitionen
-          path: tool-definitionen.json
+          name: telli-konfig
+          path: telli-konfig
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Image bauen
+        run: docker build -t ai-call-agent-integrations:ci .
+      - name: Demo im Container
+        run: docker run --rm ai-call-agent-integrations:ci python -m integrations demo
+      - name: Server im Container starten und Healthcheck abwarten
+        run: |
+          docker run -d --name integrations -p 8000:8000 ai-call-agent-integrations:ci
+          for i in $(seq 1 30); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' integrations)
+            echo "Health: $status"
+            if [ "$status" = "healthy" ]; then break; fi
+            if [ "$status" = "unhealthy" ]; then docker logs integrations; exit 1; fi
+            sleep 2
+          done
+          curl -fsS http://localhost:8000/health
+          docker stop integrations

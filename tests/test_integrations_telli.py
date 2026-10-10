@@ -77,7 +77,7 @@ def test_lead_push_is_idempotent_and_skips_blocked_and_duplicate_leads(con, tell
     assert [a["lead_id"] for a in b["angelegt"]] == [1, 3, 4]
     assert [g["lead_id"] for g in b["geplant"]] == [1, 3, 4]
     assert b["uebersprungen"][0]["lead_id"] == 2 and "manuell" in b["uebersprungen"][0]["grund"] and b["fehler"] == []
-    assert crm.telli_kontakt(1) == {"contact_id": "ct_1", "loop_id": "loop_ct_1"} and crm.telli_kontakt(5) is None
+    assert {k: crm.telli_kontakt(1)[k] for k in ("contact_id", "loop_id")} == {"contact_id": "ct_1", "loop_id": "loop_ct_1"} and crm.telli_kontakt(5) is None
     assert crm.zuordnung_offen() == [2]
     geplant = [r for r in telli.requests if r[1] == "/v1/schedule-call"]
     assert geplant[0][2] == {"contact_id": "ct_1", "agent_id": "agent_x", "max_retry_days": 5}
@@ -92,7 +92,7 @@ def test_lead_push_keeps_the_contact_when_scheduling_fails(con, telli):
     b = LeadPush(crm, telli, agent_id="agent_x").synchronisieren()
     assert len(b["angelegt"]) == 5 and b["geplant"] == [] and len(b["fehler"]) == 5
     assert "Auto dialer" in b["fehler"][0]["fehler"]
-    assert crm.telli_kontakt(1) == {"contact_id": "ct_1", "loop_id": None}
+    assert {k: crm.telli_kontakt(1)[k] for k in ("contact_id", "loop_id")} == {"contact_id": "ct_1", "loop_id": None}
     telli.zustand["ausfall_schedule"] = False
     b = LeadPush(crm, telli, agent_id="agent_x").synchronisieren()
     assert b["angelegt"] == [] and len(b["geplant"]) == 5                                   # Kontakte da, Anrufe nachgeholt
@@ -118,7 +118,7 @@ def test_client_is_robust_against_unexpected_api_shapes(con):
     assert len(b["fehler"]) == 5 and "ohne id" in b["fehler"][0]["fehler"] and crm.telli_kontakt(1) is None   # nichts halb gespeichert
     antworten["contacts"] = httpx.Response(201, json={"id": "ct_x"})
     b = LeadPush(crm, client, agent_id="a").synchronisieren()
-    assert len(b["geplant"]) == 5 and crm.telli_kontakt(1) == {"contact_id": "ct_x", "loop_id": "unbekannt"}
+    assert len(b["geplant"]) == 5 and {k: crm.telli_kontakt(1)[k] for k in ("contact_id", "loop_id")} == {"contact_id": "ct_x", "loop_id": "unbekannt"}
     assert LeadPush(crm, client, agent_id="a").synchronisieren()["geplant"] == []        # kein erneutes Planen ohne loop_id
     with pytest.raises(TelliFehler) as e:
         client.anruf("abc")

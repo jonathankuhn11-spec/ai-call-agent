@@ -19,7 +19,11 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 ERGEBNISSE = ("termin_gebucht", "disqualifiziert", "rueckruf_vereinbart", "opt_out",
-              "falsche_person", "kein_interesse", "nicht_erreicht", "sonstiges")
+              "falsche_person", "kein_interesse", "nicht_erreicht", "sonstiges",
+              # Inbound-Service (z. B. Techniker-Termin, docs/use-cases/telko-inbound): Ground Truth aus Buchung,
+              # Absage und Ticket aus demselben Gespräch
+              "termin_verschoben", "termin_abgesagt", "termin_bestaetigt", "ticket_erstellt", "nicht_verifiziert",
+              "weitergeleitet")
 
 Tolerant = ConfigDict(extra="ignore", populate_by_name=True)
 Strikt = ConfigDict(extra="forbid")
@@ -377,6 +381,104 @@ class CallEndedEreignis(BaseModel):
         return telefon_normalisieren(nummer)
 
 
+# ---------------------------------------------------------------- call_rescheduled, auto_dialer_status_changed
+class KontaktImEreignis(TelliKontaktV1):
+    """Contact-Objekt der Loop- und Dialer-Ereignisse; die genauen Feldnamen sind nicht vollständig
+    dokumentiert, deshalb werden alle plausiblen ID-Felder gelesen (contact_id, id, externalId)."""
+    id: Optional[str] = None
+    externalId: Optional[str] = None
+    next_call_at: Optional[str] = None
+    auto_dialer_status: Optional[str] = None
+
+    @field_validator("id", "externalId", mode="before")
+    @classmethod
+    def _ids(cls, v):
+        return _als_text(v)
+
+    def kontakt_id(self) -> Optional[str]:
+        return self.contact_id or self.id
+
+    def externe_id(self) -> Optional[str]:
+        return self.external_contact_id or self.externalId
+
+
+class LoopAnruf(BaseModel):
+    model_config = Tolerant
+    loop_id: Optional[str] = None
+    call_id: Optional[str] = None
+    contact_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    to_number: Optional[str] = None
+    next_call_at: Optional[str] = None
+    attempt: Optional[int] = None
+
+    @field_validator("loop_id", "call_id", "contact_id", "to_number", mode="before")
+    @classmethod
+    def _text(cls, v):
+        return _als_text(v)
+
+
+class CallRescheduledEreignis(BaseModel):
+    """Der Scheduler hat einen späteren Anrufzeitpunkt gesetzt: call.next_call_at (= contact.next_call_at)."""
+    model_config = Tolerant
+    event: str = "call_rescheduled"
+    call: LoopAnruf = Field(default_factory=LoopAnruf)
+    contact: Optional[KontaktImEreignis] = None
+    contact_id: Optional[str] = None
+
+    @field_validator("contact_id", mode="before")
+    @classmethod
+    def _text(cls, v):
+        return _als_text(v)
+
+    def naechster_anruf(self) -> Optional[str]:
+        return self.call.next_call_at or (self.contact.next_call_at if self.contact else None)
+
+    def kontakt_id(self) -> Optional[str]:
+        return self.call.contact_id or self.contact_id or (self.contact.kontakt_id() if self.contact else None)
+
+    def externe_id(self) -> Optional[str]:
+        return self.contact.externe_id() if self.contact else None
+
+    def telefon(self) -> str:
+        return telefon_normalisieren(self.call.to_number or (self.contact.phone_number if self.contact else None))
+
+
+class DialerStatus(BaseModel):
+    model_config = Tolerant
+    status: Optional[str] = None            # in_dialer | not_in_dialer
+    updated_at: Optional[str] = None
+    reason: Optional[str] = None
+
+
+DIALER_AUFGEGEBEN = {"scheduler_gave_up_interval", "scheduler_gave_up_smart", "no_next_opportunity", "sip_error",
+                     "call_failed", "dialing_unavailable"}
+DIALER_ERFOLG = {"last_call_was_connected", "call_transferred"}
+
+
+class AutoDialerEreignis(BaseModel):
+    """Kontakt kommt in den Auto-Dialer oder verlässt ihn; bei not_in_dialer steht in reason, warum."""
+    model_config = Tolerant
+    event: str = "auto_dialer_status_changed"
+    auto_dialer: DialerStatus = Field(default_factory=DialerStatus)
+    contact: Optional[KontaktImEreignis] = None
+    contact_id: Optional[str] = None
+
+    @field_validator("contact_id", mode="before")
+    @classmethod
+    def _text(cls, v):
+        return _als_text(v)
+
+    def kontakt_id(self) -> Optional[str]:
+        return self.contact_id or (self.contact.kontakt_id() if self.contact else None)
+
+    def externe_id(self) -> Optional[str]:
+        return self.contact.externe_id() if self.contact else None
+
+    def telefon(self) -> str:
+        return telefon_normalisieren(self.contact.phone_number if self.contact else None)
+
+
 # ---------------------------------------------------------------- Ausgehend: an telli (Create Contact v2, Schedule Call v1)
 class TelliKontaktAnlegen(BaseModel):
     model_config = Strikt
@@ -405,7 +507,8 @@ class Ereignis(BaseModel):
     """Was diese Schicht nach außen meldet. Versioniert, damit Empfänger sich auf Felder verlassen können."""
     model_config = Strikt
     id: str
-    typ: Literal["anruf.beendet", "termin.gebucht", "aufgabe.erstellt", "lead.gesperrt"]
+    typ: Literal["anruf.beendet", "anruf.geplant", "dialer.beendet", "termin.gebucht", "termin.abgesagt",
+                 "termin.erinnerung", "aufgabe.erstellt", "lead.gesperrt", "ticket.erstellt"]
     version: int = 1
     zeit: str
     lead_id: int

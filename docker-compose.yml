@@ -1,0 +1,23 @@
+# Betrieb beim Kunden: ein Container, eine Datenbankdatei im Volume, Geheimnisse aus .env (nie ins Image).
+#   cp .env.example .env   # Werte eintragen
+#   docker compose up -d --build
+#   curl -s localhost:8000/health
+services:
+  integrations:
+    build: .
+    image: ai-call-agent-integrations:latest
+    env_file: .env
+    environment:
+      DB_PATH: /data/crm.duckdb
+      UMGEBUNG: ${UMGEBUNG:-dev}
+    ports:
+      - "8000:8000"
+    volumes:
+      - integrations-data:/data
+    restart: unless-stopped
+    # Ein Prozess, eine DuckDB-Datei: keine Replikas (docs/integrationen.md, Betrieb)
+    deploy:
+      replicas: 1
+
+volumes:
+  integrations-data:

@@ -9,6 +9,7 @@ Endpunkte (docs.telli.com):
   POST /v2/contacts        Create Contact, camelCase, properties als [{key, value}]; 409 bei doppelter externalId
   POST /v1/schedule-call   Schedule Call im Dialer-Fenster; Antwort mit loop_id
   GET  /v1/get-call/{id}   Get Call: Metadaten, Transkript, Outcomes, Termine (für den Abgleich nach Webhook-Lücken)
+  GET  /v1/list-calls      List Calls: neueste zuerst, Cursor-Paginierung, Filter contact_id oder agent_id
 Auth: Authorization: Bearer <API-Key>.
 """
 from __future__ import annotations
@@ -62,14 +63,37 @@ class TelliClient:
     def anruf_planen(self, planung: TelliAnrufPlanen) -> dict:
         return self._post("/v1/schedule-call", planung.model_dump(exclude_none=True))
 
-    def anruf(self, call_id: str) -> dict:
+    def _get(self, pfad: str, params: Optional[dict] = None) -> dict:
         try:
-            r = self.client.get(f"/v1/get-call/{call_id}")
+            r = self.client.get(pfad, params=params or {})
         except httpx.HTTPError as e:
-            raise TelliFehler(f"GET get-call: {e}") from e
+            raise TelliFehler(f"GET {pfad}: {e}") from e
         if r.status_code >= 400:
             raise TelliFehler(_json(r).get("message") or f"HTTP {r.status_code}", r.status_code)
         return _json(r)
+
+    def anruf(self, call_id: str) -> dict:
+        return self._get(f"/v1/get-call/{call_id}")
+
+    def anrufe_auflisten(self, agent_id: Optional[str] = None, contact_id: Optional[str] = None,
+                         limit: int = 100) -> list[dict]:
+        """Bis zu `limit` Anrufe, neueste zuerst, über die Cursor-Paginierung (max. 100 je Seite)."""
+        aus: list[dict] = []
+        cursor = None
+        while len(aus) < limit:
+            params: dict[str, Any] = {"limit": min(100, limit - len(aus))}
+            if agent_id:
+                params["agent_id"] = agent_id
+            if contact_id:
+                params["contact_id"] = contact_id
+            if cursor:
+                params["cursor"] = cursor
+            seite = self._get("/v1/list-calls", params)
+            aus.extend(seite.get("calls") or [])
+            cursor = seite.get("next_cursor")
+            if not cursor or not seite.get("calls"):
+                break
+        return aus[:limit]
 
 
 def kontakt_aus_lead(lead: dict, zeitzone: str = "Europe/Berlin") -> TelliKontaktAnlegen:

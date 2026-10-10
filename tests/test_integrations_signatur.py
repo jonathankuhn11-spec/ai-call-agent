@@ -66,3 +66,21 @@ def test_bearer_token_check():
     for kopf in ({"Authorization": "Bearer falsch"}, {"Authorization": "Basic geheim"}, {}):
         with pytest.raises(SignaturFehler):
             signatur.bearer_pruefen("geheim", kopf)
+
+
+def test_secret_rotation_accepts_old_and_new_and_signs_with_both():
+    alt, neu = "whsec_YWx0ZXMtZ2VoZWltbmlz", "whsec_bmV1ZXMtZ2VoZWltbmlz"
+    kopf = signatur.svix_kopfzeilen(f"{alt}, {neu}", "msg_r", BODY, zeitstempel=1_700_000_000)
+    assert kopf["svix-signature"].count("v1,") == 2
+    nur_alt = signatur.svix_kopfzeilen(alt, "msg_r", BODY, zeitstempel=1_700_000_000)
+    nur_neu = signatur.svix_kopfzeilen(neu, "msg_r", BODY, zeitstempel=1_700_000_000)
+    for empfaenger in (alt, neu, f"{alt},{neu}"):                         # Empfänger kennt alt, neu oder beide
+        assert signatur.svix_pruefen(empfaenger, BODY, kopf, jetzt=1_700_000_000) == "msg_r"
+    assert signatur.svix_pruefen(f"{alt},{neu}", BODY, nur_alt, jetzt=1_700_000_000) == "msg_r"
+    assert signatur.svix_pruefen(f"{alt},{neu}", BODY, nur_neu, jetzt=1_700_000_000) == "msg_r"
+    with pytest.raises(SignaturFehler):
+        signatur.svix_pruefen(neu, BODY, nur_alt, jetzt=1_700_000_000)
+    signatur.telli_pruefen("alt,neu", BODY, {"x-telli-signature": signatur.telli_signatur("neu", BODY)})
+    signatur.bearer_pruefen("alt,neu", {"Authorization": "Bearer alt"})
+    with pytest.raises(SignaturFehler):
+        signatur.bearer_pruefen("alt,neu", {"Authorization": "Bearer alt,neu"})

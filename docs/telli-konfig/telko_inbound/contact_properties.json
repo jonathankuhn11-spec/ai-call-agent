@@ -1,0 +1,14 @@
+[
+  {
+    "key": "status",
+    "dataType": "string",
+    "label": "Kundenstatus",
+    "description": "Aus dem Backend über Contact Lookup"
+  },
+  {
+    "key": "plz",
+    "dataType": "string",
+    "label": "Postleitzahl",
+    "description": "Nur im Backend für die Verifizierung, nie im Prompt"
+  }
+]

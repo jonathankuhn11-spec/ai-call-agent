@@ -5,11 +5,17 @@
     python -m integrations definitions        Tool-Definitionen für die telli-Konfiguration (JSON)
     python -m integrations outbox             Zustand der ausgehenden Webhooks, --zustellen, --erneut ID
     python -m integrations push --trocken     Lead-Push ins Dialer: zeigt die Requests, ohne zu senden
+    python -m integrations review             Transkript-Review der letzten 24 h als Markdown (--quelle telli für Live-Anrufe)
+    python -m integrations abgleich           Anrufe ohne call_ended über List Calls nachholen (--call ID für einen Anruf)
+    python -m integrations report             Wochenreport (KPIs aus der Datenbank) als Markdown, --tage 7
+    python -m integrations konfigpaket        Prompt, Outcomes, Properties, Tools, Kalender, Webhook je Use Case (--usecase, --alle)
+    python -m integrations demo --db pilot.duckdb   Demo-Daten in eine Datei schreiben (für Pilot-Cockpit und Report)
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timezone
 
@@ -36,7 +42,10 @@ def cmd_serve(a, konfig: Konfig):
 
 def cmd_definitions(a, konfig: Konfig):
     from integrations.server import tool_definitionen
-    print(json.dumps(tool_definitionen(a.url), ensure_ascii=False, indent=2))
+    from integrations.usecases import alle
+    usecase = alle().get(a.usecase or konfig.usecase)
+    nur = usecase.tool_namen() if usecase else None
+    print(json.dumps(tool_definitionen(a.url, nur=nur), ensure_ascii=False, indent=2))
 
 
 def _db(konfig: Konfig):
@@ -80,7 +89,8 @@ def cmd_push(a, konfig: Konfig):
     else:
         if not konfig.telli_api_key or not konfig.telli_agent_id:
             sys.exit("TELLI_API_KEY und TELLI_AGENT_ID fehlen (.env).")
-        client = TelliClient(konfig.telli_api_key, konfig.telli_api_url)
+        from integrations.server import telli_client_aus_konfig
+        client = telli_client_aus_konfig(konfig)
     bericht = LeadPush(crm, client, konfig.telli_agent_id or "agent_demo").synchronisieren()
     if a.trocken:
         con.execute("ROLLBACK")
@@ -88,6 +98,76 @@ def cmd_push(a, konfig: Konfig):
         for methode, pfad, body in gesendet:
             print(f"{methode} https://api.telli.com{pfad}\n{json.dumps(body, ensure_ascii=False, indent=2)}\n")
     print("Bericht:", json.dumps(bericht, ensure_ascii=False))
+
+
+def cmd_review(a, konfig: Konfig):
+    from integrations import review
+    from integrations.crm import LocalCRM
+    con = _db(konfig)
+    crm = LocalCRM(con, konfig.zeitzone)
+    if a.quelle == "telli":
+        from integrations.server import telli_client_aus_konfig
+        if not konfig.telli_api_key:
+            sys.exit("TELLI_API_KEY fehlt (.env).")
+        reviews = review.aus_telli(telli_client_aus_konfig(konfig), crm, agent_id=konfig.telli_agent_id or None, limit=a.limit)
+    else:
+        reviews = review.aus_db(crm, tage=a.tage)
+    text = review.reviewliste(reviews)
+    pfad = a.ausgabe or f"review-{datetime.now():%Y-%m-%d}.md"
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write(text)
+    print(text)
+    print(f"Geschrieben: {pfad}")
+
+
+def cmd_konfigpaket(a, konfig: Konfig):
+    from pathlib import Path
+
+    from integrations import konfigpaket
+    from integrations.usecases import alle
+    faelle = alle()
+    ids = list(faelle) if a.alle else [a.usecase or konfig.usecase]
+    for uid in ids:
+        if uid not in faelle:
+            sys.exit(f"Unbekannter Use Case '{uid}'. Bekannt: {', '.join(faelle)}")
+        pfade = konfigpaket.schreiben(faelle[uid], a.url, Path(a.out) / uid)
+        print(f"{uid}: {len(pfade)} Dateien nach {Path(a.out) / uid}")
+
+
+def cmd_report(a, konfig: Konfig):
+    from integrations import kennzahlen
+    from integrations.crm import LocalCRM
+    con = _db(konfig)
+    crm = LocalCRM(con, konfig.zeitzone)
+    k = kennzahlen.kennzahlen(crm, tage=a.tage)
+    text = kennzahlen.wochenreport(k, kunde=a.kunde, anteil=a.anteil)
+    pfad = a.ausgabe or f"wochenreport-{datetime.now():%Y-%m-%d}.md"
+    with open(pfad, "w", encoding="utf-8") as f:
+        f.write(text)
+    print(text)
+    print(f"Geschrieben: {pfad}")
+
+
+def cmd_abgleich(a, konfig: Konfig):
+    from integrations.abgleich import Abgleich, anruf_nachholen
+    from integrations.crm import LocalCRM
+    from integrations.nachbereitung import Nachbereitung
+    from integrations.server import outbox_aus_konfig, spiegel_aus_konfig, telli_client_aus_konfig
+    if not konfig.telli_api_key:
+        sys.exit("TELLI_API_KEY fehlt (.env).")
+    con = _db(konfig)
+    crm = LocalCRM(con, konfig.zeitzone)
+    client = telli_client_aus_konfig(konfig)
+    outbox = outbox_aus_konfig(konfig, con)
+    nb = Nachbereitung(crm, outbox, spiegel_aus_konfig(konfig))          # wie im Server: Ereignisse und Spiegelung
+    if a.call:
+        print(json.dumps(anruf_nachholen(crm, client, nb, a.call), ensure_ascii=False, indent=2))
+    else:
+        print(json.dumps(Abgleich(crm, client, nb, mindestalter_min=0).ausfuehren(), ensure_ascii=False, indent=2))
+    if outbox is not None:
+        print("Outbox:", outbox.zustellen())
+    if nb.spiegel is not None:
+        print("Spiegel:", nb.spiegeln())
 
 
 def cmd_demo(a, konfig: Konfig):
@@ -112,7 +192,13 @@ def cmd_demo(a, konfig: Konfig):
         return httpx.Response(200)
 
     agent.VERBOSE = False
-    con = agent.init_db(reset=True, path=":memory:")
+    if a.db and os.path.exists(a.db):
+        print(f"Hinweis: {a.db} wird für die Demo neu aufgesetzt (vorheriger Inhalt entfällt).")
+        os.remove(a.db)
+    con = agent.init_db(reset=True, path=a.db or ":memory:")
+    # Eingangszeit der Leads für Speed-to-Lead: fiktiv sieben Minuten vor der Demo
+    con.execute("ALTER TABLE leads ADD COLUMN IF NOT EXISTS erstellt_am TIMESTAMP")
+    con.execute("UPDATE leads SET erstellt_am = now()::TIMESTAMP - INTERVAL 7 MINUTE")
     outbox = Outbox(con, "https://ticketsystem.kunde.example/webhooks", kunden_secret,
                     client=httpx.Client(transport=httpx.MockTransport(ticketsystem)))
     app = erstelle_app(konfig, con=con, outbox=outbox, planer_starten=False)
@@ -129,7 +215,7 @@ def cmd_demo(a, konfig: Konfig):
                 zusatz = f" Termin {ce['termin']}"
             if "aufgabe_id" in ce:
                 zusatz = f" Aufgabe #{ce['aufgabe_id']}"
-            flags = [f for f in ce.get("flags", []) if not f.startswith(("plattform:", "attempt:"))]
+            flags = [f for f in ce.get("flags", []) if not f.startswith(("plattform:", "attempt:", "call:"))]
             print(f"Lead {lead_id} {lead['name']:<16} {persona:<17} -> {ce['ergebnis']:<20}{zusatz}"
                   f"{'  Flags: ' + ', '.join(flags) if flags else ''}")
         lookup = sim.contact_lookup(app.state.ctx.crm.lead(1)["telefon"])
@@ -150,7 +236,62 @@ def cmd_demo(a, konfig: Konfig):
         print(f"  {l['name']:<16} status={l['status']:<16} eigentuemer={l['eigentuemer']!s:<5} "
               f"termin={iso_utc(crm.start_utc(termin['start'])) if termin else '-':<25} "
               f"aufgaben={len(crm.aufgaben(lid))} gesperrt={crm.gesperrt(l['telefon'])}")
+    _demo_inbound(konfig, kunden_secret, ticketsystem, empfangen)
+    if a.db:
+        con.close()
+        print(f"\nDatenbank geschrieben: {a.db}  (Pilot-Cockpit: DB_PATH={a.db} python -m streamlit run pilot_dashboard.py; "
+              f"Report: DB_PATH={a.db} python -m integrations report)")
     print(f"\nStand: {iso_utc(datetime.now(timezone.utc))}")
+
+
+def _demo_inbound(konfig: Konfig, kunden_secret: str, ticketsystem, empfangen: list):
+    """Use Case 2 im selben Lauf: Inbound-Service (telko_inbound) gegen eine zweite App mit eigener Datenbank."""
+    from fastapi.testclient import TestClient
+
+    from integrations.outbox import Outbox
+    from integrations.server import erstelle_app
+    from integrations.simulator import INBOUND_PERSONAS, PlattformSimulator
+    from integrations.usecases import alle
+
+    print("\n=== Use Case 2: Inbound-Service FlinkNet (Verifizierung, Termin-Lebenszyklus, Ticket) ===\n")
+    konfig2 = Konfig(**{**konfig.__dict__, "usecase": "telko_inbound"})
+    con = agent.init_db(reset=True, path=":memory:")
+    vorher = len(empfangen)
+    outbox = Outbox(con, "https://ticketsystem.kunde.example/webhooks", kunden_secret,
+                    client=httpx.Client(transport=httpx.MockTransport(ticketsystem)))
+    app = erstelle_app(konfig2, con=con, outbox=outbox, planer_starten=False)
+    crm = app.state.ctx.crm
+    # Bestehende Techniker-Termine wie aus dem Auftragssystem: Lead 1 in drei Tagen, Lead 2 in zwölf Stunden, Lead 3 in vier Tagen
+    for lead_id, in_stunden in ((1, 72), (2, 12), (3, 96)):
+        tools = crm.tools(lead_id)
+        slot = crm.freie_slots(1)[0]
+        con.execute(f"UPDATE slots SET start = now()::TIMESTAMP + INTERVAL {in_stunden} HOUR WHERE id = ?", [slot["slot_id"]])
+        tools.offered = {slot["slot_id"]}
+        tools.book_appointment(slot_id=slot["slot_id"], art="vor_ort")
+    con.execute("UPDATE appointments SET gebucht_am = gebucht_am - INTERVAL 3 DAY")
+    with TestClient(app) as client:
+        sim = PlattformSimulator(client, konfig2.telli_api_key, konfig2.telli_webhook_secret, konfig2.tool_secret)
+        for lead_id, persona in zip((1, 2, 3, 4, 5), INBOUND_PERSONAS):
+            lead = crm.lead(lead_id)
+            b = sim.gespraech(lead, persona)
+            ce = b["call_ended"]
+            flags = [f for f in ce.get("flags", []) if not f.startswith(("plattform:", "attempt:", "call:"))]
+            detail = ""
+            if "ticket" in b:
+                detail = f" Ticket {b['ticket']['ticket_nummer']}"
+            elif b.get("cancel", {}).get("weiterleiten"):
+                detail = " cancel_appointment abgelehnt (Mindestvorlauf 24 h)"
+            elif "termin" in ce:
+                detail = f" neuer Termin {ce['termin']}"
+            elif persona == "nicht_verifiziert":
+                detail = f" {len(b['versuche'])} Versuche, keine Auskunft (lookup_lead vorher: ok={b['vor_verifizierung']['ok']})"
+            print(f"Lead {lead_id} {lead['name']:<16} {persona:<19} -> {ce['ergebnis']:<18}{detail}"
+                  f"{'  Flags: ' + ', '.join(flags) if flags else ''}")
+        app.state.ctx.planer.tick()
+    neu = empfangen[vorher:]
+    print(f"\nEreignisse an das Ticketsystem (signaturgeprüft): {', '.join(e['typ'] for e in neu)}")
+    print(f"Konfigurationspaket für den Builder: docs/telli-konfig/telko_inbound/ ({len(alle()['telko_inbound'].tools)} Tools, "
+          f"{len(alle()['telko_inbound'].outcomes)} Outcomes)")
 
 
 def main(argv=None):
@@ -158,13 +299,21 @@ def main(argv=None):
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("serve"); s.add_argument("--host", default="0.0.0.0"); s.add_argument("--port", type=int, default=8000)
-    d = sub.add_parser("definitions"); d.add_argument("--url", default="https://backend.kunde.example")
+    d = sub.add_parser("definitions"); d.add_argument("--url", default="https://backend.kunde.example"); d.add_argument("--usecase")
     o = sub.add_parser("outbox"); o.add_argument("--zustellen", action="store_true"); o.add_argument("--erneut", type=int)
     p = sub.add_parser("push"); p.add_argument("--trocken", action="store_true")
-    sub.add_parser("demo")
+    r = sub.add_parser("review"); r.add_argument("--quelle", choices=["db", "telli"], default="db")
+    r.add_argument("--tage", type=int, default=1); r.add_argument("--limit", type=int, default=100); r.add_argument("--ausgabe")
+    g = sub.add_parser("abgleich"); g.add_argument("--call", help="nur diesen Anruf per Get Call nachholen")
+    k = sub.add_parser("konfigpaket"); k.add_argument("--usecase"); k.add_argument("--alle", action="store_true")
+    k.add_argument("--url", default="https://backend.kunde.example"); k.add_argument("--out", default="telli-konfig")
+    w = sub.add_parser("report"); w.add_argument("--tage", type=int, default=7); w.add_argument("--kunde", default="SonnenWerk Energie")
+    w.add_argument("--anteil", default=""); w.add_argument("--ausgabe")
+    m = sub.add_parser("demo"); m.add_argument("--db", help="Demo-Daten in diese DuckDB-Datei schreiben statt in den Speicher")
     a = ap.parse_args(argv)
     konfig = Konfig.aus_umgebung()
-    {"serve": cmd_serve, "definitions": cmd_definitions, "outbox": cmd_outbox, "push": cmd_push, "demo": cmd_demo}[a.cmd](a, konfig)
+    {"serve": cmd_serve, "definitions": cmd_definitions, "outbox": cmd_outbox, "push": cmd_push, "demo": cmd_demo,
+     "review": cmd_review, "abgleich": cmd_abgleich, "report": cmd_report, "konfigpaket": cmd_konfigpaket}[a.cmd](a, konfig)
 
 
 if __name__ == "__main__":

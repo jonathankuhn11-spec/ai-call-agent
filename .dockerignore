@@ -1,0 +1,16 @@
+.git
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+*.duckdb
+*.duckdb.wal
+.env
+eval_*.json
+voices/
+docs/
+tests/
+dashboard.py
+pilot_dashboard.py
+simulate.py
+voice.py

@@ -10,9 +10,9 @@ entlang der dokumentierten Schnittstellen der Voice-Plattform telli an CRM, Kale
 anbindet, und einem Deployment-Playbook von der Unterschrift bis zum ersten produktiven Anruf.
 
 **Kunde (fiktiv):** SonnenWerk Energie · **Use Case:** Outbound-Qualifizierung und Terminbuchung ·
-**Stack:** Python, Ollama (Qwen 2.5, lokal), Pydantic, DuckDB, FastAPI, Jev (TypeSafe AI, optional), Streamlit ·
+**Stack:** Python, Ollama (Qwen 2.5, lokal), Pydantic, DuckDB, FastAPI, Docker, Jev (TypeSafe AI, optional), Streamlit ·
 **Status:** zwei Betriebsarten, UAT 49 von 50 im geführten Modus mit Qwen 2.5 7B, lokaler Sprach-Layer (Push-to-talk),
-Integrationsschicht mit Plattform-Simulator (186 Tests, Demo in CI); Telefonie und Plattform-Account offen
+Integrationsschicht mit Plattform-Simulator (229 Tests, Demo in CI); Telefonie und Plattform-Account offen
 
 ## Das Problem
 
@@ -194,12 +194,14 @@ Netz: Ein Simulator spielt die Plattform, das Mock-CRM bleibt die Datenbasis.
 | Richtung | Schnittstelle (telli-Doku) | Hier |
 | --- | --- | --- |
 | CRM → Plattform | Create Contact v2, Schedule Call v1 | `LeadPush`: offene Leads anlegen und in den Dialer, idempotent, 409-sicher |
-| Plattform → Backend, im Gespräch | Custom Tools (HTTP-Function-Tools, Bearer-Secret) | `POST /tools/{lookup_lead, update_lead, check_slots, book_appointment}`: dieselben `Tools` wie im Agenten |
+| Plattform ↔ Backend, Abgleich | List Calls, Get Call | Anrufe ohne Webhook nachholen, Lücken nach Störungen schließen |
+| Plattform → Backend, im Gespräch | Custom Tools (HTTP-Function-Tools, Bearer-Secret) | `POST /tools/{lookup_lead, update_lead, check_slots, book_appointment, cancel_appointment, verify_customer, create_ticket}`: dieselben `Tools` wie im Agenten, Auswahl je Use Case |
 | Plattform → Backend, im Gespräch | Custom Calendar `/available`, `/book` (x-telli-signature) | Slots nur für qualifizierte Leads, Buchung nur angebotener Slots, idempotent |
 | Plattform → Backend, vor dem Gespräch | Contact Lookup Webhook | Rückrufer werden mit Namen, Status und Sperrvermerk erkannt |
-| Plattform → Backend, danach | `call_ended`, Svix-signiert | Nachbereitung: Ergebnis aus dem Backend-Zustand, Notiz, Rückruf-Aufgabe, Sperrliste, Dedup |
+| Plattform → Backend, danach | `call_ended`, `call_rescheduled`, `auto_dialer_status_changed`, Svix-signiert | Nachbereitung: Ergebnis aus dem Backend-Zustand, Notiz, Rückruf-Aufgabe, Sperrliste, Dedup, Dialer-Zustand |
 | Backend → Kundensysteme | eigene Ereignisse, Svix-signiert | Outbox mit Wiederholungsplan wie bei telli, Idempotency-Key, Dead Letter |
-| Backend → Kunden-CRM | HubSpot CRM API v3 | Lead-Status, eigene Eigenschaften, Notiz, Aufgabe; Feldmapping als Daten |
+| Backend → Kunden-CRM | HubSpot CRM API v3, Salesforce REST API | Lead-Status, eigene Eigenschaften, Notiz, Aufgabe; Feldmapping als Daten; Spiegelung asynchron mit Wiederholung |
+| Backend → Builder | Prompt, Outcomes, Properties, Tools, Kalender, Webhook | `python -m integrations konfigpaket`: aus einer Use-Case-Definition, in CI gegen `docs/telli-konfig/` geprüft |
 
 ```mermaid
 sequenceDiagram
@@ -250,6 +252,42 @@ Zum Schluss der Paritätsbeweis in `tests/test_integrations_e2e.py`: Der Leitfad
 unverändert, wenn seine Tools über HTTP gehen. Alle Schnittstellen, Payloads, Signaturverfahren und die
 Ergebnis-Tabelle der Nachbereitung stehen in [`docs/integrationen.md`](docs/integrationen.md).
 
+### Zwei Use Cases, ein Backend
+
+Ein Deployment hat zwei Hälften, die zusammenpassen müssen: der Agent im No-Code-Builder der Plattform und das
+Backend. Deshalb steht jeder Use Case genau einmal als Definition in [`integrations/usecases/`](integrations/usecases):
+Begrüßung, Variablen, Regeln, nummerierter Leitfaden mit WENN/DANN, Sonderfälle, Tool-Anweisungen nach dem
+telli-Cookbook, Outcomes, Contact Properties, Testszenarien und die Backend-Regeln. Daraus erzeugt
+`python -m integrations konfigpaket` alles, was im Portal einzutragen ist ([`docs/telli-konfig/`](docs/telli-konfig));
+Tests prüfen, dass Prompt, Outcomes, Tools und Nachbereitung nicht driften.
+
+| Use Case | Richtung | Was das Backend erzwingt | Scoping |
+| --- | --- | --- | --- |
+| PV-Lead-Qualifizierung (SonnenWerk Energie, Agentin Lena) | Outbound | qualifiziert heißt Eigentümer und kein Mehrfamilienhaus; nur angebotene Slots; Opt-out wird nie überstimmt | [`SCOPING.md`](SCOPING.md) |
+| Techniker-Termine und Störungen (FlinkNet, Agentin Mia) | Inbound | keine Auskunft vor der Verifizierung per Postleitzahl (drei Versuche); Termine innerhalb von 24 h nicht änderbar, dann Weiterleitung; Störung nur als Ticket mit Nummer | [`docs/use-cases/telko-inbound/SCOPING.md`](docs/use-cases/telko-inbound/SCOPING.md) |
+
+Die Demo fährt beide Fälle; der zweite sieht so aus:
+
+```
+Lead 1 Thomas Becker    termin_verschieben  -> termin_verschoben  neuer Termin 2026-10-12T14:00:00.000Z
+Lead 2 Sabine Wolf      termin_kurzfristig  -> weitergeleitet     cancel_appointment abgelehnt (Mindestvorlauf 24 h)  Flags: transfer
+Lead 3 Mehmet Yilmaz    termin_bestaetigen  -> termin_bestaetigt
+Lead 4 Anna Schröder    stoerung            -> ticket_erstellt    Ticket T-00001
+Lead 5 Klaus Hoffmann   nicht_verifiziert   -> nicht_verifiziert  3 Versuche, keine Auskunft (lookup_lead vorher: ok=False)
+```
+
+### Betrieb: Kennzahlen, Review, Cockpit, Container
+
+Die KPIs aus dem Playbook sind Code ([`integrations/kennzahlen.py`](integrations/kennzahlen.py)): Speed-to-Lead,
+Erreichbarkeit, Qualifizierungs- und Terminquote, Fehlerquote, Opt-out-Rate, Outbox, jede Quote mit Zähler und
+Nenner; `python -m integrations report` schreibt den Wochenreport nach der Vorlage. Das tägliche Transkript-Review
+sortiert [`integrations/review.py`](integrations/review.py) vor (KI-Kennzeichnung, Opt-out respektiert, kein Preis,
+keine Buchung ohne Buchung, kein Tool-Name im Text, nach Schwere S1 bis S3). [`pilot_dashboard.py`](pilot_dashboard.py)
+zeigt beides als Streamlit-Cockpit. [`Dockerfile`](Dockerfile) und [`docker-compose.yml`](docker-compose.yml) packen
+den Server für die Infrastruktur des Kunden (Healthcheck, Volume, Geheimnisse aus `.env`); CI baut das Image und
+wartet auf `healthy`. [`scripts/lasttest.py`](scripts/lasttest.py) fährt parallele Gespräche gegen den Server, in CI
+40 Gespräche mit 10 parallelen Anrufern bei p95 unter 300 ms, während die Outbox an ein 500-ms-Kundensystem liefert.
+
 ## Deployment-Playbook
 
 [`docs/playbook/`](docs/playbook) beschreibt den Weg von der Unterschrift zum ersten produktiven Anruf, auf
@@ -295,7 +333,11 @@ macOS und Linux: statt der vierten Zeile `source .venv/bin/activate`.
 | Eine Persona mit Gesprächsverlauf | `python simulate.py --persona mieter -v` |
 | Dashboard | `python -m streamlit run dashboard.py` |
 | Sprach-Agent (Mikrofon und Lautsprecher) | `python voice.py` |
-| Integrationsschicht: Demo mit Plattform-Simulator | `python -m integrations demo` |
+| Integrationsschicht: Demo mit Plattform-Simulator, beide Use Cases | `python -m integrations demo` (`--db pilot.duckdb` für Cockpit und Report) |
+| Konfigurationspaket für den telli-Builder | `python -m integrations konfigpaket --alle --url https://backend.kunde.example` |
+| Wochenreport, Transkript-Review, Pilot-Cockpit | `python -m integrations report`, `python -m integrations review`, `python -m streamlit run pilot_dashboard.py` |
+| Lasttest | `python scripts/lasttest.py --gespraeche 40 --parallel 10` |
+| Container | `docker compose up -d --build` |
 | Integrationsschicht: Server für die Plattform | `python -m integrations serve --port 8000` |
 | Tool-Definitionen für die telli-Konfiguration | `python -m integrations definitions --url https://backend.kunde.example` |
 | Lead-Push in den Dialer, ohne zu senden | `python -m integrations push --trocken` |
@@ -306,7 +348,7 @@ Jev ist optional. Mit einem API-Key von TypeSafe AI in einer Datei `.env` (Vorla
 Die Geheimnisse der Integrationsschicht (API-Key, Webhook-Secret, Tool-Secret) stehen in derselben Datei; ohne sie
 laufen die Endpunkte unsigniert, für lokale Tests. Die Datei `.env` steht in der `.gitignore`.
 
-Die 186 Tests brauchen weder Ollama noch Jev noch Audio-Hardware noch einen Plattform-Account: Das LLM wird durch
+Die 229 Tests brauchen weder Ollama noch Jev noch Audio-Hardware noch einen Plattform-Account: Das LLM wird durch
 skriptierte Antworten und Extraktionen ersetzt, die Jev-API durch einen Stub, Mikrofon und Stimme durch Attrappen,
 die Voice-Plattform durch den Simulator und HubSpot, telli-API und Kundensystem durch `httpx.MockTransport`, der
 jede Anfrage auf Pfad, Body und Signatur prüft. Geprüft wird genau der Teil, der in Produktion deterministisch
@@ -324,7 +366,13 @@ voice.py          Sprach-Layer: faster-whisper, Piper mit Vorlagen-Cache, Push-t
 simulate.py       UAT: Personas, Bewertung, Iterationsprotokoll
 dashboard.py      Streamlit-Dashboard über eval_results.json und eval_history.json
 integrations/     Integrationsschicht nach den telli-Schnittstellen
-  server.py         FastAPI: /tools/{name}, /calendar/available, /calendar/book, /webhooks/contact-lookup, /webhooks/telli, /push, /metrics; Hintergrundplaner
+  server.py         FastAPI: /tools/{name}, /calendar/available, /calendar/book, /webhooks/contact-lookup, /webhooks/telli, /push, /abgleich, /metrics; Hintergrundplaner
+  usecases/         Use-Case-Definitionen (pv_outbound, telko_inbound): eine Quelle für Prompt, Outcomes, Properties, Tools, Regeln
+  konfigpaket.py    erzeugt daraus das Konfigurationspaket für den Builder (docs/telli-konfig/)
+  abgleich.py       List Calls / Get Call: Anrufe ohne Webhook nachholen
+  kennzahlen.py     KPIs aus Playbook 05 als Code, Wochenreport
+  review.py         Transkript-Review nach festen Regeln, Schwere S1 bis S3
+  salesforce.py     Salesforce REST API: Lead, SOQL, Task; OAuth-Client-Credentials
   crm.py            Integrationsdatenbank auf dem Mock-CRM: Angebote, Buchungen, Aufgaben, Sperrliste, Dedup; PersistenteTools
   nachbereitung.py  call_ended -> Ergebnis aus Backend-Zustand, Notiz, Aufgabe, Sperrliste, Ereignisse; alles in einer Transaktion; Spiegel-Aufträge
   outbox.py         Ausgehende Webhooks: Outbox, Svix-Signatur, Wiederholungsplan, Dead Letter
@@ -334,10 +382,16 @@ integrations/     Integrationsschicht nach den telli-Schnittstellen
   modelle.py        Pydantic-Modelle aller Payloads, tolerant beim Lesen, strikt beim Schreiben
   simulator.py      Plattform-Simulator: spielt telli für Demo und Tests
   __main__.py       CLI: serve, demo, definitions, outbox, push
+pilot_dashboard.py  Streamlit-Cockpit: Kennzahlen, Flags, Review, Wochenreport aus der Integrationsdatenbank
+scripts/lasttest.py Lasttest: parallele Gespräche, p50/p95, Schwelle
+Dockerfile, docker-compose.yml  Container für die Integrationsschicht
 docs/integrationen.md   Schnittstellen, Payloads, Sicherheit, Ergebnis-Tabelle, Betrieb, Grenzen
+docs/telli-agent-konfiguration.md  Was im Agent-Builder einzutragen ist (PV-Fall), Hand-Doku mit Drift-Test
+docs/telli-konfig/      erzeugte Konfigurationspakete je Use Case
+docs/use-cases/         zweites Scoping: Telko-Inbound
 docs/playbook/          Scoping-Workshop, Integrations-Checkliste, UAT, Go-live-Runbook, KPIs, Eskalation, Enablement
 SCOPING.md        Deployment-Scoping: Problem, KPIs, Kriterien, Edge Cases, Recht, Pilotplan
-tests/            186 Tests mit skriptiertem LLM, Jev-Stub, Audio-Attrappen, Plattform-Simulator und MockTransport
+tests/            229 Tests mit skriptiertem LLM, Jev-Stub, Audio-Attrappen, Plattform-Simulator und MockTransport
 eval_history.json Kennzahlen je Lauf
 eval_results.json Transkripte und Bewertung des letzten Laufs
 ```
@@ -372,7 +426,7 @@ eval_results.json Transkripte und Bewertung des letzten Laufs
 2. Protokollierte UAT-Läufe: geführt mit 7B (mit und ohne Formulierung), frei mit 14B, je drei Durchläufe pro Persona
 3. Sprach-Layer: Telefonie per SIP, Streaming-TTS satzweise, Barge-in; Latenzbudget unter 1,5 s je Turn
 4. Mehr Personas: Senior mit Rückfragen, Zweifler, Kunde mit Kind im Hintergrund
-5. Zweiter CRM-Adapter (Salesforce) und ein Kalenderdienst hinter `/available` und `/book`
+5. Kalenderdienst hinter `/available` und `/book` (Cal.com oder Google Calendar als Slot-Quelle statt der Tabelle)
 
 ## Lizenz
 

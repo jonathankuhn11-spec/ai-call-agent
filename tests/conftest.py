@@ -156,7 +156,7 @@ def telli_attrappe():
 
     from integrations.telli import TelliClient
 
-    zustand = {"requests": []}
+    zustand = {"requests": [], "anrufe": {}}       # anrufe: contact_id -> Liste von Call-Objekten (List Calls / Get Call)
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content) if request.content else None
@@ -166,6 +166,16 @@ def telli_attrappe():
         if request.url.path == "/v1/schedule-call":
             return httpx.Response(200, json={"status": "success", "contact_id": body["contact_id"],
                                              "loop_id": f"loop_{body['contact_id']}"})
+        if request.url.path == "/v1/list-calls":
+            calls = zustand["anrufe"].get(request.url.params.get("contact_id"), [])
+            return httpx.Response(200, json={"calls": calls, "next_cursor": None})
+        if request.url.path.startswith("/v1/get-call/"):
+            call_id = request.url.path.rsplit("/", 1)[1]
+            for calls in zustand["anrufe"].values():
+                for c in calls:
+                    if c["call_id"] == call_id:
+                        return httpx.Response(200, json={"call": c, "contact": {"contact_id": c.get("contact_id")}})
+            return httpx.Response(404, json={"message": "Call not found"})
         return httpx.Response(404, json={"message": "nicht da"})
 
     zustand["client"] = TelliClient("test-api-key", client=httpx.Client(transport=httpx.MockTransport(handler),

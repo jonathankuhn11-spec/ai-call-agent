@@ -1,0 +1,39 @@
+[
+  {
+    "key": "ergebnis",
+    "dataType": "category",
+    "instructions": "Wie das Gespräch tatsächlich geendet hat. termin_verschoben nur, wenn ein neuer Termin bestätigt wurde; ticket_erstellt nur, wenn eine Ticketnummer genannt wurde; weitergeleitet bei Transfer.",
+    "options": [
+      "termin_verschoben",
+      "termin_abgesagt",
+      "termin_bestaetigt",
+      "ticket_erstellt",
+      "nicht_verifiziert",
+      "weitergeleitet",
+      "rueckruf_vereinbart",
+      "sonstiges"
+    ]
+  },
+  {
+    "key": "ticket_kategorie",
+    "dataType": "category",
+    "instructions": "Nur bei ticket_erstellt.",
+    "options": [
+      "stoerung_internet",
+      "stoerung_tv",
+      "stoerung_telefon",
+      "rechnung",
+      "sonstiges"
+    ]
+  },
+  {
+    "key": "stoerung_seit",
+    "dataType": "string",
+    "instructions": "Nur bei Störungen: seit wann, in den Worten des Kunden."
+  },
+  {
+    "key": "verifiziert",
+    "dataType": "boolean",
+    "instructions": "Ob die Postleitzahl-Prüfung erfolgreich war."
+  }
+]

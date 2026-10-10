@@ -21,6 +21,9 @@ from integrations.modelle import iso_utc
 from integrations.signatur import svix_kopfzeilen, telli_signatur
 
 
+INBOUND_PERSONAS = ("termin_verschieben", "termin_kurzfristig", "termin_bestaetigen", "stoerung", "nicht_verifiziert")
+
+
 class PlattformSimulator:
     def __init__(self, client: httpx.Client, api_key: str = "", webhook_secret: str = "", tool_secret: str = "",
                  agent_id: str = "agent_demo"):
@@ -71,7 +74,8 @@ class PlattformSimulator:
     def call_ended(self, call_id: str, external_id: Optional[str], telefon: str, outcomes: dict[str, Any],
                    transkript: Optional[list[dict]] = None, status: str = "connected", attempt: int = 1,
                    appointments: Optional[list[dict]] = None, message_id: Optional[str] = None,
-                   ended_reason: str = "agent-ended-call", zeitstempel: Optional[int] = None) -> httpx.Response:
+                   ended_reason: str = "agent-ended-call", zeitstempel: Optional[int] = None,
+                   direction: str = "outbound") -> httpx.Response:
         jetzt = datetime.now(timezone.utc)
         transkript = transkript if transkript is not None else [
             {"role": "agent", "content": "Guten Tag, hier ist Lena, die digitale KI-Assistentin von SonnenWerk Energie."},
@@ -81,8 +85,10 @@ class PlattformSimulator:
         ]
         typen = {bool: "boolean", int: "number", float: "number"}
         body = {"event": "call_ended",
-                "call": {"call_id": call_id, "attempt": attempt, "loop_id": f"loop_{call_id}", "from_number": "+4925100000",
-                         "to_number": telefon, "direction": "outbound", "external_contact_id": external_id,
+                "call": {"call_id": call_id, "attempt": attempt, "loop_id": f"loop_{call_id}",
+                         "from_number": telefon if direction == "inbound" else "+4925100000",
+                         "to_number": "+4925100000" if direction == "inbound" else telefon,
+                         "direction": direction, "external_contact_id": external_id,
                          "contact_id": f"ct_{external_id}", "contact_details": {}, "agent_id": self.agent_id,
                          "triggered_at_iso": iso_utc(jetzt - timedelta(minutes=4)),
                          "started_at_iso": iso_utc(jetzt - timedelta(minutes=3)), "ended_at_iso": iso_utc(jetzt),
@@ -135,7 +141,46 @@ class PlattformSimulator:
             r = self.call_ended(call_id, ext, tel, {}, transkript=[], status="voicemail", ended_reason="contact-did-not-answer")
             bericht["call_ended"] = r.json()
             return bericht
+        elif persona in INBOUND_PERSONAS:
+            return self.inbound_gespraech(lead, persona, bericht)
         else:
             raise ValueError(f"Unbekannte Persona: {persona}")
         bericht["call_ended"] = self.call_ended(call_id, ext, tel, outcomes).json()
+        return bericht
+
+    # ------------------------------------------------------------ Inbound-Service (Use Case telko_inbound)
+    def inbound_gespraech(self, lead: dict, persona: str, bericht: dict[str, Any]) -> dict[str, Any]:
+        """Der Kunde ruft an: Contact Lookup über die Nummer, Verifizierung per Postleitzahl, dann das Anliegen."""
+        call_id, ext, tel = bericht["call_id"], str(lead["id"]), lead["telefon"]
+        bericht["contact_lookup"] = self.contact_lookup(tel)
+        bericht["vor_verifizierung"] = self.tool("lookup_lead", call_id, ext)            # muss verweigert werden
+        plz = lead.get("plz") or ""
+        if persona == "nicht_verifiziert":
+            bericht["versuche"] = [self.tool("verify_customer", call_id, ext, plz="00000") for _ in range(3)]
+            bericht["nach_dreimal"] = self.tool("verify_customer", call_id, ext, plz=plz)
+            outcomes = {"ergebnis": "nicht_verifiziert", "verifiziert": False}
+        else:
+            bericht["verify"] = self.tool("verify_customer", call_id, ext, plz=plz)
+            bericht["lookup"] = self.tool("lookup_lead", call_id, ext)
+            if persona == "termin_verschieben":
+                bericht["cancel"] = self.tool("cancel_appointment", call_id, ext, grund="Kunde ist an dem Tag nicht zu Hause")
+                slots = self.tool("check_slots", call_id, ext)["freie_termine"]
+                bericht["book"] = self.tool("book_appointment", call_id, ext, slot_id=slots[0]["slot_id"], art="vor_ort")
+                outcomes = {"ergebnis": "termin_verschoben", "verifiziert": True}
+            elif persona == "termin_kurzfristig":                                       # Mindestvorlauf: Code lehnt ab
+                bericht["cancel"] = self.tool("cancel_appointment", call_id, ext, grund="morgen passt nicht")
+                outcomes = {"ergebnis": "weitergeleitet", "verifiziert": True}
+            elif persona == "termin_bestaetigen":
+                outcomes = {"ergebnis": "termin_bestaetigt", "verifiziert": True}
+            elif persona == "stoerung":
+                bericht["ticket"] = self.tool("create_ticket", call_id, ext, kategorie="stoerung_internet",
+                                              beschreibung="Kein Internet seit heute Morgen, Router-LED rot")
+                outcomes = {"ergebnis": "ticket_erstellt", "ticket_kategorie": "stoerung_internet",
+                            "stoerung_seit": "heute Morgen", "verifiziert": True}
+            else:
+                raise ValueError(f"Unbekannte Persona: {persona}")
+        transkript = [{"role": "user", "content": "Hallo, ich rufe wegen meines Technikertermins an."},
+                      {"role": "agent", "content": f"Guten Tag, hier ist Mia, die digitale KI-Assistentin von FlinkNet."},
+                      {"role": "user", "content": f"Meine Postleitzahl ist {plz}."}]
+        bericht["call_ended"] = self.call_ended(call_id, ext, tel, outcomes, transkript=transkript, direction="inbound").json()
         return bericht

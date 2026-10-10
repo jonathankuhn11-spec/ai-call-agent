@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 
 def _env_datei(pfad: str = ".env") -> dict[str, str]:
@@ -42,7 +43,8 @@ class Konfig:
     tool_secret           Bearer-Token, das telli als "Secret"-Header an Custom Tools mitschickt
     kunde_webhook_url     Ziel für ausgehende Ereignisse (Ticketsystem, Automationsplattform, Slack-Bridge)
     kunde_webhook_secret  Geheimnis, mit dem ausgehende Ereignisse signiert werden
-    hubspot_token         Private-App-Token; gesetzt = HubSpot-Adapter statt Mock-CRM
+    hubspot_token         Private-App-Token; gesetzt = Spiegelung nach HubSpot
+    salesforce_*          Instance-URL plus Token oder Client-Credentials; gesetzt = Spiegelung nach Salesforce
     """
     db_pfad: str = "crm.duckdb"
     telli_api_key: str = ""
@@ -54,12 +56,21 @@ class Konfig:
     kunde_webhook_secret: str = ""
     hubspot_token: str = ""
     hubspot_url: str = "https://api.hubapi.com"
+    salesforce_instance_url: str = ""
+    salesforce_token: str = ""
+    salesforce_login_url: str = "https://login.salesforce.com"
+    salesforce_client_id: str = ""
+    salesforce_client_secret: str = ""
     zeitzone: str = "Europe/Berlin"
     signatur_toleranz_s: int = 300
     tool_latenzbudget_ms: int = 800
+    usecase: str = "pv_outbound"   # integrations/usecases: pv_outbound | telko_inbound
+    verifizierung_pflicht: Optional[bool] = None   # None = Vorgabe des Use Case
+    mindestvorlauf_h: Optional[int] = None         # None = Vorgabe des Use Case
     umgebung: str = "dev"          # "prod": Start nur mit vollständigen Geheimnissen
     takt_s: int = 15               # Takt des Hintergrundplaners: Outbox, Spiegelung, Lead-Push
     push_takt_s: int = 60          # Lead-Push-Intervall (Speed-to-Lead-Ziel unter 5 Minuten)
+    abgleich_takt_s: int = 1800    # Abgleich mit List Calls gegen Webhook-Lücken
     extra: dict = field(default_factory=dict)
 
     @classmethod
@@ -75,17 +86,31 @@ class Konfig:
             kunde_webhook_secret=lesen("KUNDE_WEBHOOK_SECRET"),
             hubspot_token=lesen("HUBSPOT_TOKEN"),
             hubspot_url=lesen("HUBSPOT_URL", "https://api.hubapi.com"),
+            salesforce_instance_url=lesen("SALESFORCE_INSTANCE_URL"),
+            salesforce_token=lesen("SALESFORCE_TOKEN"),
+            salesforce_login_url=lesen("SALESFORCE_LOGIN_URL", "https://login.salesforce.com"),
+            salesforce_client_id=lesen("SALESFORCE_CLIENT_ID"),
+            salesforce_client_secret=lesen("SALESFORCE_CLIENT_SECRET"),
             zeitzone=lesen("ZEITZONE", "Europe/Berlin"),
             signatur_toleranz_s=int(lesen("SIGNATUR_TOLERANZ_S", "300")),
             tool_latenzbudget_ms=int(lesen("TOOL_LATENZBUDGET_MS", "800")),
+            usecase=lesen("USECASE", "pv_outbound"),
+            verifizierung_pflicht={"": None, "true": True, "1": True, "false": False, "0": False}.get(lesen("VERIFIZIERUNG_PFLICHT").lower()),
+            mindestvorlauf_h=int(lesen("MINDESTVORLAUF_H")) if lesen("MINDESTVORLAUF_H") else None,
             umgebung=lesen("UMGEBUNG", "dev").lower(),
             takt_s=int(lesen("TAKT_S", "15")),
             push_takt_s=int(lesen("PUSH_TAKT_S", "60")),
+            abgleich_takt_s=int(lesen("ABGLEICH_TAKT_S", "1800")),
         )
 
     @property
     def produktiv(self) -> bool:
         return self.umgebung in ("prod", "produktion", "production")
+
+    @property
+    def salesforce_konfiguriert(self) -> bool:
+        return bool(self.salesforce_token and self.salesforce_instance_url) or bool(
+            self.salesforce_client_id and self.salesforce_client_secret)
 
     def fehlende_geheimnisse(self) -> list[str]:
         """Was vor einem Go-live gesetzt sein muss. Lokal und im Test darf alles leer sein."""

@@ -1,0 +1,230 @@
+[
+  {
+    "name": "verify_customer",
+    "description": "Prüft die Identität des Anrufers über die Postleitzahl der Anschlussadresse. Vor jeder Auskunft zu Terminen aufrufen; höchstens drei Versuche, danach weiterleiten. WANN: Nach der Begrüßung, sobald der Kunde die Postleitzahl genannt hat. NICHT: Nie mit einer geratenen oder unvollständigen Postleitzahl; höchstens dreimal. SAGEN: Bei Erfolg: „Danke, das passt.“ Bei Misserfolg: „Das passt leider nicht, bitte nennen Sie mir die Postleitzahl noch einmal.“ BEISPIEL: {\"plz\": \"48149\"}",
+    "method": "POST",
+    "url": "https://backend.kunde.example/tools/verify_customer",
+    "response_timeout_s": 3,
+    "headers": [
+      {
+        "key": "Authorization",
+        "value_type": "Secret",
+        "value": "Bearer <TOOL_SECRET>"
+      }
+    ],
+    "body": [
+      {
+        "key": "call_id",
+        "value_type": "System Variable",
+        "value": "call.id"
+      },
+      {
+        "key": "external_id",
+        "value_type": "System Variable",
+        "value": "contact.externalId"
+      },
+      {
+        "key": "phone_number",
+        "value_type": "System Variable",
+        "value": "contact.phoneNumber"
+      },
+      {
+        "key": "plz",
+        "value_type": "LLM Parameter",
+        "data_type": "String",
+        "description": "Postleitzahl, die der Kunde genannt hat",
+        "required": true
+      }
+    ]
+  },
+  {
+    "name": "lookup_lead",
+    "description": "Liest Name, Status, bekannte Qualifizierungsangaben und den nächsten Termin des Leads aus dem CRM. Zu Beginn des Gesprächs aufrufen, um Bekanntes nicht erneut zu fragen. WANN: Nach erfolgreicher Verifizierung, still. NICHT: Vor der Verifizierung; das Tool verweigert dann. SAGEN: Nichts.",
+    "method": "POST",
+    "url": "https://backend.kunde.example/tools/lookup_lead",
+    "response_timeout_s": 3,
+    "headers": [
+      {
+        "key": "Authorization",
+        "value_type": "Secret",
+        "value": "Bearer <TOOL_SECRET>"
+      }
+    ],
+    "body": [
+      {
+        "key": "call_id",
+        "value_type": "System Variable",
+        "value": "call.id"
+      },
+      {
+        "key": "external_id",
+        "value_type": "System Variable",
+        "value": "contact.externalId"
+      },
+      {
+        "key": "phone_number",
+        "value_type": "System Variable",
+        "value": "contact.phoneNumber"
+      }
+    ]
+  },
+  {
+    "name": "cancel_appointment",
+    "description": "Sagt den bevorstehenden Beratungstermin des Kunden ab. Nur aufrufen, wenn der Kunde das ausdrücklich will. Danach bei Interesse mit check_slots einen neuen Termin anbieten. WANN: Wenn der Kunde verschieben oder absagen will, nach der Verifizierung. NICHT: Nie auf Verdacht. Lehnt das Tool wegen Kurzfristigkeit ab: nicht erneut versuchen, weiterleiten. SAGEN: „Der Termin am … ist abgesagt.“ BEISPIEL: {\"grund\": \"Kunde ist an dem Tag nicht zu Hause\"}",
+    "method": "POST",
+    "url": "https://backend.kunde.example/tools/cancel_appointment",
+    "response_timeout_s": 3,
+    "headers": [
+      {
+        "key": "Authorization",
+        "value_type": "Secret",
+        "value": "Bearer <TOOL_SECRET>"
+      }
+    ],
+    "body": [
+      {
+        "key": "call_id",
+        "value_type": "System Variable",
+        "value": "call.id"
+      },
+      {
+        "key": "external_id",
+        "value_type": "System Variable",
+        "value": "contact.externalId"
+      },
+      {
+        "key": "phone_number",
+        "value_type": "System Variable",
+        "value": "contact.phoneNumber"
+      },
+      {
+        "key": "grund",
+        "value_type": "LLM Parameter",
+        "data_type": "String",
+        "description": "Kurzer Grund in den Worten des Kunden",
+        "required": false
+      }
+    ]
+  },
+  {
+    "name": "check_slots",
+    "description": "Liefert zwei freie Beratungstermine. Nur aufrufen, wenn der Lead qualifiziert ist. WANN: Nach einer Absage, wenn der Kunde einen neuen Termin will. NICHT: Ohne vorherige Absage; vor der Verifizierung. SAGEN: „Einen Moment, ich schaue nach freien Terminen.“ Danach beide vorlesen.",
+    "method": "POST",
+    "url": "https://backend.kunde.example/tools/check_slots",
+    "response_timeout_s": 3,
+    "headers": [
+      {
+        "key": "Authorization",
+        "value_type": "Secret",
+        "value": "Bearer <TOOL_SECRET>"
+      }
+    ],
+    "body": [
+      {
+        "key": "call_id",
+        "value_type": "System Variable",
+        "value": "call.id"
+      },
+      {
+        "key": "external_id",
+        "value_type": "System Variable",
+        "value": "contact.externalId"
+      },
+      {
+        "key": "phone_number",
+        "value_type": "System Variable",
+        "value": "contact.phoneNumber"
+      }
+    ]
+  },
+  {
+    "name": "book_appointment",
+    "description": "Bucht den Termin, den der Kunde ausdrücklich gewählt hat. slot_id aus check_slots. WANN: Nachdem der Kunde einen der vorgelesenen Termine gewählt hat. NICHT: Nie ungefragt. SAGEN: „Der neue Termin ist am …“ BEISPIEL: {\"slot_id\": 9, \"art\": \"vor_ort\"}",
+    "method": "POST",
+    "url": "https://backend.kunde.example/tools/book_appointment",
+    "response_timeout_s": 3,
+    "headers": [
+      {
+        "key": "Authorization",
+        "value_type": "Secret",
+        "value": "Bearer <TOOL_SECRET>"
+      }
+    ],
+    "body": [
+      {
+        "key": "call_id",
+        "value_type": "System Variable",
+        "value": "call.id"
+      },
+      {
+        "key": "external_id",
+        "value_type": "System Variable",
+        "value": "contact.externalId"
+      },
+      {
+        "key": "phone_number",
+        "value_type": "System Variable",
+        "value": "contact.phoneNumber"
+      },
+      {
+        "key": "slot_id",
+        "value_type": "LLM Parameter",
+        "data_type": "Number",
+        "description": "",
+        "required": true
+      },
+      {
+        "key": "art",
+        "value_type": "LLM Parameter",
+        "data_type": "String",
+        "description": "Einer von: video, vor_ort",
+        "required": false
+      }
+    ]
+  },
+  {
+    "name": "create_ticket",
+    "description": "Nimmt eine Störung oder ein Anliegen als Ticket auf und liefert die Ticketnummer zum Vorlesen. WANN: Bei einer Störung, nachdem Art und Beginn der Störung bekannt sind. NICHT: Für Termin- oder Rechnungsfragen. SAGEN: „Ich habe die Störung unter der Nummer … aufgenommen.“ BEISPIEL: {\"kategorie\": \"stoerung_internet\", \"beschreibung\": \"Kein Internet seit heute Morgen, Router-LED rot\"}",
+    "method": "POST",
+    "url": "https://backend.kunde.example/tools/create_ticket",
+    "response_timeout_s": 3,
+    "headers": [
+      {
+        "key": "Authorization",
+        "value_type": "Secret",
+        "value": "Bearer <TOOL_SECRET>"
+      }
+    ],
+    "body": [
+      {
+        "key": "call_id",
+        "value_type": "System Variable",
+        "value": "call.id"
+      },
+      {
+        "key": "external_id",
+        "value_type": "System Variable",
+        "value": "contact.externalId"
+      },
+      {
+        "key": "phone_number",
+        "value_type": "System Variable",
+        "value": "contact.phoneNumber"
+      },
+      {
+        "key": "kategorie",
+        "value_type": "LLM Parameter",
+        "data_type": "String",
+        "description": "Einer von: stoerung_internet, stoerung_tv, stoerung_telefon, rechnung, sonstiges",
+        "required": true
+      },
+      {
+        "key": "beschreibung",
+        "value_type": "LLM Parameter",
+        "data_type": "String",
+        "description": "Was funktioniert nicht, seit wann, in den Worten des Kunden",
+        "required": true
+      }
+    ]
+  }
+]

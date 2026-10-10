@@ -12,6 +12,11 @@ Zwei Verfahren kommen bei telli vor, beide HMAC-SHA256:
 Ausgehende Webhooks dieser Schicht (an Ticketsystem, Automationsplattform) nutzen das
 Svix-Format. Dann braucht der Kunde für alle Webhooks nur ein Verifikationsmuster.
 
+Schlüsselrotation: Ein Geheimnis-Parameter darf mehrere Geheimnisse durch Komma getrennt enthalten.
+Beim Prüfen gilt die Nachricht, wenn eine der Signaturen zu einem der Geheimnisse passt; beim
+Signieren werden alle Signaturen mitgeschickt (so macht es Svix während einer Rotation). Damit
+lässt sich ein Geheimnis tauschen, ohne dass eine Zustellung verloren geht.
+
 Grundregeln, die hier eingehalten werden:
 - Immer über den rohen Body prüfen, nie über neu serialisiertes JSON (Feldreihenfolge und
   Leerzeichen würden die Signatur brechen).
@@ -44,6 +49,11 @@ def _gleich(a: str, b: str) -> bool:
     return hmac.compare_digest(a.encode("utf-8", "surrogateescape"), b.encode("utf-8", "surrogateescape"))
 
 
+def geheimnisse(secret: str) -> list[str]:
+    """"alt,neu" -> ["alt", "neu"]; Leerzeichen und leere Einträge werden ignoriert."""
+    return [s.strip() for s in (secret or "").split(",") if s.strip()]
+
+
 def _svix_schluessel(secret: str) -> bytes:
     if secret.startswith("whsec_"):
         secret = secret[len("whsec_"):]
@@ -54,10 +64,13 @@ def _svix_schluessel(secret: str) -> bytes:
 
 
 def svix_signieren(secret: str, msg_id: str, zeitstempel: int, body: bytes) -> str:
-    """Signaturheader-Wert für eine ausgehende Nachricht: "v1,<base64>"."""
+    """Signaturheader-Wert für eine ausgehende Nachricht: "v1,<base64>"; bei Rotation mehrere, durch Leerzeichen."""
     inhalt = f"{msg_id}.{zeitstempel}.".encode() + body
-    sig = hmac.new(_svix_schluessel(secret), inhalt, hashlib.sha256).digest()
-    return "v1," + base64.b64encode(sig).decode()
+    teile = []
+    for einzel in geheimnisse(secret) or [secret]:
+        sig = hmac.new(_svix_schluessel(einzel), inhalt, hashlib.sha256).digest()
+        teile.append("v1," + base64.b64encode(sig).decode())
+    return " ".join(teile)
 
 
 def svix_kopfzeilen(secret: str, msg_id: str, body: bytes, zeitstempel: Optional[int] = None) -> dict[str, str]:
@@ -81,12 +94,12 @@ def svix_pruefen(secret: str, body: bytes, headers: Mapping[str, str],
     jetzt = time.time() if jetzt is None else jetzt
     if abs(jetzt - ts) > toleranz_s:
         raise SignaturFehler("Zeitstempel außerhalb der Toleranz")
-    erwartet = svix_signieren(secret, msg_id, ts, body).split(",", 1)[1]
+    erwartete = [svix_signieren(einzel, msg_id, ts, body).split(",", 1)[1] for einzel in (geheimnisse(secret) or [secret])]
     for eintrag in sig_roh.split():
         if "," not in eintrag:
             continue
         version, wert = eintrag.split(",", 1)
-        if version == "v1" and _gleich(wert, erwartet):
+        if version == "v1" and any(_gleich(wert, e) for e in erwartete):
             return msg_id
     raise SignaturFehler("Signatur passt nicht")
 
@@ -100,7 +113,7 @@ def telli_pruefen(api_key: str, body: bytes, headers: Mapping[str, str]) -> None
     kopf = _kopf(headers, "x-telli-signature")
     if not kopf:
         raise SignaturFehler("x-telli-signature fehlt")
-    if not _gleich(kopf.strip().lower(), telli_signatur(api_key, body)):
+    if not any(_gleich(kopf.strip().lower(), telli_signatur(k, body)) for k in (geheimnisse(api_key) or [api_key])):
         raise SignaturFehler("x-telli-signature passt nicht")
 
 
@@ -109,5 +122,5 @@ def bearer_pruefen(erwartet: str, headers: Mapping[str, str]) -> None:
     kopf = _kopf(headers, "authorization") or ""
     teile = kopf.split(None, 1)
     token = teile[1].strip() if len(teile) == 2 and teile[0].lower() == "bearer" else ""
-    if not token or not _gleich(token, erwartet):
+    if not token or not any(_gleich(token, e) for e in (geheimnisse(erwartet) or [erwartet])):
         raise SignaturFehler("Bearer-Token fehlt oder passt nicht")

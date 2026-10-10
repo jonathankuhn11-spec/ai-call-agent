@@ -1,0 +1,6 @@
+{
+  "url": "https://backend.kunde.example/webhooks/contact-lookup",
+  "timeout_s": 2,
+  "aktiv": true,
+  "hinweis": "Antwort {\"contact\": null} für Unbekannte; properties werden zu {{...}}-Variablen"
+}
