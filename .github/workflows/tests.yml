@@ -22,7 +22,7 @@ jobs:
         run: |
           python -m integrations definitions --url https://backend.kunde.example > tool-definitionen.json
           python -c "import json; d = json.load(open('tool-definitionen.json')); print(len(d['telli_custom_tools']), 'Custom Tools')"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: tool-definitionen
           path: tool-definitionen.json
