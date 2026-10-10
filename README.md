@@ -4,12 +4,15 @@
 
 Prototyp eines Call-Agenten, der Online-Leads eines PV-Anbieters anruft, qualifiziert und einen Beratungstermin
 bucht. Gebaut wie ein Kunden-Deployment: mit Scoping-Dokument, Geschäftsregeln im Code, einer typisierten
-Entscheidungsschicht vor dem Sprachmodell, automatisiertem User-Acceptance-Test gegen simulierte Kunden und
-einem Dashboard, das jede Iteration gegen die vorige stellt.
+Entscheidungsschicht vor dem Sprachmodell, automatisiertem User-Acceptance-Test gegen simulierte Kunden,
+einem Dashboard, das jede Iteration gegen die vorige stellt, einer Integrationsschicht, die den Agenten
+entlang der dokumentierten Schnittstellen der Voice-Plattform telli an CRM, Kalender und Ticketsystem
+anbindet, und einem Deployment-Playbook von der Unterschrift bis zum ersten produktiven Anruf.
 
 **Kunde (fiktiv):** SonnenWerk Energie · **Use Case:** Outbound-Qualifizierung und Terminbuchung ·
-**Stack:** Python, Ollama (Qwen 2.5, lokal), Pydantic, DuckDB, Jev (TypeSafe AI, optional), Streamlit ·
-**Status:** zwei Betriebsarten, UAT 49 von 50 im geführten Modus mit Qwen 2.5 7B, lokaler Sprach-Layer (Push-to-talk); Telefonie offen
+**Stack:** Python, Ollama (Qwen 2.5, lokal), Pydantic, DuckDB, FastAPI, Jev (TypeSafe AI, optional), Streamlit ·
+**Status:** zwei Betriebsarten, UAT 49 von 50 im geführten Modus mit Qwen 2.5 7B, lokaler Sprach-Layer (Push-to-talk),
+Integrationsschicht mit Plattform-Simulator (186 Tests, Demo in CI); Telefonie und Plattform-Account offen
 
 ## Das Problem
 
@@ -180,6 +183,88 @@ Einrichtung: `pip install -r requirements-voice.txt`, Piper-Stimme `de_DE-thorst
 nach `voices/` laden, Links im Kopf von `voice.py`. Dann `python voice.py`; mit `--no-mic` tippt der Kunde und
 der Agent spricht, mit `--no-tts` umgekehrt. Telefonie (SIP) ist nicht angebunden, die Demo läuft am Rechner.
 
+## Integrationsschicht: der Agent im Tech-Stack des Kunden
+
+Das Gespräch ist die halbe Miete. Die andere Hälfte eines Deployments ist alles drumherum: Leads aus dem CRM in
+den Dialer, Backend-Funktionen für den Agenten während des Gesprächs, Ergebnisse zurück ins CRM, Aufgaben für
+Rückrufe, Benachrichtigungen an nachgelagerte Systeme. [`integrations/`](integrations) baut diese Hälfte entlang
+der dokumentierten Schnittstellen der Voice-Plattform [telli](https://docs.telli.com), ohne Account und ohne
+Netz: Ein Simulator spielt die Plattform, das Mock-CRM bleibt die Datenbasis.
+
+| Richtung | Schnittstelle (telli-Doku) | Hier |
+| --- | --- | --- |
+| CRM → Plattform | Create Contact v2, Schedule Call v1 | `LeadPush`: offene Leads anlegen und in den Dialer, idempotent, 409-sicher |
+| Plattform → Backend, im Gespräch | Custom Tools (HTTP-Function-Tools, Bearer-Secret) | `POST /tools/{lookup_lead, update_lead, check_slots, book_appointment}`: dieselben `Tools` wie im Agenten |
+| Plattform → Backend, im Gespräch | Custom Calendar `/available`, `/book` (x-telli-signature) | Slots nur für qualifizierte Leads, Buchung nur angebotener Slots, idempotent |
+| Plattform → Backend, vor dem Gespräch | Contact Lookup Webhook | Rückrufer werden mit Namen, Status und Sperrvermerk erkannt |
+| Plattform → Backend, danach | `call_ended`, Svix-signiert | Nachbereitung: Ergebnis aus dem Backend-Zustand, Notiz, Rückruf-Aufgabe, Sperrliste, Dedup |
+| Backend → Kundensysteme | eigene Ereignisse, Svix-signiert | Outbox mit Wiederholungsplan wie bei telli, Idempotency-Key, Dead Letter |
+| Backend → Kunden-CRM | HubSpot CRM API v3 | Lead-Status, eigene Eigenschaften, Notiz, Aufgabe; Feldmapping als Daten |
+
+```mermaid
+sequenceDiagram
+    participant CRM as Kunden-CRM
+    participant I as Integrationsschicht
+    participant T as telli
+    participant S as Ticketsystem
+    CRM->>I: neuer Lead
+    I->>T: Kontakt anlegen, Anruf planen
+    T->>I: /tools/update_lead, /calendar/available, /calendar/book (im Gespräch)
+    I-->>T: Geschäftsregeln aus agent.Tools, Fehler als Klartext
+    T->>I: call_ended (Svix-signiert)
+    I->>I: Ergebnis aus Backend-Zustand, Notiz, Aufgabe, Sperrliste
+    I->>CRM: Status, Notiz, Aufgabe
+    I->>S: signierte Ereignisse über Outbox
+```
+
+Vier Entscheidungen tragen die Schicht. **Der Code entscheidet, auch gegenüber der Plattform:** Meldet der Agent
+„Termin gebucht“, aber weder Backend noch Plattformkalender kennen einen Termin aus diesem Gespräch, wird daraus
+eine Prüfaufgabe, kein Termin; meldet er „disqualifiziert“ ohne Grund im CRM, ebenso; ein Opt-out wird nie
+überstimmt. **Gesprächszustand liegt in der Datenbank:** Jeder Tool-Aufruf ist ein eigener HTTP-Request, also lebt
+das Angebotsgedächtnis in einer Tabelle, nicht im Prozess, und die Nachbereitung eines Anrufs ist eine Transaktion.
+**Wiederholungen sind ungefährlich:** Buchungen sind idempotent, Webhooks werden dedupliziert, Ereignisse tragen
+einen Idempotency-Key. **Fehler dorthin, wo sie verwertet werden:** Was der Agent im Gespräch nutzen kann (Termin
+nicht mehr frei, Validierung), kommt mit HTTP 200 als Klartext zurück; Konfigurationsfehler sind 4xx. Ausgehender
+HTTP-Verkehr (Outbox, CRM-Spiegelung, Lead-Push) läuft in einem Hintergrundplaner und nie unter der
+Datenbanksperre: Ein Kundensystem, das vier Sekunden braucht, verzögert keinen Tool-Aufruf der Plattform.
+
+`python -m integrations demo` fährt fünf Pilotgespräche im Prozess und druckt, was im CRM, in der Outbox und beim
+Attrappen-Ticketsystem ankommt (gekürzt):
+
+```
+Lead 1 Thomas Becker    happy_path        -> termin_gebucht       Termin 2026-10-12T07:00:00.000Z
+Lead 2 Sabine Wolf      mieter            -> disqualifiziert
+Lead 3 Mehmet Yilmaz    keine_zeit        -> rueckruf_vereinbart  Aufgabe #1
+Lead 4 Anna Schröder    opt_out           -> opt_out
+Lead 5 Klaus Hoffmann   behauptet_termin  -> rueckruf_vereinbart  Aufgabe #2  Flags: termin_behauptet_ohne_buchung
+
+Latenz je Endpunkt (im Prozess, ohne Netz):
+  tools/update_lead            5 Aufrufe  p50   3.4 ms  p95   3.5 ms  Fehler 0
+  calendar/book                1 Aufrufe  p50   6.3 ms  p95   6.3 ms  Fehler 0
+  webhooks/telli               5 Aufrufe  p50  20.6 ms  p95  22.6 ms  Fehler 0
+
+Outbox: {'zugestellt': 9} | beim Ticketsystem angekommen und signaturgeprüft: 9
+```
+
+Zum Schluss der Paritätsbeweis in `tests/test_integrations_e2e.py`: Der Leitfaden aus `guided.py` läuft
+unverändert, wenn seine Tools über HTTP gehen. Alle Schnittstellen, Payloads, Signaturverfahren und die
+Ergebnis-Tabelle der Nachbereitung stehen in [`docs/integrationen.md`](docs/integrationen.md).
+
+## Deployment-Playbook
+
+[`docs/playbook/`](docs/playbook) beschreibt den Weg von der Unterschrift zum ersten produktiven Anruf, auf
+dieses Projekt zugeschnitten, als Vorlage für jeden Use Case:
+
+| Phase | Dokument | Inhalt |
+| --- | --- | --- |
+| Woche 0 | [Scoping-Workshop](docs/playbook/01-scoping-workshop.md) | Agenda für 90 Minuten, Fragenkatalog, Vorlage des Scoping-Dokuments (`SCOPING.md` ist das ausgefüllte Beispiel) |
+| Woche 1 | [Integrations-Checkliste](docs/playbook/02-integrations-checkliste.md) | Zugänge, telli-Konfiguration (Contact properties, Outcomes, Custom Tools, Kalender, Webhook), CRM, Kalender, Telefonie, Datenschutz, Staging-Abnahme |
+| Woche 1 bis 2 | [UAT und Abnahmekriterien](docs/playbook/03-uat-abnahmekriterien.md) | Personas, Pass-Kriterien, Stichprobe, Integrations-UAT mit dem Simulator, echte Testanrufe, Abnahmeprotokoll |
+| Woche 2 bis 4 | [Go-live-Runbook](docs/playbook/04-go-live-runbook.md) | Zeitplan T-7 bis T+14, Go/No-Go-Checkliste, Hochfahr-Kriterien, Rollback, Monitoring |
+| ab Woche 2 | [KPIs und Reporting](docs/playbook/05-kpis-und-reporting.md) | Definition, Formel, Quelle und Ziel je KPI, Wochenreport, Lesehilfe |
+| ab Woche 2 | [Eskalationsmatrix](docs/playbook/06-eskalationsmatrix.md) | Stufen S1 bis S4 mit Beispielen, Reaktionszeiten, Kommunikation, Bereitschaft |
+| Woche 4 | [Enablement und Übergabe](docs/playbook/07-enablement.md) | Wer lernt was, was der Kunde selbst ändert, Übergabepaket, Abschlussgespräch |
+
 ## Reproduzieren
 
 Voraussetzungen: Python 3.11 oder neuer und [Ollama](https://ollama.com/download). Qwen 2.5 7B braucht rund
@@ -210,16 +295,24 @@ macOS und Linux: statt der vierten Zeile `source .venv/bin/activate`.
 | Eine Persona mit Gesprächsverlauf | `python simulate.py --persona mieter -v` |
 | Dashboard | `python -m streamlit run dashboard.py` |
 | Sprach-Agent (Mikrofon und Lautsprecher) | `python voice.py` |
+| Integrationsschicht: Demo mit Plattform-Simulator | `python -m integrations demo` |
+| Integrationsschicht: Server für die Plattform | `python -m integrations serve --port 8000` |
+| Tool-Definitionen für die telli-Konfiguration | `python -m integrations definitions --url https://backend.kunde.example` |
+| Lead-Push in den Dialer, ohne zu senden | `python -m integrations push --trocken` |
 | Tests | `python -m pytest -q` |
 
 Jev ist optional. Mit einem API-Key von TypeSafe AI in einer Datei `.env` (Vorlage: [`.env.example`](.env.example))
 übernimmt Jev Absichtserkennung und Faktencheck; ohne Key laufen dieselben Entscheidungen über die Regex-Schicht.
-Die Datei `.env` steht in der `.gitignore`.
+Die Geheimnisse der Integrationsschicht (API-Key, Webhook-Secret, Tool-Secret) stehen in derselben Datei; ohne sie
+laufen die Endpunkte unsigniert, für lokale Tests. Die Datei `.env` steht in der `.gitignore`.
 
-Die 97 Tests brauchen weder Ollama noch Jev noch Audio-Hardware: Das LLM wird durch skriptierte Antworten
-und Extraktionen ersetzt, die Jev-API durch einen Stub, Mikrofon und Stimme durch Attrappen. Geprüft wird genau der Teil, der in Produktion deterministisch sein
-muss: Geschäftsregeln, Validierung, Guardrails, Intent-Routing, Fallbacks, der Leitfaden des geführten Modus
-und die Bewertungslogik des UAT.
+Die 186 Tests brauchen weder Ollama noch Jev noch Audio-Hardware noch einen Plattform-Account: Das LLM wird durch
+skriptierte Antworten und Extraktionen ersetzt, die Jev-API durch einen Stub, Mikrofon und Stimme durch Attrappen,
+die Voice-Plattform durch den Simulator und HubSpot, telli-API und Kundensystem durch `httpx.MockTransport`, der
+jede Anfrage auf Pfad, Body und Signatur prüft. Geprüft wird genau der Teil, der in Produktion deterministisch
+sein muss: Geschäftsregeln, Validierung, Guardrails, Intent-Routing, Fallbacks, der Leitfaden des geführten Modus,
+die Bewertungslogik des UAT, die HTTP-Kontrakte, Signaturen, Idempotenz, Wiederholungsplan und die
+Ergebnis-Ableitung der Nachbereitung.
 
 ## Projektstruktur
 
@@ -230,8 +323,21 @@ jev.py            Jev-Anbindung: Fragenkatalog, Schwellen, Timeout, Fallback
 voice.py          Sprach-Layer: faster-whisper, Piper mit Vorlagen-Cache, Push-to-talk, Latenzmessung
 simulate.py       UAT: Personas, Bewertung, Iterationsprotokoll
 dashboard.py      Streamlit-Dashboard über eval_results.json und eval_history.json
+integrations/     Integrationsschicht nach den telli-Schnittstellen
+  server.py         FastAPI: /tools/{name}, /calendar/available, /calendar/book, /webhooks/contact-lookup, /webhooks/telli, /push, /metrics; Hintergrundplaner
+  crm.py            Integrationsdatenbank auf dem Mock-CRM: Angebote, Buchungen, Aufgaben, Sperrliste, Dedup; PersistenteTools
+  nachbereitung.py  call_ended -> Ergebnis aus Backend-Zustand, Notiz, Aufgabe, Sperrliste, Ereignisse; alles in einer Transaktion; Spiegel-Aufträge
+  outbox.py         Ausgehende Webhooks: Outbox, Svix-Signatur, Wiederholungsplan, Dead Letter
+  signatur.py       Svix, x-telli-signature, Bearer; konstante Zeit, Replay-Schutz
+  telli.py          Create Contact v2, Schedule Call v1, Get Call; LeadPush
+  hubspot.py        HubSpot CRM API v3: Kontakt, Eigenschaften, Notiz, Aufgabe; Feldmapping
+  modelle.py        Pydantic-Modelle aller Payloads, tolerant beim Lesen, strikt beim Schreiben
+  simulator.py      Plattform-Simulator: spielt telli für Demo und Tests
+  __main__.py       CLI: serve, demo, definitions, outbox, push
+docs/integrationen.md   Schnittstellen, Payloads, Sicherheit, Ergebnis-Tabelle, Betrieb, Grenzen
+docs/playbook/          Scoping-Workshop, Integrations-Checkliste, UAT, Go-live-Runbook, KPIs, Eskalation, Enablement
 SCOPING.md        Deployment-Scoping: Problem, KPIs, Kriterien, Edge Cases, Recht, Pilotplan
-tests/            97 Tests mit skriptiertem LLM, Jev-Stub und Audio-Attrappen
+tests/            186 Tests mit skriptiertem LLM, Jev-Stub, Audio-Attrappen, Plattform-Simulator und MockTransport
 eval_history.json Kennzahlen je Lauf
 eval_results.json Transkripte und Bewertung des letzten Laufs
 ```
@@ -251,15 +357,22 @@ eval_results.json Transkripte und Bewertung des letzten Laufs
 - **Jev ist ein Cloud-Dienst.** Kundenaussagen verlassen den Rechner. Für simulierte Testkunden ist das
   unproblematisch, für echte Anrufe braucht es einen Auftragsverarbeitungsvertrag und eine Prüfung des
   Drittlandtransfers (siehe `SCOPING.md`, Abschnitt 8).
-- **Kein Produktivsystem.** Mock-CRM in DuckDB, fiktive Leads, kein Kalender-Backend.
+- **Kein Plattform-Account.** Die Integrationsschicht ist aus der öffentlichen telli-Dokumentation nachgebaut
+  und mit dem Simulator geprüft. Die Hülle des `call_ended`-Webhooks ist dort nicht vollständig beschrieben
+  (gelesen wird `event`, `call`, `contact` nach dem Get-Call-Schema, ersatzweise flach); die Checkliste verlangt
+  vor dem Go-live eine echte Zustellung gegen Staging. HubSpot ist gegen die API-Form getestet, nicht gegen
+  einen Live-Account.
+- **Kein Produktivsystem.** Mock-CRM in DuckDB, fiktive Leads, Slots in einer Tabelle statt in einem
+  Kalenderdienst. Für mehr Durchsatz als einen Pilot wird DuckDB durch Postgres ersetzt; die Schnittstelle bleibt.
 
 ## Nächste Schritte
 
-1. Protokollierte UAT-Läufe: geführt mit 7B (mit und ohne Formulierung), frei mit 14B, je drei Durchläufe pro Persona
-2. Sprach-Layer: Telefonie per SIP, Streaming-TTS satzweise, Barge-in; Latenzbudget unter 1,5 s je Turn
-3. Mehr Personas: Senior mit Rückfragen, Zweifler, Kunde mit Kind im Hintergrund
-4. Latenz messen und senken: Tool-Aufrufe pro Turn, Antwortlänge, Streaming
-5. Telefonie-Anbindung per SIP für einen echten Pilot
+1. Integrationsschicht gegen einen telli-Testaccount: echte `call_ended`-Zustellung, Custom Tools und Kalender
+   aus dem Portal, Contact Lookup per Testanruf; Hülle in `modelle.py` nachziehen, falls sie abweicht
+2. Protokollierte UAT-Läufe: geführt mit 7B (mit und ohne Formulierung), frei mit 14B, je drei Durchläufe pro Persona
+3. Sprach-Layer: Telefonie per SIP, Streaming-TTS satzweise, Barge-in; Latenzbudget unter 1,5 s je Turn
+4. Mehr Personas: Senior mit Rückfragen, Zweifler, Kunde mit Kind im Hintergrund
+5. Zweiter CRM-Adapter (Salesforce) und ein Kalenderdienst hinter `/available` und `/book`
 
 ## Lizenz
 

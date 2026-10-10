@@ -108,3 +108,89 @@ def jev_stub(monkeypatch):
     monkeypatch.setitem(jev.STATS, "fehler", 0)
     monkeypatch.setitem(jev.STATS, "latenzen", [])
     return state
+
+
+# ---------------------------------------------------------------- Integrationsschicht
+# Die Plattform (telli) wird durch den Simulator ersetzt, das Kundensystem durch einen
+# httpx.MockTransport, der jede Zustellung signaturgeprüft entgegennimmt. Kein Account, kein Netz.
+API_KEY = "test-api-key"
+WEBHOOK_SECRET = "whsec_dGVzdC13ZWJob29rLXNlY3JldA=="
+TOOL_SECRET = "test-tool-secret"
+KUNDEN_SECRET = "whsec_a3VuZGVuLXNlY3JldA=="
+
+
+@pytest.fixture
+def konfig():
+    from integrations.konfig import Konfig
+    return Konfig(db_pfad=":memory:", telli_api_key=API_KEY, telli_webhook_secret=WEBHOOK_SECRET,
+                  tool_secret=TOOL_SECRET, telli_agent_id="agent_test")
+
+
+@pytest.fixture
+def kundensystem():
+    """Attrappe des Kundensystems: prüft die Signatur jeder Zustellung und merkt sich die Ereignisse."""
+    import httpx
+
+    from integrations.signatur import svix_pruefen
+
+    zustand = {"empfangen": [], "ausfaelle": 0, "antwort": 200, "jetzt": None}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if zustand["ausfaelle"] > 0:
+            zustand["ausfaelle"] -= 1
+            return httpx.Response(503)
+        jetzt = zustand["jetzt"]().timestamp() if zustand["jetzt"] else None
+        svix_pruefen(KUNDEN_SECRET, request.content, request.headers, jetzt=jetzt)
+        zustand["empfangen"].append({"typ": request.headers["x-ereignis-typ"], "id": request.headers["idempotency-key"],
+                                     "body": json.loads(request.content)})
+        return httpx.Response(zustand["antwort"])
+
+    zustand["client"] = httpx.Client(transport=httpx.MockTransport(handler))
+    return zustand
+
+
+@pytest.fixture
+def telli_attrappe():
+    """Attrappe der telli-API (Create Contact v2, Schedule Call v1) für den Lead-Push."""
+    import httpx
+
+    from integrations.telli import TelliClient
+
+    zustand = {"requests": []}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        zustand["requests"].append((request.method, request.url.path, body))
+        if request.url.path == "/v2/contacts":
+            return httpx.Response(201, json={"id": f"ct_{body['externalId']}", "type": "Contact"})
+        if request.url.path == "/v1/schedule-call":
+            return httpx.Response(200, json={"status": "success", "contact_id": body["contact_id"],
+                                             "loop_id": f"loop_{body['contact_id']}"})
+        return httpx.Response(404, json={"message": "nicht da"})
+
+    zustand["client"] = TelliClient("test-api-key", client=httpx.Client(transport=httpx.MockTransport(handler),
+                                                                        base_url="https://api.telli.com"))
+    return zustand
+
+
+@pytest.fixture
+def app(con, konfig, kundensystem, telli_attrappe, quiet):
+    from integrations.outbox import Outbox
+    from integrations.server import erstelle_app
+
+    outbox = Outbox(con, "https://kunde.example/webhooks", KUNDEN_SECRET, client=kundensystem["client"])
+    return erstelle_app(konfig, con=con, outbox=outbox, telli_client=telli_attrappe["client"],
+                        planer_starten=False)                                   # Planer-Takt im Test von Hand
+
+
+@pytest.fixture
+def client(app):
+    from fastapi.testclient import TestClient
+    with TestClient(app) as c:
+        yield c
+
+
+@pytest.fixture
+def sim(client):
+    from integrations.simulator import PlattformSimulator
+    return PlattformSimulator(client, API_KEY, WEBHOOK_SECRET, TOOL_SECRET)

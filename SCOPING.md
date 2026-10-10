@@ -38,9 +38,12 @@ Begrüßung → Anrufgrund → Zeitcheck → 4 Qualifizierungsfragen → Termina
 | Aggressiv oder Opt-out | Sofort beenden, Sperrvermerk im CRM |
 
 ## 6. Integrationen
-- **CRM:** Leads lesen, Qualifizierung schreiben (Prototyp: DuckDB, Produktion: z. B. HubSpot oder Salesforce per API)
-- **Kalender:** Slots lesen und buchen
-- **Telefonie:** SIP-Trunk (Produktion)
+Umgesetzt in `integrations/` nach den telli-Schnittstellen, Details in `docs/integrationen.md`, Abnahme nach `docs/playbook/02-integrations-checkliste.md`.
+- **CRM → Dialer:** offene Leads als Kontakte anlegen und Anruf planen (Create Contact v2, Schedule Call); Takt des Lead-Push so, dass Speed-to-Lead unter 5 Minuten bleibt
+- **Im Gespräch:** Custom Tools `lookup_lead`, `update_lead`, `check_slots`, `book_appointment` mit denselben Geschäftsregeln wie im Agenten; Custom Calendar `/available` und `/book`
+- **Nach dem Gespräch:** `call_ended`-Webhook → Ergebnis aus dem Backend-Zustand, Notiz, Rückruf-Aufgabe, Sperrliste; Spiegelung ins Kunden-CRM (Prototyp: DuckDB, Produktion: HubSpot-Adapter, Salesforce offen); signierte Ereignisse an das Ticketsystem
+- **Kalender:** Slots in Ortszeit, Schnittstelle in UTC; maximal zwei Alternativen im Gespräch, vier über die Kalenderschnittstelle
+- **Telefonie:** Sache der Plattform (SIP, Anzeigenummer, Mailbox-Erkennung); Rückrufer über den Contact-Lookup-Webhook erkennen
 
 ## 7. Guardrails
 - Geschäftsregeln hart im Code: Buchung nur bei Status „qualifiziert“ und Eigentümer

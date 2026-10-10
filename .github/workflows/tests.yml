@@ -14,5 +14,15 @@ jobs:
           python-version: "3.12"
       - name: Abhängigkeiten installieren
         run: python -m pip install -r requirements.txt
-      - name: Tests (ohne Ollama und ohne Jev-Zugang)
+      - name: Tests (ohne Ollama, ohne Jev-Zugang, ohne Plattform-Account)
         run: python -m pytest -q
+      - name: Integrationsschicht, Demo im Prozess (Plattform-Simulator gegen Server und Attrappen-Kundensystem)
+        run: python -m integrations demo
+      - name: Tool-Definitionen für die Plattform-Konfiguration erzeugen
+        run: |
+          python -m integrations definitions --url https://backend.kunde.example > tool-definitionen.json
+          python -c "import json; d = json.load(open('tool-definitionen.json')); print(len(d['telli_custom_tools']), 'Custom Tools')"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tool-definitionen
+          path: tool-definitionen.json

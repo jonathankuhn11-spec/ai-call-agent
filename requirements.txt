@@ -6,3 +6,6 @@ httpx==0.28.1
 streamlit==1.65.0
 pandas==2.3.3
 pytest==9.1.1
+# Integrationsschicht (integrations/): HTTP-Schnittstelle für die Voice-Plattform
+fastapi==0.143.0
+uvicorn==0.53.0
