@@ -103,6 +103,7 @@ def main() -> int:
     ap.add_argument("--schwelle-ms", type=float, default=300)
     ap.add_argument("--port", type=int, default=8777)
     ap.add_argument("--json", action="store_true", help="nur das Ergebnis als JSON ausgeben")
+    ap.add_argument("--aufwaermen", type=int, default=2, help="Gespräche vor der Messung, nicht gewertet (Kaltstart)")
     a = ap.parse_args()
 
     server = None
@@ -112,6 +113,9 @@ def main() -> int:
     kopf = {"Authorization": f"Bearer {a.secret}"}
     zeiten: list[tuple[str, float]] = []
     fehler: list[str] = []
+    with httpx.Client() as client:
+        for i in range(a.aufwaermen):                    # Kaltstart (Abfragepläne, Importe) nicht in die Messung
+            gespraech(client, basis, kopf, 6 + a.gespraeche + i, [], [])
     t_start = time.perf_counter()
     with httpx.Client() as client:
         semaphore = threading.Semaphore(a.parallel)

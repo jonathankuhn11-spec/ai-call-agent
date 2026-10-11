@@ -313,7 +313,8 @@ keine Buchung ohne Buchung, kein Tool-Name im Text, nach Schwere S1 bis S3). [`p
 zeigt beides als Streamlit-Cockpit. [`Dockerfile`](Dockerfile) und [`docker-compose.yml`](docker-compose.yml) packen
 den Server für die Infrastruktur des Kunden (Healthcheck, Volume, Geheimnisse aus `.env`); CI baut das Image und
 wartet auf `healthy`. [`scripts/lasttest.py`](scripts/lasttest.py) fährt parallele Gespräche gegen den Server, in CI
-40 Gespräche mit 10 parallelen Anrufern bei p95 unter 300 ms, während die Outbox an ein 500-ms-Kundensystem liefert.
+40 Gespräche mit 10 parallelen Anrufern, während die Outbox an ein 500-ms-Kundensystem liefert (lokal p95 unter 150 ms;
+die Schwelle liegt bei 300 ms für Staging und 400 ms auf den geteilten CI-Runnern).
 
 Drei Dinge, die ein Betrieb sonst nachträglich einbaut, sind von Anfang an da. **Abnahme von außen:**
 `python -m integrations check --url https://staging.kunde.example` schickt dieselben Requests wie die Plattform

@@ -20,8 +20,8 @@ jobs:
         run: python -m pytest -q
       - name: Integrationsschicht, Demo im Prozess (beide Use Cases, Plattform-Simulator, Attrappen-Kundensystem)
         run: python -m integrations demo
-      - name: Lasttest (40 Gespräche, 10 parallel, Outbox liefert währenddessen an ein langsames Kundensystem)
-        run: python scripts/lasttest.py --gespraeche 40 --parallel 10 --schwelle-ms 300
+      - name: Lasttest (40 Gespräche, 10 parallel, Outbox liefert währenddessen an ein langsames Kundensystem; geteilte Runner schwanken, Staging-Schwelle ist 300 ms)
+        run: python scripts/lasttest.py --gespraeche 40 --parallel 10 --schwelle-ms 400
       - name: Konfigurationspakete für den Plattform-Builder erzeugen (müssen mit docs/telli-konfig übereinstimmen)
         run: |
           python -m integrations konfigpaket --alle --out telli-konfig

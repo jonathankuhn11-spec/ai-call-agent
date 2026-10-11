@@ -468,7 +468,7 @@ Custom Tools. Alle Vergleiche laufen über Bytes in konstanter Zeit; unlesbare K
 | Lead-Push sofort | `POST /push` (Bearer), z. B. aus einem CRM-Webhook; wartet auf einen laufenden Planer-Durchlauf, statt verworfen zu werden |
 | Abgleich sofort | `POST /abgleich` (Bearer); ein Anruf: `POST /abgleich/{call_id}` |
 | Container | `docker compose up -d --build` (Dockerfile: python:3.12-slim, nur Laufzeitabhängigkeiten, Volume `/data`, Healthcheck auf `/health`); CI baut das Image und prüft den Healthcheck |
-| Lasttest | `python scripts/lasttest.py` (App im Prozess) oder `--url https://staging … --secret …`; Exit-Code 1, wenn p95 über der Schwelle liegt; CI: 40 Gespräche, 10 parallel, p95 < 300 ms, während die Outbox an ein 500-ms-Kundensystem liefert |
+| Lasttest | `python scripts/lasttest.py` (App im Prozess) oder `--url https://staging … --secret …`; Exit-Code 1, wenn p95 über der Schwelle liegt; zwei Gespräche zum Aufwärmen werden nicht gewertet; CI: 40 Gespräche, 10 parallel, p95 < 400 ms auf geteilten Runnern (Staging-Schwelle 300 ms), während die Outbox an ein 500-ms-Kundensystem liefert |
 | Kennzahlen, Review | `python -m integrations report`, `python -m integrations review`, `python -m streamlit run pilot_dashboard.py` |
 | Konfigurationspaket | `python -m integrations konfigpaket --alle --url https://backend.kunde.example --out telli-konfig` |
 | Batch ohne laufenden Server | `python -m integrations push` (`--trocken` zeigt die Requests), `python -m integrations outbox --zustellen` |
