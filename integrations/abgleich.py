@@ -14,7 +14,7 @@ der Tabelle telli_kontakte. HTTP läuft ohne Sperre, Datenbankarbeit mit.
 from __future__ import annotations
 
 from contextlib import nullcontext
-from typing import Any, Optional
+from typing import Any
 
 from integrations.modelle import CallEndedEreignis, TelliAnruf, TelliKontaktV1
 from integrations.nachbereitung import Nachbereitung

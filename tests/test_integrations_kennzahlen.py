@@ -1,12 +1,12 @@
 """KPIs als Code: dieselben Definitionen wie im Playbook (05), berechnet aus CRM, Kalender und Protokoll."""
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from integrations import kennzahlen
 
 
 def test_kpis_from_a_demo_pilot(sim, app):
     crm = app.state.ctx.crm
-    crm.con.execute("UPDATE leads SET erstellt_am = now()::TIMESTAMP - INTERVAL 7 MINUTE")
+    crm.con.execute("UPDATE leads SET erstellt_am = ?", [crm.jetzt() - timedelta(minutes=7)])
     for lead_id, persona in enumerate(["happy_path", "mieter", "keine_zeit", "opt_out", "behauptet_termin"], start=1):
         sim.gespraech(crm.lead(lead_id), persona)
     sim.gespraech(crm.lead(5), "nicht_erreicht")                      # zweiter Versuch, Mailbox
@@ -51,7 +51,7 @@ def test_report_follows_the_playbook_template(sim, app):
 
 def test_time_window_filters_calls(app):
     crm = app.state.ctx.crm
-    alt = datetime.now() - timedelta(days=30)
+    alt = crm.jetzt() - timedelta(days=30)
     crm.anruf_protokollieren(1, alt, alt, "kein_interesse", 2, 0, [], [])
     crm.anruf_protokollieren(2, None, None, "opt_out", 1, 0, [], [])      # ohne Zeit: zählt nicht zum Fenster
     assert kennzahlen.kennzahlen(crm, tage=7)["anrufe"] == 0

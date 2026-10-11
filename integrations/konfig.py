@@ -45,6 +45,8 @@ class Konfig:
     kunde_webhook_secret  Geheimnis, mit dem ausgehende Ereignisse signiert werden
     hubspot_token         Private-App-Token; gesetzt = Spiegelung nach HubSpot
     salesforce_*          Instance-URL plus Token oder Client-Credentials; gesetzt = Spiegelung nach Salesforce
+    kalender              Kalenderdienst hinter den Slots: leer (Tabelle) oder "calcom" mit calcom_*
+    fristen               Aufbewahrung in Tagen je Datenart (AUFBEWAHRUNG_<ART>_TAGE), siehe aufbewahrung.Fristen
     """
     db_pfad: str = "crm.duckdb"
     telli_api_key: str = ""
@@ -71,6 +73,15 @@ class Konfig:
     takt_s: int = 15               # Takt des Hintergrundplaners: Outbox, Spiegelung, Lead-Push
     push_takt_s: int = 60          # Lead-Push-Intervall (Speed-to-Lead-Ziel unter 5 Minuten)
     abgleich_takt_s: int = 1800    # Abgleich mit List Calls gegen Webhook-Lücken
+    kalender: str = ""             # "" = Slot-Tabelle, "calcom" = Cal.com API v2 (integrations/kalender.py)
+    calcom_api_key: str = ""
+    calcom_event_type_id: str = ""
+    calcom_url: str = "https://api.cal.com"
+    kalender_takt_s: int = 300     # Verfügbarkeit des Kalenderdienstes spiegeln
+    kalender_tage: int = 14        # so weit voraus
+    aufbewahrung_takt_s: int = 86400   # Fristen täglich anwenden (integrations/aufbewahrung.py)
+    datenschutz_pepper: str = ""       # geheimer Schlüssel für das Pseudonym im Löschprotokoll
+    fristen: dict = field(default_factory=dict)   # Abweichungen von den Vorgaben, z. B. {"transkripte": 14}
     extra: dict = field(default_factory=dict)
 
     @classmethod
@@ -101,6 +112,17 @@ class Konfig:
             takt_s=int(lesen("TAKT_S", "15")),
             push_takt_s=int(lesen("PUSH_TAKT_S", "60")),
             abgleich_takt_s=int(lesen("ABGLEICH_TAKT_S", "1800")),
+            kalender=lesen("KALENDER").lower(),
+            calcom_api_key=lesen("CALCOM_API_KEY"),
+            calcom_event_type_id=lesen("CALCOM_EVENT_TYPE_ID"),
+            calcom_url=lesen("CALCOM_URL", "https://api.cal.com"),
+            kalender_takt_s=int(lesen("KALENDER_TAKT_S", "300")),
+            kalender_tage=int(lesen("KALENDER_TAGE", "14")),
+            aufbewahrung_takt_s=int(lesen("AUFBEWAHRUNG_TAKT_S", "86400")),
+            datenschutz_pepper=lesen("DATENSCHUTZ_PEPPER"),
+            fristen={art: int(lesen(f"AUFBEWAHRUNG_{art.upper()}_TAGE")) for art in
+                     ("transkripte", "tickets", "verifizierungen", "zustellungen", "webhooks", "erinnerungen", "protokoll")
+                     if lesen(f"AUFBEWAHRUNG_{art.upper()}_TAGE")},
         )
 
     @property
@@ -121,4 +143,6 @@ class Konfig:
             fehlt.append("TELLI_WEBHOOK_SECRET")
         if not self.tool_secret:
             fehlt.append("TOOL_SECRET")
+        if self.kalender == "calcom" and not self.calcom_api_key:
+            fehlt.append("CALCOM_API_KEY")
         return fehlt

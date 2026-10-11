@@ -17,8 +17,12 @@ from integrations.modelle import telefon_normalisieren
 
 
 @pytest.fixture
-def crm(con):
-    return LocalCRM(con)
+def crm(con, uhr):
+    """Integrationsdatenbank mit stehender Testuhr; die Beispiel-Slots liegen relativ zu ihr."""
+    from zoneinfo import ZoneInfo
+    con.execute("DELETE FROM slots")
+    agent.slots_anlegen(con, uhr().astimezone(ZoneInfo("Europe/Berlin")).replace(tzinfo=None))
+    return LocalCRM(con, uhr=uhr)
 
 
 def test_phone_numbers_are_normalised_for_lookup(crm):
@@ -43,9 +47,12 @@ def test_offered_slots_survive_a_new_request(crm):
     assert agent.Tools(crm.con, 1).book_appointment(slot_id=angeboten[1]["slot_id"])["ok"] is False   # ohne Gedächtnis: nie angeboten
 
 
-def test_offers_expire(crm):
-    crm.con.execute("INSERT INTO angebote VALUES (1, 1, now() - INTERVAL 25 HOUR)")
-    crm.con.execute("INSERT INTO angebote VALUES (1, 2, now() - INTERVAL 1 HOUR)")
+def test_offers_expire(crm, uhr):
+    crm.angebote_merken(1, [1])
+    uhr.vor(hours=23)
+    crm.angebote_merken(1, [2])
+    assert crm.angebotene_slots(1) == {1, 2}
+    uhr.vor(hours=1, seconds=1)                                   # 24 Stunden nach dem ersten Angebot
     assert crm.angebotene_slots(1) == {2}
 
 
@@ -92,7 +99,7 @@ def test_webhook_deduplication_by_message_and_call(crm):
 
 
 def test_call_log_uses_the_agents_calls_table(crm):
-    cid = crm.anruf_protokollieren(1, datetime.now(timezone.utc), datetime.now(timezone.utc), "opt_out", 2, 0,
+    cid = crm.anruf_protokollieren(1, crm.uhr(), crm.uhr(), "opt_out", 2, 0,
                                    ["plattform:telli"], [{"role": "user", "content": "Nein danke"}])
     assert crm.anrufe(1) == [{"id": cid, "ergebnis": "opt_out", "turns": 2, "flags": ["plattform:telli"]}]
     assert crm.con.execute("SELECT COUNT(*) FROM calls").fetchone()[0] == 1

@@ -51,8 +51,10 @@ gegen das Backend:
 
 ## D. Kalender
 
-- [ ] Entscheidung: native Anbindung der Plattform (Calendly, Cal.com, HubSpot Meetings) oder eigene Kalenderschnittstelle
-- [ ] Zeitzone: Slots in Ortszeit gespeichert, Schnittstelle liefert UTC mit `Z`; Testbuchung um 9:00 Ortszeit erscheint im Kalender um 9:00
+- [ ] Entscheidung: native Anbindung der Plattform (Calendly, Cal.com, HubSpot Meetings), eigene Kalenderschnittstelle mit Slot-Tabelle, oder eigene Schnittstelle mit Kalenderdienst dahinter (`KALENDER=calcom`, `docs/integrationen.md` Abschnitt 3a)
+- [ ] Bei Kalenderdienst: Event-Typ angelegt (Dauer, Verfügbarkeiten, Puffer), E-Mail des Teilnehmers optional (Leads haben nur eine Telefonnummer), `CALCOM_EVENT_TYPE_ID` und API-Key in `.env`, `python -m integrations kalender --spiegeln` zeigt die freien Zeiten
+- [ ] Bei Kalenderdienst: Testbuchung über `book_appointment` erscheint im Kalender mit Name, Nummer und `lead_id` in den Metadaten; Kalender kurz abschalten, Buchung bleibt `vorgemerkt` und wird nach 5 s bestätigt; eine im Kalender belegte Zeit wird im Gespräch als „inzwischen vergeben“ abgelehnt
+- [ ] Zeitzone: Slots in Ortszeit gespeichert, Schnittstelle liefert UTC mit `Z`; Testbuchung um 9:00 Ortszeit erscheint im Kalender um 9:00, auch für Termine nach der nächsten Zeitumstellung
 - [ ] Wie viele Alternativen bietet der Agent an (Standard zwei im Gespräch, vier über die Kalenderschnittstelle)?
 - [ ] Doppelbuchungen ausgeschlossen (Test: zwei Leads, derselbe Slot)
 - [ ] Stornierung und Verschiebung: Wer tut das, und wird der Slot wieder frei?
@@ -70,12 +72,14 @@ gegen das Backend:
 - [ ] Geheimnisrotation: Vorgehen beschrieben (Svix erlaubt mehrere Signaturen während der Rotation)
 - [ ] Auftragsverarbeitungsvertrag mit der Plattform, Drittlandtransfer geprüft
 - [ ] Aufzeichnung: nur mit Einwilligung; `recording_url` läuft nach einer Stunde ab, wird nicht gespeichert
-- [ ] Aufbewahrungsfristen für Transkripte in `calls` und Notizen im CRM festgelegt
-- [ ] Logs enthalten keine Transkripte und keine Geheimnisse
+- [ ] Aufbewahrungsfristen festgelegt und eingetragen (`AUFBEWAHRUNG_*_TAGE`, Vorgaben: Transkripte 30 Tage, Tickets 90, Ereignisse 30, Anrufzeilen 365; `docs/integrationen.md` Abschnitt 11); Fristen für Notizen und Kontakte im Kunden-CRM beim Kunden
+- [ ] Prozess für Auskunft und Löschung benannt: Wer nimmt Anfragen an, wer führt `python -m integrations datenschutz --auskunft` und `--loeschen` aus, wer löscht im CRM, bei telli und im Kalender (die Antwort des Kommandos listet die IDs)?
+- [ ] Logs enthalten keine Transkripte, Geheimnisse und Telefonnummern (Logbuch schreibt JSON-Zeilen mit `call_id`, `lead_id`, Endpunkt, Latenz)
 
 ## G. Abnahme in Staging (alle Haken vor dem UAT)
 
 - [ ] `python -m pytest -q` grün, `python -m integrations demo` läuft durch
+- [ ] `python -m integrations check --url https://staging.kunde.example --protokoll abnahme.md` meldet GO: Signaturen auf allen Endpunkten, Fehler als HTTP 200, Tool-URLs zeigen auf die Staging-URL, Kontraktformen, Latenzen unter Budget (Abschnitt 10 in `docs/integrationen.md`); das Protokoll kommt in die Akte
 - [ ] Lead-Push: ein Testlead erscheint als Kontakt mit Eigenschaften und landet im Dialer
 - [ ] Custom Tool: `update_lead` mit ungültigem Wert liefert HTTP 200 mit Fehlertext, der Agent korrigiert sich im Testanruf
 - [ ] Kalender: `/available` leer vor Qualifizierung, gefüllt danach; `/book` und `book_appointment` zweimal mit demselben Slot ergeben eine Buchung, ein anderer Slot eine Umbuchung

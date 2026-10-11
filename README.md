@@ -12,7 +12,8 @@ anbindet, und einem Deployment-Playbook von der Unterschrift bis zum ersten prod
 **Kunde (fiktiv):** SonnenWerk Energie · **Use Case:** Outbound-Qualifizierung und Terminbuchung ·
 **Stack:** Python, Ollama (Qwen 2.5, lokal), Pydantic, DuckDB, FastAPI, Docker, Jev (TypeSafe AI, optional), Streamlit ·
 **Status:** zwei Betriebsarten, UAT 49 von 50 im geführten Modus mit Qwen 2.5 7B, lokaler Sprach-Layer (Push-to-talk),
-Integrationsschicht mit Plattform-Simulator (229 Tests, Demo in CI); Telefonie und Plattform-Account offen
+Integrationsschicht mit Plattform-Simulator und Kalenderdienst-Adapter (291 Tests, Demo, Lasttest und Abnahme in CI);
+Telefonie und Plattform-Account offen
 
 ## Das Problem
 
@@ -201,7 +202,9 @@ Netz: Ein Simulator spielt die Plattform, das Mock-CRM bleibt die Datenbasis.
 | Plattform → Backend, danach | `call_ended`, `call_rescheduled`, `auto_dialer_status_changed`, Svix-signiert | Nachbereitung: Ergebnis aus dem Backend-Zustand, Notiz, Rückruf-Aufgabe, Sperrliste, Dedup, Dialer-Zustand |
 | Backend → Kundensysteme | eigene Ereignisse, Svix-signiert | Outbox mit Wiederholungsplan wie bei telli, Idempotency-Key, Dead Letter |
 | Backend → Kunden-CRM | HubSpot CRM API v3, Salesforce REST API | Lead-Status, eigene Eigenschaften, Notiz, Aufgabe; Feldmapping als Daten; Spiegelung asynchron mit Wiederholung |
+| Backend ↔ Kalenderdienst | Cal.com API v2 (`/v2/slots`, `/v2/bookings`, `/cancel`) | Kalender-Spiegel: Verfügbarkeit alle 5 min in die Slot-Tabelle, Buchung im Gespräch bestätigt, bevor der Agent zusagt; Absage und Umbuchung nachgezogen, Ausfall mit Wiederholungsplan |
 | Backend → Builder | Prompt, Outcomes, Properties, Tools, Kalender, Webhook | `python -m integrations konfigpaket`: aus einer Use-Case-Definition, in CI gegen `docs/telli-konfig/` geprüft |
+| Abnahme → Backend | dieselben Requests wie die Plattform, von außen | `python -m integrations check --url …`: Signaturen, Kontrakte, Latenz, Konfigurationsdrift als Go/No-Go mit Abnahmeprotokoll |
 
 ```mermaid
 sequenceDiagram
@@ -219,7 +222,7 @@ sequenceDiagram
     I->>S: signierte Ereignisse über Outbox
 ```
 
-Vier Entscheidungen tragen die Schicht. **Der Code entscheidet, auch gegenüber der Plattform:** Meldet der Agent
+Fünf Entscheidungen tragen die Schicht. **Der Code entscheidet, auch gegenüber der Plattform:** Meldet der Agent
 „Termin gebucht“, aber weder Backend noch Plattformkalender kennen einen Termin aus diesem Gespräch, wird daraus
 eine Prüfaufgabe, kein Termin; meldet er „disqualifiziert“ ohne Grund im CRM, ebenso; ein Opt-out wird nie
 überstimmt. **Gesprächszustand liegt in der Datenbank:** Jeder Tool-Aufruf ist ein eigener HTTP-Request, also lebt
@@ -229,6 +232,11 @@ einen Idempotency-Key. **Fehler dorthin, wo sie verwertet werden:** Was der Agen
 nicht mehr frei, Validierung), kommt mit HTTP 200 als Klartext zurück; Konfigurationsfehler sind 4xx. Ausgehender
 HTTP-Verkehr (Outbox, CRM-Spiegelung, Lead-Push) läuft in einem Hintergrundplaner und nie unter der
 Datenbanksperre: Ein Kundensystem, das vier Sekunden braucht, verzögert keinen Tool-Aufruf der Plattform.
+**Eine Uhr:** Jeder Zeitvergleich (freie Slots, fällige Erinnerungen, Mindestvorlauf, Wiederholungspläne,
+Replay-Schutz) läuft über eine Uhr, die beim Aufbau der App übergeben wird. In den Tests steht sie und wird
+vorgestellt; dieselbe Suite läuft am Sonntagabend und in der Nacht der Zeitumstellung identisch, und ein Test,
+der eine Erinnerung 24 Stunden vor dem Termin erwartet, stellt die Uhr vor, statt Zeitstempel in der Datenbank
+zu verbiegen.
 
 `python -m integrations demo` fährt fünf Pilotgespräche im Prozess und druckt, was im CRM, in der Outbox und beim
 Attrappen-Ticketsystem ankommt (gekürzt):
@@ -251,6 +259,25 @@ Outbox: {'zugestellt': 9} | beim Ticketsystem angekommen und signaturgeprüft: 9
 Zum Schluss der Paritätsbeweis in `tests/test_integrations_e2e.py`: Der Leitfaden aus `guided.py` läuft
 unverändert, wenn seine Tools über HTTP gehen. Alle Schnittstellen, Payloads, Signaturverfahren und die
 Ergebnis-Tabelle der Nachbereitung stehen in [`docs/integrationen.md`](docs/integrationen.md).
+
+### Kalenderdienst hinter den Slots
+
+Beim Kunden liegen freie Zeiten nicht in einer Tabelle, sondern in einem Kalender. [`integrations/kalender.py`](integrations/kalender.py)
+hängt Cal.com (offen, selbst betreibbar, API v2) hinter `check_slots`, `book_appointment` und die
+Kalenderschnittstelle der Plattform, ohne dass sich an den Geschäftsregeln etwas ändert: Die Verfügbarkeit wird
+gespiegelt (der Tool-Aufruf antwortet aus der Datenbank, der Kalender darf kurz ausfallen), eine Buchung wird im
+Kalender bestätigt, bevor der Agent sie zusagt, eine Umbuchung sagt den alten Termin erst nach der Bestätigung
+des neuen ab, und bei einem Ausfall bleibt die Buchung vorgemerkt und wird nach dem Wiederholungsplan der Outbox
+nachgeholt. Die Demo fährt das gegen eine Cal.com-Attrappe:
+
+```
+Spiegel: 9 Zeiten aus dem Kalender übernommen, 20 Beispiel-Slots entfernt, 9 frei
+Buchung       Mo 12.10. 08:30 Uhr -> bestaetigt, Cal.com-Buchung bk_0001
+Umbuchung auf Mo 12.10. 10:30 Uhr -> abgelehnt: Dieser Termin ist inzwischen vergeben. Der bisherige Termin am 12.10.2026 08:30 Uhr bleibt bestehen.
+Umbuchung auf Di 13.10. 08:30 Uhr -> vorgemerkt: Der Kalender war gerade nicht erreichbar; die Buchung ist vorgemerkt und wird automa
+Planer 5 s später                -> bestätigt 1, alte Buchung im Kalender storniert 1; Cal.com: bk_0001 cancelled, bk_0002 accepted
+Absage        13.10.2026 08:30 Uhr -> Cal.com: bk_0001 cancelled, bk_0002 cancelled
+```
 
 ### Zwei Use Cases, ein Backend
 
@@ -287,6 +314,21 @@ zeigt beides als Streamlit-Cockpit. [`Dockerfile`](Dockerfile) und [`docker-comp
 den Server für die Infrastruktur des Kunden (Healthcheck, Volume, Geheimnisse aus `.env`); CI baut das Image und
 wartet auf `healthy`. [`scripts/lasttest.py`](scripts/lasttest.py) fährt parallele Gespräche gegen den Server, in CI
 40 Gespräche mit 10 parallelen Anrufern bei p95 unter 300 ms, während die Outbox an ein 500-ms-Kundensystem liefert.
+
+Drei Dinge, die ein Betrieb sonst nachträglich einbaut, sind von Anfang an da. **Abnahme von außen:**
+`python -m integrations check --url https://staging.kunde.example` schickt dieselben Requests wie die Plattform
+([`integrations/pruefung.py`](integrations/pruefung.py)): Signaturprüfung auf jedem Endpunkt (unsigniert 401, alter
+Svix-Zeitstempel 401), Fehler als HTTP 200 mit Text, Tool-URLs zeigen auf die geprüfte Basis-URL, Kontraktformen von
+Kalender, Contact Lookup und Webhook, Latenz je Gruppe unter Budget, keine toten Einträge; Ergebnis ist ein Go/No-Go
+mit Exit-Code und Abnahmeprotokoll, in CI gegen einen frisch gestarteten Server mit Geheimnissen. **Beobachtbarkeit:**
+`GET /metrics/prometheus` liefert Anfragen, Fehler und Latenzquantile je Endpunkt sowie Outbox-, Spiegel- und
+Kalenderaufträge je Status; das Logbuch ([`integrations/logbuch.py`](integrations/logbuch.py)) schreibt eine JSON-Zeile
+je Vorgang mit `call_id`, `lead_id`, Endpunkt und Latenz, nie Transkripte, Geheimnisse oder Telefonnummern.
+**Aufbewahrung und Betroffenenrechte** ([`integrations/aufbewahrung.py`](integrations/aufbewahrung.py)): Fristen je
+Datenart laufen täglich im Planer (Transkripte 30 Tage, Anrufzeilen für die Kennzahlen 365), `python -m integrations
+datenschutz --auskunft +49…` gibt alles zu einer Nummer als ein Dokument, `--loeschen` pseudonymisiert den Lead,
+entfernt Inhalte, sagt Termine ab und lässt die Nummer als Werbesperre stehen; das Löschprotokoll hält nur einen
+Hash der Nummer.
 
 ## Deployment-Playbook
 
@@ -337,6 +379,9 @@ macOS und Linux: statt der vierten Zeile `source .venv/bin/activate`.
 | Konfigurationspaket für den telli-Builder | `python -m integrations konfigpaket --alle --url https://backend.kunde.example` |
 | Wochenreport, Transkript-Review, Pilot-Cockpit | `python -m integrations report`, `python -m integrations review`, `python -m streamlit run pilot_dashboard.py` |
 | Lasttest | `python scripts/lasttest.py --gespraeche 40 --parallel 10` |
+| Abnahme eines laufenden Deployments (Go/No-Go, Abnahmeprotokoll) | `python -m integrations check --url https://staging.kunde.example --protokoll abnahme.md` |
+| Kalenderdienst (Cal.com): Spiegel und Aufträge | `python -m integrations kalender --spiegeln --auftraege` |
+| Aufbewahrungsfristen, Auskunft, Löschung | `python -m integrations datenschutz --aufraeumen`, `--auskunft +49…`, `--loeschen +49…` |
 | Container | `docker compose up -d --build` |
 | Integrationsschicht: Server für die Plattform | `python -m integrations serve --port 8000` |
 | Tool-Definitionen für die telli-Konfiguration | `python -m integrations definitions --url https://backend.kunde.example` |
@@ -348,13 +393,15 @@ Jev ist optional. Mit einem API-Key von TypeSafe AI in einer Datei `.env` (Vorla
 Die Geheimnisse der Integrationsschicht (API-Key, Webhook-Secret, Tool-Secret) stehen in derselben Datei; ohne sie
 laufen die Endpunkte unsigniert, für lokale Tests. Die Datei `.env` steht in der `.gitignore`.
 
-Die 229 Tests brauchen weder Ollama noch Jev noch Audio-Hardware noch einen Plattform-Account: Das LLM wird durch
+Die 291 Tests brauchen weder Ollama noch Jev noch Audio-Hardware noch einen Plattform-Account: Das LLM wird durch
 skriptierte Antworten und Extraktionen ersetzt, die Jev-API durch einen Stub, Mikrofon und Stimme durch Attrappen,
-die Voice-Plattform durch den Simulator und HubSpot, telli-API und Kundensystem durch `httpx.MockTransport`, der
-jede Anfrage auf Pfad, Body und Signatur prüft. Geprüft wird genau der Teil, der in Produktion deterministisch
-sein muss: Geschäftsregeln, Validierung, Guardrails, Intent-Routing, Fallbacks, der Leitfaden des geführten Modus,
-die Bewertungslogik des UAT, die HTTP-Kontrakte, Signaturen, Idempotenz, Wiederholungsplan und die
-Ergebnis-Ableitung der Nachbereitung.
+die Voice-Plattform durch den Simulator und HubSpot, telli-API, Cal.com und Kundensystem durch `httpx.MockTransport`,
+der jede Anfrage auf Pfad, Body, Header und Signatur prüft. Die Zeit steht in den Tests (eine Testuhr für Backend,
+Plattform und Kundensystem), die Suite läuft zu jeder Uhrzeit und an jedem Wochentag gleich. Geprüft wird genau der
+Teil, der in Produktion deterministisch sein muss: Geschäftsregeln, Validierung, Guardrails, Intent-Routing,
+Fallbacks, der Leitfaden des geführten Modus, die Bewertungslogik des UAT, die HTTP-Kontrakte, Signaturen,
+Idempotenz, Wiederholungsplan, Kalender-Spiegel und Buchungsbestätigung, Aufbewahrungsfristen und Löschung,
+die Ergebnis-Ableitung der Nachbereitung und die Abnahmeprüfung selbst.
 
 ## Projektstruktur
 
@@ -380,8 +427,13 @@ integrations/     Integrationsschicht nach den telli-Schnittstellen
   telli.py          Create Contact v2, Schedule Call v1, Get Call; LeadPush
   hubspot.py        HubSpot CRM API v3: Kontakt, Eigenschaften, Notiz, Aufgabe; Feldmapping
   modelle.py        Pydantic-Modelle aller Payloads, tolerant beim Lesen, strikt beim Schreiben
-  simulator.py      Plattform-Simulator: spielt telli für Demo und Tests
-  __main__.py       CLI: serve, demo, definitions, outbox, push
+  simulator.py      Plattform-Simulator: spielt telli für Demo und Tests; Cal.com-Attrappe
+  kalender.py       Kalenderdienst hinter den Slots: Cal.com API v2, Kalender-Spiegel, Buchungsbestätigung, Aufträge mit Wiederholung
+  pruefung.py       Abnahme von außen: dieselben Requests wie die Plattform, Go/No-Go, Abnahmeprotokoll
+  aufbewahrung.py   Aufbewahrungsfristen je Datenart, Auskunft (Art. 15) und Löschung (Art. 17) je Telefonnummer
+  logbuch.py        strukturiertes Log: eine JSON-Zeile je Vorgang, korreliert über call_id, ohne Transkripte und Nummern
+  uhr.py            die eine Uhr der Schicht (Systemzeit) und die stellbare Testuhr
+  __main__.py       CLI: serve, demo, definitions, outbox, push, review, abgleich, report, konfigpaket, kalender, check, datenschutz
 pilot_dashboard.py  Streamlit-Cockpit: Kennzahlen, Flags, Review, Wochenreport aus der Integrationsdatenbank
 scripts/lasttest.py Lasttest: parallele Gespräche, p50/p95, Schwelle
 Dockerfile, docker-compose.yml  Container für die Integrationsschicht
@@ -391,7 +443,7 @@ docs/telli-konfig/      erzeugte Konfigurationspakete je Use Case
 docs/use-cases/         zweites Scoping: Telko-Inbound
 docs/playbook/          Scoping-Workshop, Integrations-Checkliste, UAT, Go-live-Runbook, KPIs, Eskalation, Enablement
 SCOPING.md        Deployment-Scoping: Problem, KPIs, Kriterien, Edge Cases, Recht, Pilotplan
-tests/            229 Tests mit skriptiertem LLM, Jev-Stub, Audio-Attrappen, Plattform-Simulator und MockTransport
+tests/            291 Tests mit skriptiertem LLM, Jev-Stub, Audio-Attrappen, Plattform-Simulator, Cal.com-Attrappe, Testuhr und MockTransport
 eval_history.json Kennzahlen je Lauf
 eval_results.json Transkripte und Bewertung des letzten Laufs
 ```
@@ -416,8 +468,10 @@ eval_results.json Transkripte und Bewertung des letzten Laufs
   (gelesen wird `event`, `call`, `contact` nach dem Get-Call-Schema, ersatzweise flach); die Checkliste verlangt
   vor dem Go-live eine echte Zustellung gegen Staging. HubSpot ist gegen die API-Form getestet, nicht gegen
   einen Live-Account.
-- **Kein Produktivsystem.** Mock-CRM in DuckDB, fiktive Leads, Slots in einer Tabelle statt in einem
-  Kalenderdienst. Für mehr Durchsatz als einen Pilot wird DuckDB durch Postgres ersetzt; die Schnittstelle bleibt.
+- **Kein Produktivsystem.** Mock-CRM in DuckDB, fiktive Leads. Der Kalenderdienst-Adapter ist gegen die
+  dokumentierte Cal.com-API gebaut und mit einer Attrappe geprüft, nicht gegen einen Live-Account; Google Calendar
+  und Outlook brauchen einen eigenen Adapter hinter derselben Schnittstelle. Für mehr Durchsatz als einen Pilot
+  wird DuckDB durch Postgres ersetzt; die Schnittstelle bleibt.
 
 ## Nächste Schritte
 
@@ -426,7 +480,8 @@ eval_results.json Transkripte und Bewertung des letzten Laufs
 2. Protokollierte UAT-Läufe: geführt mit 7B (mit und ohne Formulierung), frei mit 14B, je drei Durchläufe pro Persona
 3. Sprach-Layer: Telefonie per SIP, Streaming-TTS satzweise, Barge-in; Latenzbudget unter 1,5 s je Turn
 4. Mehr Personas: Senior mit Rückfragen, Zweifler, Kunde mit Kind im Hintergrund
-5. Kalenderdienst hinter `/available` und `/book` (Cal.com oder Google Calendar als Slot-Quelle statt der Tabelle)
+5. Kalenderdienst gegen einen echten Cal.com-Account; Adapter für Google Calendar und Outlook hinter derselben Schnittstelle
+6. Postgres statt DuckDB für mehrere Instanzen; die Abnahmeprüfung läuft dann gegen jede Instanz
 
 ## Lizenz
 

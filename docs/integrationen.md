@@ -17,7 +17,9 @@ in DuckDB; ein Simulator spielt die Plattform.
 | Plattform → Backend, nach dem Gespräch | Webhooks `call_ended`, `call_rescheduled`, `auto_dialer_status_changed`, Svix-signiert | `POST /webhooks/telli` → `nachbereitung.py` |
 | Backend → Kundensysteme | eigene Ereignisse, Svix-signiert, Outbox | `outbox.py` |
 | Backend → Kunden-CRM | HubSpot CRM API v3 oder Salesforce REST API (Kontakt/Lead, Notiz, Aufgabe) | `hubspot.py`, `salesforce.py` |
+| Backend ↔ Kalenderdienst | Cal.com API v2 (`/v2/slots`, `/v2/bookings`, `/cancel`): Verfügbarkeit gespiegelt, Buchung bestätigt, Absage nachgezogen | `kalender.py` (Abschnitt 3a) |
 | Builder ← Backend | Prompt, Outcomes, Properties, Tools, Kalender, Webhook je Use Case | `usecases/`, `konfigpaket.py` → `docs/telli-konfig/` |
+| Abnahme ← Backend | dieselben Requests wie die Plattform, von außen, als Go/No-Go | `pruefung.py` (`python -m integrations check`, Abschnitt 10) |
 
 ## Ein Pilotgespräch, Ende zu Ende
 
@@ -79,6 +81,16 @@ Kontrakt geformt (`extra="forbid"`, Zeitformate, Feldnamen).
 (Lead unbekannt, Termin nicht mehr frei, Validierung), kommen mit HTTP 200 und Klartext im Body
 zurück, damit sie das Sprachmodell erreichen. Konfigurationsfehler (unbekanntes Tool, kaputtes
 JSON, falsche Signatur) sind 4xx und landen im Plattform-Log.
+
+**Eine Uhr.** Jeder Zeitvergleich der Schicht (freie Slots, fällige Erinnerungen, Mindestvorlauf,
+Gesprächsfenster, Wiederholungspläne, Replay-Schutz der Signaturen) läuft über eine Uhr, die beim
+Aufbau der App übergeben wird (`uhr.py`); die Datenbankfunktion `now()` wird nicht benutzt, weil
+sie sich nicht stellen lässt. Produktiv ist das die Systemzeit in UTC; in den Tests steht sie und
+wird vorgestellt: Ein Test, der prüft, dass eine Erinnerung genau 24 Stunden vor dem Termin
+rausgeht, stellt die Uhr vor, statt Zeitstempel in der Datenbank zu verbiegen. Dieselbe Suite läuft
+am Sonntagabend, in der Nacht und in der Nacht der Zeitumstellung identisch
+(`tests/test_integrations_uhr.py`); die Tabellen speichern Wanduhrzeit der konfigurierten Zone,
+die Plattform spricht UTC, die Umrechnung liegt an einer Stelle (`LocalCRM.wandzeit`, `start_utc`).
 
 ## 1. Lead-Push: CRM → Dialer
 
@@ -163,6 +175,36 @@ Belegte oder unbekannte Slots antworten mit dem Standardgrund, nie angebotene od
 qualifizierte mit dem Grund aus der Geschäftsregel.
 Beide Endpunkte verlangen `x-telli-signature` (HMAC-SHA256 über den rohen Body, Schlüssel ist
 der API-Key), sobald `TELLI_API_KEY` gesetzt ist.
+
+## 3a. Kalenderdienst hinter den Slots: Cal.com
+
+Ohne Kalenderdienst sind die freien Zeiten eine Tabelle (`slots`), gut für Pilot und Demo. Beim
+Kunden liegen sie in einem Kalender. `kalender.py` hängt einen solchen Dienst an, ohne dass sich an
+den Geschäftsregeln etwas ändert (`KALENDER=calcom`, `CALCOM_API_KEY`, `CALCOM_EVENT_TYPE_ID`;
+Cal.com ist offen und selbst betreibbar, der Adapter spricht die API v2). Das Muster heißt
+Kalender-Spiegel:
+
+| Schritt | Was passiert | Warum so |
+| --- | --- | --- |
+| Verfügbarkeit spiegeln | Der Planer holt alle `KALENDER_TAKT_S` (5 min) die freien Zeiten der nächsten `KALENDER_TAGE` (14) per `GET /v2/slots?format=range` und gleicht die Slot-Tabelle ab: neue Zeiten rein, verschwundene freie Zeiten raus, gebuchte bleiben. Ist ein Kalender konfiguriert, ist er die einzige Quelle; die Beispiel-Slots des Prototyps verschwinden beim ersten Lauf. | Ein Tool-Aufruf der Plattform antwortet aus der Datenbank in Millisekunden; der Kalender darf kurz ausfallen, ohne dass ein Gespräch hängt. |
+| Buchung bestätigen | `book_appointment` und `/calendar/book` merken die Buchung lokal vor (`extern_status: offen`), der Server bucht sofort danach per `POST /v2/bookings`, ohne Datenbanksperre und mit 2,5 s Timeout (unter dem Tool-Timeout der Plattform), und trägt die `uid` ein (`bestaetigt`). Erst der bestätigte Termin zählt; die Antwort an den Agenten enthält `kalender: bestaetigt`. | Der Agent sagt nur zu, was der Kalender bestätigt hat. |
+| Abgelehnt | Lehnt der Kalender die Anfrage ab (Zeit zwischen `check_slots` und Buchung vergeben: 400, 409, 422), wird die Vormerkung verworfen, der Slot aus dem Angebot genommen und der Agent bekommt `ok: false`, „inzwischen vergeben, mit check_slots einen anderen anbieten“. Bei einer Umbuchung bleibt der bisherige Termin bestehen, denn der alte Termin wird erst nach der Bestätigung des neuen abgesagt. | Keine Doppelbuchung, kein Kunde ohne Termin. |
+| Nicht erreichbar | Netzfehler, Timeout, 5xx, aber auch 401/403 (Schlüssel) und 404 (Event-Typ) sind Störungen, keine vergebenen Zeiten: Die Vormerkung bleibt, der Agent bekommt `ok: true` mit `kalender: vorgemerkt` und dem Hinweis, dass die Bestätigung automatisch folgt. Der Planer versucht es nach dem Plan der Outbox erneut (5 s, 5 min, 30 min, …); nach dem letzten Versuch entsteht die Aufgabe „Prüfen: Kalenderbuchung nicht bestätigt“ und das Ereignis `aufgabe.erstellt`. Lehnt der Kalender eine vorgemerkte Buchung später doch ab, erfahren es Mensch (Aufgabe „Kalender hat vorgemerkte Buchung abgelehnt“) und Kundensystem (`termin.abgesagt`), denn der Agent hatte schon zugesagt. | Ein Kalenderausfall darf eine Buchung verzögern, aber nicht verhindern, und nie lautlos verschwinden lassen. |
+| Absage | `cancel_appointment`, eine Umbuchung oder eine Löschung (Abschnitt 11) sagt lokal sofort ab; die Absage im Kalender (`POST /v2/bookings/{uid}/cancel`) folgt als Auftrag im Hintergrund, mit Wiederholung; 404 gilt als erledigt, eine endgültige Ablehnung wird eine Aufgabe für einen Menschen. Im Umbuchungsfenster (alter Termin bestätigt, neuer vorgemerkt) meint „bitte absagen“ beide. | Die Absage des Kunden gilt, auch wenn der Kalender gerade nicht antwortet. |
+
+Aufträge (`kalender_auftraege`: `buchen`, `stornieren`) werden vor der Ausführung beansprucht (`laeuft`), damit
+die Sofortbestätigung im Request und der Planer nie denselben Auftrag doppelt ausführen; ein neuer
+Buchungsauftrag gehört zehn Sekunden lang dem Server, erst dann dem Planer, und hat der Planer ihn doch zuerst,
+wartet der Server kurz auf dessen Ergebnis. Wird ein Termin abgesagt, während seine Buchung gerade beim Kalender
+unterwegs ist, storniert der zurückkehrende Auftrag die verwaiste Kalenderbuchung selbst. Ein Auftrag, der bei
+einem Neustart noch lief, wird nicht wiederholt (die Buchung könnte angekommen sein), sondern tot gestellt und
+einem Menschen vorgelegt. Fällt der Spiegel aus, wartet er den Takt ab, statt bei jedem Planer-Durchlauf erneut
+anzufragen (`letzter_fehler` in `GET /metrics`). Der Cal.com-Event-Typ muss die E-Mail des Teilnehmers optional
+machen (Leads aus dem Dialer haben nur eine Telefonnummer); gebucht wird mit Name, Telefonnummer, Zeitzone und
+`metadata` (`lead_id`, `call_id`, `art`). `python -m integrations kalender` zeigt Spiegel und Aufträge,
+`--spiegeln` und `--auftraege` führen sie von Hand aus; `GET /metrics` enthält `kalender`. Die Demo fährt den
+ganzen Ablauf gegen eine Cal.com-Attrappe (`CalComAttrappe` in `simulator.py`), die jede Anfrage auf
+`Authorization` und `cal-api-version` prüft.
 
 ## 4. Contact Lookup: Rückrufer erkennen
 
@@ -272,8 +314,9 @@ Slot ist eine Umbuchung (alter Slot frei), `cancel_appointment` sagt ab und schr
 `stornierungen`; vergangene Termine bleiben als Historie. Zu jedem Termin plant das Backend eine
 Erinnerung 24 Stunden vorher (`erinnerungen`); der Planer sendet sie als Ereignis
 `termin.erinnerung` an das Kundensystem (SMS, E-Mail), genau einmal; bei Umbuchung entfällt die alte
-und eine neue entsteht. Wird ein Termin weniger als 24 Stunden vorher gebucht, ist die Erinnerung
-sofort fällig und geht mit dem nächsten Planer-Durchlauf raus. Wiederholte Tool-Aufrufe (Retry der
+und eine neue entsteht. Wird ein Termin weniger als 24 Stunden vorher gebucht, rückt die Erinnerung auf
+zwei Stunden vor den Termin; liegt auch das schon zurück, gibt es keine (die Bestätigung im Gespräch war
+gerade erst). Wiederholte Tool-Aufrufe (Retry der
 Plattform) antworten mit `wiederholt: true` und erzeugen keine zweiten Ereignisse; eine direkte
 Umbuchung ohne vorherige Absage meldet `termin.abgesagt` für den alten Slot mit `umbuchung: true`. Ereignisse rund um den Termin: `termin.gebucht`, `termin.abgesagt`,
 `termin.erinnerung`; dazu `ticket.erstellt`, `anruf.geplant`, `dialer.beendet`.
@@ -334,6 +377,64 @@ Verabschiedung) plus die Flags der Nachbereitung, nach Schwere S1 bis S3 der Esk
 (Streamlit) zeigt beides für die laufende Datenbank; `python -m integrations demo --db pilot.duckdb`
 liefert Daten zum Ausprobieren.
 
+## 10. Abnahme von außen: `python -m integrations check`
+
+Die Checkliste (Playbook 02, Abschnitt G) und die Go/No-Go-Liste des Runbooks (04) haben Punkte, die
+sich maschinell prüfen lassen, und zwar so, wie die Plattform das Backend sieht: über HTTP, mit den
+Geheimnissen, die auch telli benutzt. `python -m integrations check --url https://backend.kunde.example`
+schickt diese Requests von außen (`pruefung.py`), misst die Latenz und fasst das Ergebnis als Go/No-Go
+zusammen, mit Exit-Code 1 bei No-Go (für CI und Deploy-Pipelines) und auf Wunsch als
+Abnahmeprotokoll in Markdown (`--protokoll abnahme.md --kunde "…"`) oder JSON (`--json`).
+
+| Prüfpunkt | Erwartung |
+| --- | --- |
+| https, health, geheimnisse, planer, uhrzeit | HTTPS (in Produktion Pflicht, `--prod`), `/health` ok mit vollständigen Geheimnissen und laufendem Planer, Serveruhr höchstens 60 s neben der des Prüfers |
+| auth tools, auth kalender, auth webhook | ohne Bearer-Token 401, mit falschem Token 401; falsche `x-telli-signature` 401; unsignierter Webhook 401, Svix-Zeitstempel von vor einer Stunde 401 |
+| tool lookup_lead, tool fehler als 200, tool unbekannt | Testlead lesbar (`--lead`), ungültiger Wert kommt als HTTP 200 mit Fehlertext (der Agent kann reagieren), unbekanntes Tool 404 |
+| tool-definitionen, tool-drift | alle Tool-URLs zeigen auf die geprüfte Basis-URL (Proxy, Basis-URL im Portal), Tools entsprechen dem Use Case |
+| kalender available, kalender book, contact lookup, webhook signiert | Kontraktformen: `available` mit `start_iso`/`end_iso` in UTC, Buchung eines vergangenen Slots `failed` mit Grund, unbekannte Nummer `{"contact": null}`, signiertes Ereignis ohne Verarbeitung `ignoriert` |
+| metrics, latenz | keine toten Einträge in Outbox, Spiegel, Kalender; Latenz je Gruppe unter Budget (Tools 800 ms, Kalender 1000 ms, Lookup 800 ms, Webhook 1500 ms) |
+
+Die Prüfung verändert keine Geschäftsdaten: Sie liest, schickt absichtlich ungültige oder unsignierte Anfragen
+und ein signiertes Ereignis eines Typs, den die Nachbereitung laut Kontrakt ignoriert; einzige Spur sind die
+Angebotsvermerke für den Testlead (`--lead`, 24 Stunden gültig), deshalb nie einen echten Kunden angeben. In
+CI läuft sie gegen
+einen frisch gestarteten Server mit Geheimnissen. Was sie nicht prüfen kann und von Hand bleibt: die echte
+`call_ended`-Zustellung aus dem Portal, Testanrufe per Telefon, die Spiegelung im Kunden-CRM, der Import
+der Sperrliste.
+
+## 11. Aufbewahrung und Betroffenenrechte
+
+Was die Schicht speichert, sind personenbezogene Daten: Transkripte, Notizen, Tickets, Nummern in
+Ereignissen. `aufbewahrung.py` setzt die Fristen aus der Checkliste (02, Abschnitt F) um und beantwortet
+die zwei Anfragen, die im Betrieb sicher kommen.
+
+| Datenart | Vorgabe (Tage) | Was passiert | Einstellung |
+| --- | --- | --- | --- |
+| Transkript im Anrufprotokoll (`calls.transkript`) | 30 | wird entfernt, die Zeile bleibt (Ergebnis, Flags, Dauer für Kennzahlen) | `AUFBEWAHRUNG_TRANSKRIPTE_TAGE` |
+| Ticketbeschreibung in Kundenworten | 90 | Text wird geleert, Kategorie bleibt | `AUFBEWAHRUNG_TICKETS_TAGE` |
+| Verifizierungsversuche | 30 | gelöscht | `AUFBEWAHRUNG_VERIFIZIERUNGEN_TAGE` |
+| zugestellte Ereignisse, erledigte Spiegel- und Kalenderaufträge | 30 | gelöscht (enthalten Ereignis-Bodys) | `AUFBEWAHRUNG_ZUSTELLUNGEN_TAGE` |
+| Dedup-Tabelle der Webhooks | 90 | gelöscht | `AUFBEWAHRUNG_WEBHOOKS_TAGE` |
+| gesendete und entfallene Erinnerungen | 90 | gelöscht | `AUFBEWAHRUNG_ERINNERUNGEN_TAGE` |
+| Anrufzeilen ohne Transkript | 365 | gelöscht | `AUFBEWAHRUNG_PROTOKOLL_TAGE` |
+
+Der Planer wendet die Fristen täglich an (`AUFBEWAHRUNG_TAKT_S`), `0` schaltet eine Frist ab, `GET /metrics`
+zeigt den letzten Lauf. **Auskunft (Art. 15):** `python -m integrations datenschutz --auskunft +49…` liefert
+alles zu einer Nummer als ein JSON-Dokument (Lead, Anrufe mit Transkript, Notizen, Aufgaben, Termine,
+Absagen, Tickets, Erinnerungen, Plattform-Kontakt, CRM-ID). **Löschung (Art. 17):** `--loeschen +49…`
+entfernt Inhalte, sagt bevorstehende Termine ab (der Kalenderdienst wird benachrichtigt), löscht
+Ereignisse des Leads aus der Outbox und pseudonymisiert die Lead-Zeile (Name `gelöscht`, Status
+`geloescht`, keine Nummer, keine Fakten), damit Fremdschlüssel nicht ins Leere zeigen; die Anrufzeilen
+bleiben ohne Transkript für die Kennzahlen. Die Nummer bleibt auf der Sperrliste (wer gelöscht werden will,
+will auch nicht noch einmal angerufen werden). Das Löschprotokoll (`loeschungen`) hält Zeitpunkt, Grund und
+ein Pseudonym der Nummer fest, nie die Nummer selbst (Rechenschaftspflicht, Art. 5 Abs. 2); mit
+`DATENSCHUTZ_PEPPER` ist das Pseudonym ein HMAC, ohne den Schlüssel nicht über den Nummernraum durchrechenbar.
+Ein `call_ended`, das nach der Löschung noch eintrifft, wird dedupliziert, aber nicht mehr gespeichert. Die Antwort
+nennt, was der Kunde in seinen Systemen noch löschen muss: CRM-Kontakt, telli-Kontakt mit Anrufen und
+Aufzeichnungen, Kalenderbuchung. Das Kunden-CRM bleibt das führende System; was dort steht, löscht der
+Kunde dort.
+
 ## Sicherheit
 
 | Verfahren | Wo | Prüfung |
@@ -355,9 +456,14 @@ Custom Tools. Alle Vergleiche laufen über Bytes in konstanter Zeit; unlesbare K
 | Was | Wie |
 | --- | --- |
 | Server | `python -m integrations serve --port 8000` (uvicorn, ein Worker; `UMGEBUNG=prod` erzwingt vollständige Geheimnisse) |
-| Hintergrundplaner | läuft im Serverprozess: Outbox, Spiegelung und Erinnerungen alle `TAKT_S` (15 s), Lead-Push alle `PUSH_TAKT_S` (60 s), Abgleich alle `ABGLEICH_TAKT_S` (30 min) |
-| Gesundheit | `GET /health` (öffentlich): Status, Version, Geheimnisse vollständig, Planer läuft |
-| Latenz je Endpunkt (p50, p95, Fehler), Outbox, Spiegel-Aufträge, offene Zuordnungen, letzter Planer-Durchlauf | `GET /metrics` (Bearer) |
+| Hintergrundplaner | läuft im Serverprozess: Outbox, Spiegelung, Erinnerungen und Kalenderaufträge alle `TAKT_S` (15 s), Lead-Push alle `PUSH_TAKT_S` (60 s), Abgleich alle `ABGLEICH_TAKT_S` (30 min), Kalender-Spiegel alle `KALENDER_TAKT_S` (5 min), Aufbewahrungsfristen alle `AUFBEWAHRUNG_TAKT_S` (täglich) |
+| Gesundheit | `GET /health` (öffentlich): Status, Version, Geheimnisse vollständig, Planer läuft, Serverzeit |
+| Latenz je Endpunkt (p50, p95, Fehler), Outbox, Spiegel- und Kalenderaufträge, offene Zuordnungen, letzter Planer-Durchlauf, Aufbewahrung | `GET /metrics` (Bearer) |
+| Prometheus | `GET /metrics/prometheus` (Bearer, `bearer_token` in der Scrape-Konfiguration): Anfragen und Fehler je Endpunkt als Counter, p50/p95/max als Gauge, Outbox-, Spiegel- und Kalenderaufträge je Status, Planer, Geheimnisse, `integrations_info{version, usecase}` |
+| Logbuch | eine JSON-Zeile je Vorgang auf stdout (`logbuch.py`): `zeit`, `stufe`, `ereignis` (`tool`, `kalender.available`, `kalender.book`, `contact_lookup`, `webhook`, `kalender.bestaetigt`, `kalender.fehler`, `planer.schritt`, `outbox.tot`, `tool.latenzbudget`), dazu `call_id`, `lead_id`, `endpunkt`, `ms`, `ok`; nie Transkripte, Geheimnisse oder Telefonnummern |
+| Abnahme von außen | `python -m integrations check --url https://… [--prod] [--lead ID] [--protokoll abnahme.md] [--json]`, Exit 1 bei No-Go (Abschnitt 10) |
+| Kalenderdienst | `python -m integrations kalender [--spiegeln] [--auftraege]` (Abschnitt 3a) |
+| Datenschutz | `python -m integrations datenschutz [--aufraeumen] [--auskunft NUMMER] [--loeschen NUMMER --grund …]` (Abschnitt 11) |
 | Tote Zustellungen | `GET /outbox`, `POST /outbox/zustellen`, `POST /outbox/{id}/erneut` (Bearer) |
 | Lead-Push sofort | `POST /push` (Bearer), z. B. aus einem CRM-Webhook; wartet auf einen laufenden Planer-Durchlauf, statt verworfen zu werden |
 | Abgleich sofort | `POST /abgleich` (Bearer); ein Anruf: `POST /abgleich/{call_id}` |
@@ -387,8 +493,14 @@ Postgres ersetzt; die Schnittstelle `LocalCRM` bleibt.
   vollständig beschrieben (siehe Abschnitt 5). Vor dem Go-live: echte Zustellungen gegen Staging.
 - **HubSpot ohne Live-Account.** Pfade, Methoden, Bodies und Assoziationstypen sind getestet,
   Eigenschaftsnamen und Lead-Status-Werte sind Workshop-Entscheidungen.
-- **Ein Kalender.** Slots liegen in DuckDB. Cal.com, Calendly oder HubSpot Meetings bindet telli
-  nativ an; die eigene Kalenderschnittstelle ist für Kunden mit eigenem Terminsystem.
+- **Kalenderdienst ohne Live-Account.** Der Cal.com-Adapter ist gegen die dokumentierte API v2 gebaut
+  und mit einer Attrappe geprüft (Pfade, Header, Versionsheader, Body, Fehlerformen); die genaue
+  Fehlermeldung einer vergebenen Zeit und die Pflichtfelder des Event-Typs sind vor dem Go-live gegen
+  einen echten Account zu prüfen. Google Calendar und Outlook brauchen einen eigenen Adapter hinter
+  derselben Schnittstelle (`Kalender`: `freie_zeiten`, `buchen`, `stornieren`). Calendly und HubSpot
+  Meetings bindet telli nativ an. Die Slot-Tabelle speichert Wanduhrzeit; in der doppelten Stunde beim Ende der
+  Sommerzeit (02:00 bis 03:00) fallen zwei UTC-Zeitpunkte auf dieselbe Wanduhrzeit, ein Kalender, der nachts um
+  zwei Termine anbietet, bräuchte UTC in der Tabelle.
 - **Ein Prozess.** DuckDB, eine Sperre, ein Planer-Thread. Richtig für einen Pilot, nicht für
   viele Agenten parallel.
 - **Keine Telefonie.** Wie im Agenten: SIP ist Sache der Plattform.

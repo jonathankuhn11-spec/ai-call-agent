@@ -139,6 +139,10 @@ class Nachbereitung:
             with self.crm.transaktion():
                 self.crm.webhook_merken(message_id, call.call_id, "call_ended")
             return {"status": "lead_unbekannt", "call_id": call.call_id, "external_id": ereignis.external_id()}
+        if lead.get("status") == "geloescht":                 # Löschersuchen (aufbewahrung.py): nichts mehr speichern, nur dedupliziert
+            with self.crm.transaktion():
+                self.crm.webhook_merken(message_id, call.call_id, "call_ended")
+            return {"status": "ignoriert", "grund": "lead_geloescht", "call_id": call.call_id, "lead_id": lead["id"]}
 
         jetzt = self.jetzt()
         start = _zeit(call.started_at_iso)

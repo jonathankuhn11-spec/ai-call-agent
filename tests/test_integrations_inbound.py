@@ -11,25 +11,30 @@ from conftest import API_KEY, KUNDEN_SECRET, TOOL_SECRET, WEBHOOK_SECRET
 
 
 @pytest.fixture
-def inbound(con, konfig, kundensystem, telli_attrappe, quiet):
+def inbound(con, konfig, kundensystem, telli_attrappe, quiet, uhr):
+    from zoneinfo import ZoneInfo
+
     from fastapi.testclient import TestClient
 
+    import agent
     from integrations.outbox import Outbox
     from integrations.server import erstelle_app
     from integrations.simulator import PlattformSimulator
 
     konfig.usecase = "telko_inbound"
-    outbox = Outbox(con, "https://ticketsystem.example/webhooks", KUNDEN_SECRET, client=kundensystem["client"])
-    app = erstelle_app(konfig, con=con, outbox=outbox, telli_client=telli_attrappe["client"], planer_starten=False)
+    con.execute("DELETE FROM slots")
+    agent.slots_anlegen(con, uhr().astimezone(ZoneInfo(konfig.zeitzone)).replace(tzinfo=None))
+    outbox = Outbox(con, "https://ticketsystem.example/webhooks", KUNDEN_SECRET, client=kundensystem["client"], jetzt=uhr)
+    app = erstelle_app(konfig, con=con, outbox=outbox, telli_client=telli_attrappe["client"], planer_starten=False, uhr=uhr)
     with TestClient(app) as client:
-        yield app, client, PlattformSimulator(client, API_KEY, WEBHOOK_SECRET, TOOL_SECRET)
+        yield app, client, PlattformSimulator(client, API_KEY, WEBHOOK_SECRET, TOOL_SECRET, uhr=uhr)
 
 
 def termin_anlegen(crm, lead_id, in_stunden=72):
     """Ein bestehender Techniker-Termin, wie ihn das Auftragssystem angelegt hätte (keine PV-Qualifizierung nötig)."""
     tools = crm.tools(lead_id)
     slot = crm.freie_slots(1)[0]
-    crm.con.execute(f"UPDATE slots SET start = now()::TIMESTAMP + INTERVAL {int(in_stunden)} HOUR WHERE id = ?", [slot["slot_id"]])
+    crm.con.execute("UPDATE slots SET start = ? WHERE id = ?", [crm.jetzt() + timedelta(hours=in_stunden), slot["slot_id"]])
     tools.offered = {slot["slot_id"]}
     assert tools.book_appointment(slot_id=slot["slot_id"], art="vor_ort")["ok"]
     crm.con.execute("UPDATE appointments SET gebucht_am = gebucht_am - INTERVAL 3 DAY")     # vor Tagen gebucht, nicht im Anruf

@@ -55,6 +55,7 @@ Umgesetzt in `integrations/` nach den telli-Schnittstellen, Details in `docs/int
 - Einwilligung des Leads für telefonische Kontaktaufnahme (§ 7 UWG)
 - Transparenz, dass eine KI anruft (EU AI Act, Art. 50)
 - DSGVO: Aufzeichnung und Speicherung der Transkripte, Auftragsverarbeitungsvertrag
+- Aufbewahrung: Transkripte 30 Tage, Anrufzeilen ohne Transkript 365 Tage, Ereignisse 30 Tage (`AUFBEWAHRUNG_*_TAGE`); Auskunft und Löschung je Telefonnummer über `python -m integrations datenschutz`, Nummer bleibt als Werbesperre
 
 ## 9. Pilotplan
 | Phase | Inhalt | Dauer |

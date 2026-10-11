@@ -45,7 +45,7 @@ def _im_prozess(port: int, tool_secret: str):
     # Viele Leads und Slots, damit gleichzeitige Gespräche nicht um dieselben Datensätze konkurrieren
     con.execute("INSERT INTO leads (id, name, telefon, plz, quelle) SELECT i, 'Lead ' || i, '+49 251 1' || lpad(i::VARCHAR, 5, '0'), "
                 "'48149', 'Lasttest' FROM range(6, 1006) t(i)")
-    con.execute("INSERT INTO slots SELECT 1000 + i, now()::TIMESTAMP + INTERVAL 1 DAY + INTERVAL (i) MINUTE, NULL FROM range(0, 3000) t(i)")
+    con.execute("INSERT INTO slots (id, start, lead_id) SELECT 1000 + i, now()::TIMESTAMP + INTERVAL 1 DAY + INTERVAL (i) MINUTE, NULL FROM range(0, 3000) t(i)")
     konfig = Konfig(tool_secret=tool_secret, takt_s=1, push_takt_s=10 ** 6)
     outbox = Outbox(con, "https://kunde.example/webhooks", "", client=httpx.Client(transport=httpx.MockTransport(langsamer_kunde)))
     app = erstelle_app(konfig, con=con, outbox=outbox)

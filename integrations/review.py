@@ -16,7 +16,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Optional
 
 import agent
 import guided
@@ -147,8 +147,8 @@ def aus_db(crm, tage: int = 1, pruefung: Optional[Transkriptpruefung] = None) ->
     """Anrufe der letzten `tage` aus der calls-Tabelle (lokaler UAT und Nachbereitung schreiben dieselbe Form)."""
     pruefung = pruefung or Transkriptpruefung()
     rows = crm.con.execute(
-        f"SELECT id, lead_id, start, ergebnis, turns, flags, transkript FROM calls "
-        f"WHERE ende >= now()::TIMESTAMP - INTERVAL {int(tage)} DAY OR ende IS NULL ORDER BY id").fetchall()
+        "SELECT id, lead_id, start, ergebnis, turns, flags, transkript FROM calls "
+        "WHERE ende >= ? OR ende IS NULL ORDER BY id", [crm.jetzt() - timedelta(days=tage)]).fetchall()
     aus = []
     for cid, lead_id, start, ergebnis, turns, flags, transkript in rows:
         flags = json.loads(flags or "[]")

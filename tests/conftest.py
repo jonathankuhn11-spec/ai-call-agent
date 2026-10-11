@@ -113,10 +113,20 @@ def jev_stub(monkeypatch):
 # ---------------------------------------------------------------- Integrationsschicht
 # Die Plattform (telli) wird durch den Simulator ersetzt, das Kundensystem durch einen
 # httpx.MockTransport, der jede Zustellung signaturgeprüft entgegennimmt. Kein Account, kein Netz.
+# Die Zeit steht: Backend, Plattform-Simulator und Kundensystem teilen eine Testuhr, die Tests von
+# Hand vorstellen (uhr.vor(hours=24)). Die Suite läuft damit an jedem Wochentag und zu jeder Uhrzeit gleich.
 API_KEY = "test-api-key"
 WEBHOOK_SECRET = "whsec_dGVzdC13ZWJob29rLXNlY3JldA=="
 TOOL_SECRET = "test-tool-secret"
 KUNDEN_SECRET = "whsec_a3VuZGVuLXNlY3JldA=="
+TESTZEIT = "2026-10-13T08:00:00Z"            # Dienstag, 10:00 Uhr in Berlin (Sommerzeit); Slots ab Mittwoch 9 Uhr
+
+
+@pytest.fixture
+def uhr(request):
+    """Stehende Uhr für Backend, Simulator und Kundensystem; per indirekter Parametrisierung auf andere Zeitpunkte stellbar."""
+    from integrations.uhr import Testuhr
+    return Testuhr(getattr(request, "param", TESTZEIT))
 
 
 @pytest.fixture
@@ -127,13 +137,13 @@ def konfig():
 
 
 @pytest.fixture
-def kundensystem():
+def kundensystem(uhr):
     """Attrappe des Kundensystems: prüft die Signatur jeder Zustellung und merkt sich die Ereignisse."""
     import httpx
 
     from integrations.signatur import svix_pruefen
 
-    zustand = {"empfangen": [], "ausfaelle": 0, "antwort": 200, "jetzt": None}
+    zustand = {"empfangen": [], "ausfaelle": 0, "antwort": 200, "jetzt": uhr}
 
     def handler(request: httpx.Request) -> httpx.Response:
         if zustand["ausfaelle"] > 0:
@@ -184,13 +194,18 @@ def telli_attrappe():
 
 
 @pytest.fixture
-def app(con, konfig, kundensystem, telli_attrappe, quiet):
+def app(con, konfig, kundensystem, telli_attrappe, quiet, uhr):
+    from zoneinfo import ZoneInfo
+
     from integrations.outbox import Outbox
     from integrations.server import erstelle_app
 
-    outbox = Outbox(con, "https://kunde.example/webhooks", KUNDEN_SECRET, client=kundensystem["client"])
+    # Beispiel-Slots relativ zur Testuhr statt zur Rechneruhr: Mittwoch bis Freitag, 9, 11, 14, 16 Uhr
+    con.execute("DELETE FROM slots")
+    agent.slots_anlegen(con, uhr().astimezone(ZoneInfo(konfig.zeitzone)).replace(tzinfo=None))
+    outbox = Outbox(con, "https://kunde.example/webhooks", KUNDEN_SECRET, client=kundensystem["client"], jetzt=uhr)
     return erstelle_app(konfig, con=con, outbox=outbox, telli_client=telli_attrappe["client"],
-                        planer_starten=False)                                   # Planer-Takt im Test von Hand
+                        planer_starten=False, uhr=uhr)                          # Planer-Takt im Test von Hand
 
 
 @pytest.fixture
@@ -201,6 +216,6 @@ def client(app):
 
 
 @pytest.fixture
-def sim(client):
+def sim(client, uhr):
     from integrations.simulator import PlattformSimulator
-    return PlattformSimulator(client, API_KEY, WEBHOOK_SECRET, TOOL_SECRET)
+    return PlattformSimulator(client, API_KEY, WEBHOOK_SECRET, TOOL_SECRET, uhr=uhr)

@@ -38,7 +38,8 @@ def log(*a, **k):
 
 
 # ---------------------------------------------------------------- Mock-CRM
-def init_db(reset: bool = False, path: str = DB_PATH):
+def init_db(reset: bool = False, path: str = DB_PATH, jetzt: Optional[datetime] = None):
+    """`jetzt`: Bezugszeit (Wanduhr) für die Beispiel-Slots; ohne Angabe die Uhr des Rechners."""
     con = duckdb.connect(path)
     if reset:
         for t in ("appointments", "calls", "slots", "leads"):
@@ -65,16 +66,22 @@ def init_db(reset: bool = False, path: str = DB_PATH):
              (4, "Anna Schröder", "+49 251 000004", "48143", "Website-Formular"),
              (5, "Klaus Hoffmann", "+49 251 000005", "48167", "Empfehlung")])
     if con.execute("SELECT COUNT(*) FROM slots").fetchone()[0] == 0:
-        base = (datetime.now() + timedelta(days=1)).replace(minute=0, second=0, microsecond=0)
-        rows, sid = [], 1
-        for d in range(5):
-            day = base + timedelta(days=d)
-            if day.weekday() >= 5:
-                continue
-            for h in (9, 11, 14, 16):
-                rows.append((sid, day.replace(hour=h), None)); sid += 1
-        con.executemany("INSERT INTO slots VALUES (?, ?, ?)", rows)
+        slots_anlegen(con, jetzt)
     return con
+
+
+def slots_anlegen(con, jetzt: Optional[datetime] = None, tage: int = 5):
+    """Beispiel-Slots ab dem Folgetag: werktags 9, 11, 14 und 16 Uhr, fortlaufend nummeriert hinter dem höchsten Slot."""
+    base = ((jetzt or datetime.now()) + timedelta(days=1)).replace(minute=0, second=0, microsecond=0)
+    rows, sid = [], con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM slots").fetchone()[0]
+    for d in range(tage):
+        day = base + timedelta(days=d)
+        if day.weekday() >= 5:
+            continue
+        for h in (9, 11, 14, 16):
+            rows.append((sid, day.replace(hour=h), None)); sid += 1
+    con.executemany("INSERT INTO slots (id, start, lead_id) VALUES (?, ?, ?)", rows)
+    return len(rows)
 
 
 # ---------------------------------------------------------------- Pydantic-Schemas
@@ -153,13 +160,18 @@ class Tools:
         self.offered: set[int] = set()
         self.booked = False
 
+    def jetzt(self) -> datetime:
+        """Wanduhrzeit, gegen die Slots und Buchungen gemessen werden: die Uhr der Datenbanksitzung.
+        Die Integrationsschicht ersetzt sie durch ihre eigene, stellbare Uhr (integrations/uhr.py)."""
+        return self.con.execute("SELECT now()::TIMESTAMP").fetchone()[0]
+
     def check_slots(self, **_):
         st = self.con.execute("SELECT status FROM leads WHERE id = ?", [self.lead_id]).fetchone()[0]
         if st != "qualifiziert":
             return {"ok": False, "fehler": f"Lead-Status ist '{st}'. Termine gibt es nur für qualifizierte Leads "
                                            "(Eigentümer, kein Mehrfamilienhaus). Erst fertig qualifizieren."}
         rows = self.con.execute(
-            "SELECT id, start FROM slots WHERE lead_id IS NULL AND start > now() ORDER BY start LIMIT 6"
+            "SELECT id, start FROM slots WHERE lead_id IS NULL AND start > ? ORDER BY start LIMIT 6", [self.jetzt()]
         ).fetchall()
         self.offered = {r[0] for r in rows[:2]}   # Agent soll max. 2 Termine anbieten
         rows = rows[:2]
@@ -202,8 +214,8 @@ class Tools:
             return {"ok": False, "fehler": "Termin ist bereits vergeben. Anderen Termin anbieten."}
         self.con.execute("UPDATE slots SET lead_id = ? WHERE id = ?", [self.lead_id, b.slot_id])
         aid = self.con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM appointments").fetchone()[0]
-        self.con.execute("INSERT INTO appointments VALUES (?, ?, ?, ?, now())",
-                         [aid, self.lead_id, b.slot_id, b.art])
+        self.con.execute("INSERT INTO appointments (id, lead_id, slot_id, art, gebucht_am) VALUES (?, ?, ?, ?, ?)",
+                         [aid, self.lead_id, b.slot_id, b.art, self.jetzt()])
         self.booked = True
         return {"ok": True, "termin": f"{slot[0]:%d.%m.%Y %H:%M} Uhr", "art": b.art}
 

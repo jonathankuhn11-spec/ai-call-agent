@@ -12,13 +12,14 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta, timezone
 from typing import Any, Optional
 
 import httpx
 
-from integrations.modelle import iso_utc
+from integrations.modelle import iso_lesen, iso_utc
 from integrations.signatur import svix_kopfzeilen, telli_signatur
+from integrations.uhr import Uhr
 
 
 INBOUND_PERSONAS = ("termin_verschieben", "termin_kurzfristig", "termin_bestaetigen", "stoerung", "nicht_verifiziert")
@@ -26,9 +27,10 @@ INBOUND_PERSONAS = ("termin_verschieben", "termin_kurzfristig", "termin_bestaeti
 
 class PlattformSimulator:
     def __init__(self, client: httpx.Client, api_key: str = "", webhook_secret: str = "", tool_secret: str = "",
-                 agent_id: str = "agent_demo"):
+                 agent_id: str = "agent_demo", uhr: Optional[Uhr] = None):
         self.client, self.api_key, self.webhook_secret, self.tool_secret = client, api_key, webhook_secret, tool_secret
         self.agent_id = agent_id
+        self.uhr = uhr or Uhr()                # die Plattform hat dieselbe Uhr wie das Backend (Zeitstempel, Signaturen)
         self.protokoll: list[dict[str, Any]] = []
 
     # ------------------------------------------------------------ Requests wie telli
@@ -49,7 +51,7 @@ class PlattformSimulator:
         return {"id": f"ct_{external_id}", "type": "Contact", "externalId": external_id, "externalUrl": None,
                 "salutation": None, "firstName": vorname, "lastName": nachname, "email": None, "phoneNumber": telefon,
                 "timezoneIana": "Europe/Berlin", "autoDialerStatus": "in_dialer",
-                "createdAt": iso_utc(datetime.now(timezone.utc)), "updatedAt": iso_utc(datetime.now(timezone.utc)),
+                "createdAt": iso_utc(self.uhr()), "updatedAt": iso_utc(self.uhr()),
                 "properties": []}
 
     def contact_lookup(self, telefon: str, to_number: str = "+4925100000") -> dict:
@@ -76,7 +78,7 @@ class PlattformSimulator:
                    appointments: Optional[list[dict]] = None, message_id: Optional[str] = None,
                    ended_reason: str = "agent-ended-call", zeitstempel: Optional[int] = None,
                    direction: str = "outbound") -> httpx.Response:
-        jetzt = datetime.now(timezone.utc)
+        jetzt = self.uhr()
         transkript = transkript if transkript is not None else [
             {"role": "agent", "content": "Guten Tag, hier ist Lena, die digitale KI-Assistentin von SonnenWerk Energie."},
             {"role": "user", "content": "Ja, hallo?"},
@@ -103,7 +105,8 @@ class PlattformSimulator:
         kopf = {"Content-Type": "application/json"}
         msg_id = message_id or f"msg_{uuid.uuid4().hex[:12]}"
         if self.webhook_secret:
-            kopf.update(svix_kopfzeilen(self.webhook_secret, msg_id, roh, zeitstempel))
+            kopf.update(svix_kopfzeilen(self.webhook_secret, msg_id, roh,
+                                        zeitstempel if zeitstempel is not None else int(self.uhr.sekunden())))
         else:
             kopf["svix-id"] = msg_id
         t0 = time.perf_counter()
@@ -131,7 +134,7 @@ class PlattformSimulator:
             bericht["disqualifiziert"] = self.tool("update_lead", call_id, ext, status="disqualifiziert")
             outcomes = {"ergebnis": "disqualifiziert", "eigentuemer": False}
         elif persona == "keine_zeit":
-            morgen = iso_utc(datetime.now(timezone.utc) + timedelta(days=1))
+            morgen = iso_utc(self.uhr() + timedelta(days=1))
             outcomes = {"ergebnis": "rueckruf_vereinbart", "rueckruf_zeitpunkt": morgen}
         elif persona == "opt_out":
             outcomes = {"ergebnis": "opt_out"}
@@ -180,7 +183,92 @@ class PlattformSimulator:
             else:
                 raise ValueError(f"Unbekannte Persona: {persona}")
         transkript = [{"role": "user", "content": "Hallo, ich rufe wegen meines Technikertermins an."},
-                      {"role": "agent", "content": f"Guten Tag, hier ist Mia, die digitale KI-Assistentin von FlinkNet."},
+                      {"role": "agent", "content": "Guten Tag, hier ist Mia, die digitale KI-Assistentin von FlinkNet."},
                       {"role": "user", "content": f"Meine Postleitzahl ist {plz}."}]
         bericht["call_ended"] = self.call_ended(call_id, ext, tel, outcomes, transkript=transkript, direction="inbound").json()
         return bericht
+
+
+# ---------------------------------------------------------------- Cal.com-Attrappe (Kalenderdienst)
+class CalComAttrappe:
+    """Spielt die Cal.com API v2 im Prozess: GET /v2/slots, POST /v2/bookings, POST /v2/bookings/{uid}/cancel.
+
+    Zustand sind freie Zeiten (UTC) und Buchungen. `vergeben()` nimmt eine Zeit von außen weg, so wie ein
+    Kollege sie im Kalender belegen würde; `ausfaelle` lässt die nächsten Anfragen mit 503 scheitern.
+    Jede Anfrage wird auf Authorization und cal-api-version geprüft und protokolliert.
+    """
+
+    SLOTS_VERSION, BOOKINGS_VERSION = "2024-09-04", "2026-02-25"
+
+    def __init__(self, zeiten: list, dauer_min: int = 60, api_key: str = "cal_test_key", event_type_id: int = 42):
+        self.frei = {z if z.tzinfo else z.replace(tzinfo=timezone.utc) for z in zeiten}
+        self.dauer, self.api_key, self.event_type_id = timedelta(minutes=dauer_min), api_key, event_type_id
+        self.buchungen: dict[str, dict[str, Any]] = {}
+        self.requests: list[tuple[str, str, Any]] = []
+        self.ausfaelle = 0
+        self._n = 0
+
+    def client(self) -> httpx.Client:
+        return httpx.Client(transport=httpx.MockTransport(self._handler), base_url="https://api.cal.com")
+
+    def kalender(self, zeitzone: str = "Europe/Berlin"):
+        from integrations.kalender import CalComKalender
+        return CalComKalender(self.api_key, self.event_type_id, zeitzone=zeitzone, client=self.client())
+
+    def vergeben(self, start):
+        self.frei.discard(start if start.tzinfo else start.replace(tzinfo=timezone.utc))
+
+    def _fehler(self, status: int, code: str, text: str) -> httpx.Response:
+        return httpx.Response(status, json={"status": "error", "error": {"code": code, "message": text}})
+
+    def _handler(self, request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        self.requests.append((request.method, request.url.path, dict(request.url.params) if request.method == "GET" else body))
+        if request.headers.get("Authorization") != f"Bearer {self.api_key}":
+            return self._fehler(401, "UnauthorizedException", "Invalid API key")
+        if self.ausfaelle > 0:
+            self.ausfaelle -= 1
+            return httpx.Response(503, text="Service Unavailable")
+        pfad = request.url.path
+        if request.method == "GET" and pfad == "/v2/slots":
+            if request.headers.get("cal-api-version") != self.SLOTS_VERSION:
+                return self._fehler(400, "BadRequestException", "cal-api-version missing or unsupported")
+            p = request.url.params
+            if int(p.get("eventTypeId", -1)) != self.event_type_id:
+                return self._fehler(404, "NotFoundException", "Event type not found")
+            von, bis = iso_lesen(p["start"]), iso_lesen(p["end"])
+            daten: dict[str, list] = {}
+            for z in sorted(self.frei):
+                if von <= z <= bis:
+                    eintrag = {"start": iso_utc(z)}
+                    if p.get("format") == "range":
+                        eintrag["end"] = iso_utc(z + self.dauer)
+                    daten.setdefault(z.strftime("%Y-%m-%d"), []).append(eintrag)
+            return httpx.Response(200, json={"status": "success", "data": daten})
+        if request.method == "POST" and pfad == "/v2/bookings":
+            if request.headers.get("cal-api-version") != self.BOOKINGS_VERSION:
+                return self._fehler(400, "BadRequestException", "cal-api-version missing or unsupported")
+            if body.get("eventTypeId") != self.event_type_id or not body.get("attendee", {}).get("name"):
+                return self._fehler(400, "BadRequestException", "eventTypeId or attendee invalid")
+            start = iso_lesen(body["start"])
+            if start not in self.frei:
+                return self._fehler(400, "BadRequestException", "User either already has booking at this time or is not available")
+            self._n += 1
+            uid = f"bk_{self._n:04d}"
+            self.frei.discard(start)
+            self.buchungen[uid] = {"id": self._n, "uid": uid, "status": "accepted", "start": iso_utc(start),
+                                   "end": iso_utc(start + self.dauer), "attendees": [body["attendee"]],
+                                   "metadata": body.get("metadata", {}), "eventTypeId": self.event_type_id}
+            return httpx.Response(201, json={"status": "success", "data": self.buchungen[uid]})
+        if request.method == "POST" and pfad.startswith("/v2/bookings/") and pfad.endswith("/cancel"):
+            if request.headers.get("cal-api-version") != self.BOOKINGS_VERSION:
+                return self._fehler(400, "BadRequestException", "cal-api-version missing or unsupported")
+            uid = pfad.split("/")[3]
+            b = self.buchungen.get(uid)
+            if b is None:
+                return self._fehler(404, "NotFoundException", "Booking not found")
+            if b["status"] != "cancelled":
+                b["status"], b["cancellationReason"] = "cancelled", (body or {}).get("cancellationReason")
+                self.frei.add(iso_lesen(b["start"]))
+            return httpx.Response(200, json={"status": "success", "data": b})
+        return self._fehler(404, "NotFoundException", f"Cannot {request.method} {pfad}")

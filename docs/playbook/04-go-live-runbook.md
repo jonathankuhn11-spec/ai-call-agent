@@ -28,8 +28,9 @@ sondern der eigentliche Test: Erst hier sprechen echte Kunden mit dem Agenten.
 - [ ] UAT-Sign-off und alle Auflagen erledigt
 - [ ] `python -m pytest -q` grün auf dem Stand, der deployt wird
 - [ ] Produktions-Geheimnisse gesetzt, Staging-Geheimnisse widerrufen
+- [ ] `python -m integrations check --url https://backend.kunde.example --prod --protokoll abnahme-prod.md` meldet GO (HTTPS, Geheimnisse vollständig, Planer läuft, Signaturen, Kontrakte, Latenz, keine toten Einträge)
 - [ ] Echte `call_ended`-Zustellung in Produktion verarbeitet
-- [ ] Signaturprüfung auf allen Endpunkten aktiv (Test: unsignierter Request bekommt 401)
+- [ ] Signaturprüfung auf allen Endpunkten aktiv (Test: unsignierter Request bekommt 401; Teil von `check`)
 - [ ] Outbox-Ziel (Ticketsystem) antwortet 2xx auf eine Testnachricht
 - [ ] Sperrliste importiert, Anrufzeiten konfiguriert, Anzeigenummer erreichbar
 - [ ] Monitoring: Wer schaut wann auf `/health`, `/metrics`, `/outbox`, Plattform-Dashboard?
@@ -75,3 +76,7 @@ Falsche Buchung oder ignorierter Opt-out: sofort pausieren (siehe Rollback).
 | Flags | Notizen und `calls.flags` | selten | Häufung von `termin_behauptet_ohne_buchung`, `disqualifiziert_ohne_grund` |
 | Lead-Push | `GET /metrics` → `push` (letzter Lauf) | `fehler: []` | jeder Fehler, `zuordnung_offen` wächst |
 | Spiegelung ins CRM | `GET /metrics` → `spiegel` | kein `tot` | jeder tote Auftrag |
+| Kalenderdienst | `GET /metrics` → `kalender` | `letzter_spiegel` jünger als 10 min, kein `tot` | Spiegel älter als 15 min (Kalender nicht erreichbar), jeder tote Auftrag (Buchung nicht bestätigt: Kunden anrufen) |
+| Aufbewahrung | `GET /metrics` → `aufbewahrung.letzter_lauf` | jünger als 2 Tage | älter |
+| Prometheus | `GET /metrics/prometheus` im Scrape (Bearer) | `integrations_planer_alive 1`, `integrations_http_errors_total` flach | Alarm auf `rate(integrations_http_errors_total[5m])`, `integrations_outbox_entries{status="tot"} > 0`, `integrations_planer_alive == 0` |
+| Logbuch | JSON-Zeilen auf stdout, nach `call_id` filterbar | `ereignis: tool` mit `ok: true` | `stufe: error` (Planer), `tool.latenzbudget`, `kalender.fehler` mit `tot: true` |

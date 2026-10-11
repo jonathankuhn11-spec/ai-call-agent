@@ -140,7 +140,7 @@ def wochenreport(k: dict[str, Any], kunde: str = "SonnenWerk Energie", anteil: s
         f"| Opt-out-Rate | {_fmt(k['opt_out_rate'], '%')} | < 10 % | {status(k, 'opt_out_rate')} | {k['opt_outs']} von {k['anrufe_erreicht']} |",
         f"| Zustellquote Outbox | {_fmt(k['zustellquote'], '%')} | 100 % | {status(k, 'zustellquote')} | {k['outbox']} |",
         f"| Outbox tot | {k['outbox_tot']} | 0 | {status(k, 'outbox_tot')} | |",
-        f"| Übergabequalität (Stichprobe 20) | manuell | > 90 % | – | Review-Liste |",
+        "| Übergabequalität (Stichprobe 20) | manuell | > 90 % | – | Review-Liste |",
         "", f"Anrufe gesamt: {k['anrufe']} · erreicht: {k['anrufe_erreicht']} · Ø Turns: {k['turns_mittel'] or 'n/a'} · "
             f"offene Rückruf-Aufgaben: {k['aufgaben_offen']} · gesperrte Nummern: {k['gesperrt']} · "
             f"Erinnerungen: {k['erinnerungen'] or {}} · Absagen: {k['stornierungen']}",

@@ -1,8 +1,6 @@
 """Transkript-Review: Regeln, Quellen (calls-Tabelle, telli List Calls), Reviewliste."""
-import json
 
 import httpx
-import pytest
 
 from integrations import review
 from integrations.crm import LocalCRM
@@ -133,13 +131,12 @@ def test_inbound_transcript_has_no_false_positives():
     assert "verify_customer" in review.TOOL_NAMEN and "create_ticket" in review.TOOL_NAMEN
 
 
-def test_booking_evidence_comes_from_the_call_not_from_todays_state(con):
+def test_booking_evidence_comes_from_the_call_not_from_todays_state(con, uhr):
     """Ein später abgesagter Termin macht die damalige Buchungsbestätigung nicht zur Falschaussage."""
-    from datetime import datetime
-    crm = LocalCRM(con)
+    crm = LocalCRM(con, uhr=uhr)
     tr = t(("assistant", BEGRUESSUNG), ("user", "Ja."), ("tool", "check_slots {}"),
            ("assistant", "Perfekt, ich habe den Termin am 14.10. um 09:00 Uhr für Sie eingetragen. Auf Wiederhören!"))
-    crm.anruf_protokollieren(1, datetime.now(), datetime.now(), "termin_gebucht", 1, 0, ["plattform:telli"], tr)
+    crm.anruf_protokollieren(1, uhr(), uhr(), "termin_gebucht", 1, 0, ["plattform:telli"], tr)
     assert crm.termin(1) is None                                       # heute kein Termin mehr im System
     r = review.aus_db(crm, tage=1)[0]
     assert "buchung_behauptet_ohne_buchung" not in regeln(r.befunde)

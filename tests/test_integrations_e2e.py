@@ -117,7 +117,7 @@ def test_guided_flow_runs_unchanged_over_http_tools(con, app, no_jev, quiet, llm
     assert namen.count("check_slots") == 1 and namen[-1] == "book_appointment" and all(s == 200 for _, s in tools.aufrufe)
     assert namen.count("lookup_lead") >= 2                                   # Leitfaden liest den Stand über HTTP
     crm = app.state.ctx.crm
-    zweiter = con.execute("SELECT id FROM slots WHERE start > now() ORDER BY start LIMIT 2").fetchall()[1][0]
+    zweiter = con.execute("SELECT id FROM slots WHERE start > ? ORDER BY start LIMIT 2", [crm.jetzt()]).fetchall()[1][0]
     assert crm.termin(1)["slot_id"] == zweiter
 
 

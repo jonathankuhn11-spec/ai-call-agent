@@ -26,10 +26,11 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+
 from typing import Any, Callable, Optional
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi.responses import PlainTextResponse
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
@@ -37,8 +38,10 @@ import agent
 from integrations import __version__
 from integrations.crm import LocalCRM, slot_ende
 from integrations.hubspot import HubSpotCRM
+from integrations.kalender import Kalender, Kalenderspiegel, kalender_aus_konfig
 from integrations.konfig import Konfig
-from integrations.modelle import (BuchenAnfrage, BuchenAntwort, CallEndedEreignis, KontaktLookupAnfrage,
+from integrations import logbuch
+from integrations.modelle import (BuchenAnfrage, BuchenAntwort, KontaktLookupAnfrage,
                                   KontaktLookupAntwort, KontaktLookupKontakt, KontaktReferenz, Slot, ToolAufruf,
                                   VerfuegbarAnfrage, VerfuegbarAntwort, iso_lesen, iso_utc, telefon_normalisieren)
 from integrations.nachbereitung import Nachbereitung
@@ -46,7 +49,9 @@ from integrations.outbox import Outbox
 from integrations.salesforce import SalesforceCRM
 from integrations.signatur import SignaturFehler, bearer_pruefen, geheimnisse, svix_pruefen, telli_pruefen
 from integrations.abgleich import Abgleich, anruf_nachholen
+from integrations.aufbewahrung import Aufbewahrung, Fristen
 from integrations.telli import LeadPush, TelliClient, TelliFehler
+from integrations.uhr import Uhr
 
 ANGEBOTE_KALENDER = 4          # Slots je /available-Antwort; der Agent im Gespräch bekommt weiterhin zwei
 HTTP_TOOLS = ("lookup_lead", "update_lead", "check_slots", "book_appointment", "cancel_appointment",
@@ -92,6 +97,29 @@ class Metriken:
             if len(self._daten[endpunkt]) > 5000:
                 self._daten[endpunkt] = self._daten[endpunkt][-5000:]
 
+    def prometheus(self, extra: dict[str, Any]) -> str:
+        """Text-Exposition (version 0.0.4) für einen Prometheus-Scrape; `extra` sind Zähler je Status aus der Datenbank."""
+        zeilen = ["# HELP integrations_http_requests_total Anfragen je Endpunkt seit Start",
+                  "# TYPE integrations_http_requests_total counter",
+                  "# HELP integrations_http_errors_total fachlich oder technisch fehlgeschlagene Anfragen je Endpunkt",
+                  "# TYPE integrations_http_errors_total counter",
+                  "# HELP integrations_http_latency_ms Latenz je Endpunkt (p50, p95, max der letzten 5000 Anfragen)",
+                  "# TYPE integrations_http_latency_ms gauge"]
+        for ep, m in sorted(self.bericht().items()):
+            zeilen.append(f'integrations_http_requests_total{{endpunkt="{ep}"}} {m["anzahl"]}')
+            zeilen.append(f'integrations_http_errors_total{{endpunkt="{ep}"}} {m["fehler"]}')
+            for q, k in (("0.5", "p50_ms"), ("0.95", "p95_ms"), ("1", "max_ms")):
+                zeilen.append(f'integrations_http_latency_ms{{endpunkt="{ep}",quantile="{q}"}} {m[k]}')
+        for name, werte in extra.items():
+            if isinstance(werte, dict):
+                zeilen.append(f"# TYPE {name} gauge")
+                for status, n in sorted(werte.items()):
+                    zeilen.append(f'{name}{{status="{status}"}} {n}')
+            else:
+                zeilen.append(f"# TYPE {name} gauge")
+                zeilen.append(f"{name} {werte}")
+        return "\n".join(zeilen) + "\n"
+
     def bericht(self) -> dict[str, dict[str, float]]:
         with self._sperre:
             aus = {}
@@ -118,8 +146,9 @@ class Planer:
         self.letzter_push_bericht: dict[str, Any] = {}
         self.letzter_abgleich_bericht: dict[str, Any] = {}
 
-    def tick(self, push: Optional[bool] = None, warten: bool = False, abgleich: Optional[bool] = None) -> dict[str, Any]:
-        """Ein Durchlauf. `push=None`: Lead-Push nur, wenn sein Intervall abgelaufen ist.
+    def tick(self, push: Optional[bool] = None, warten: bool = False, abgleich: Optional[bool] = None,
+             kalender: Optional[bool] = None, aufbewahrung: Optional[bool] = None) -> dict[str, Any]:
+        """Ein Durchlauf. `push=None`: Lead-Push nur, wenn sein Intervall abgelaufen ist; `kalender` ebenso für den Spiegel.
         `warten=False` (Hintergrund): läuft gerade ein Tick, wird dieser übersprungen, der nächste kommt im Takt.
         `warten=True` (ausdrückliche Anforderung über die API): auf den laufenden Tick warten, dann ausführen.
         Jeder Schritt ist für sich abgesichert; ein Fehler in der Outbox hält Spiegelung und Push nicht auf."""
@@ -135,6 +164,11 @@ class Planer:
                 schritte.append(("spiegel", lambda: ctx.nachbereitung.spiegeln(sperre=ctx.sperre)))
             if ctx.outbox is not None:
                 schritte.append(("erinnerungen", lambda: ctx.nachbereitung.erinnerungen_senden(sperre=ctx.sperre)))
+            if ctx.kalender is not None:
+                schritte.append(("kalender", lambda: ctx.kalender.tick(spiegeln=kalender, takt_s=ctx.konfig.kalender_takt_s)))
+            if ctx.aufbewahrung is not None:
+                schritte.append(("aufbewahrung", lambda: ctx.aufbewahrung.tick(erzwingen=bool(aufbewahrung),
+                                                                                takt_s=ctx.konfig.aufbewahrung_takt_s)))
             faellig = push if push is not None else time.monotonic() - self.letzter_push >= ctx.konfig.push_takt_s
             if faellig and ctx.lead_push is not None:
                 schritte.append(("push", ctx.lead_push.synchronisieren))
@@ -147,14 +181,18 @@ class Planer:
                     bericht[name] = schritt()
                 except Exception as e:  # noqa: BLE001 - ein Schritt darf die anderen nicht mitreißen
                     bericht[name] = {"fehler": f"{type(e).__name__}: {str(e)[:200]}"}
-                    agent.log(f"[PLANER] {name}: {bericht[name]['fehler']}")
+                    logbuch.fehler("planer.schritt", schritt=name, fehler=bericht[name]["fehler"])
+                if name == "outbox" and isinstance(bericht[name], dict) and bericht[name].get("tot"):
+                    logbuch.warnung("outbox.tot", anzahl=bericht[name]["tot"])
                 if name == "push":
                     self.letzter_push = time.monotonic()
-                    self.letzter_push_bericht = {"zeit": iso_utc(datetime.now(timezone.utc)), **bericht[name]}
+                    self.letzter_push_bericht = {"zeit": iso_utc(ctx.uhr()), **bericht[name]}
                 if name == "abgleich":
                     self.letzter_abgleich = time.monotonic()
-                    self.letzter_abgleich_bericht = {"zeit": iso_utc(datetime.now(timezone.utc)), **bericht[name]}
-            self.letzter_bericht = {"zeit": iso_utc(datetime.now(timezone.utc)), **bericht}
+                    self.letzter_abgleich_bericht = {"zeit": iso_utc(ctx.uhr()), **bericht[name]}
+                if name == "aufbewahrung" and bericht[name] is None:
+                    del bericht[name]                                  # nicht fällig: kein Eintrag im Bericht
+            self.letzter_bericht = {"zeit": iso_utc(ctx.uhr()), **bericht}
             return bericht
         finally:
             self._laeuft.release()
@@ -164,8 +202,8 @@ class Planer:
             try:
                 self.tick()
             except Exception as e:  # noqa: BLE001 - der Planer darf nie sterben
-                agent.log(f"[PLANER] Fehler im Durchlauf: {type(e).__name__}: {str(e)[:200]}")
-                self.letzter_bericht = {"zeit": iso_utc(datetime.now(timezone.utc)), "fehler": f"{type(e).__name__}: {str(e)[:200]}"}
+                logbuch.fehler("planer.durchlauf", fehler=f"{type(e).__name__}: {str(e)[:200]}")
+                self.letzter_bericht = {"zeit": iso_utc(self.ctx.uhr()), "fehler": f"{type(e).__name__}: {str(e)[:200]}"}
 
     def starten(self):
         if self._thread is None:
@@ -188,11 +226,14 @@ class Kontext:
     lead_push: Optional[LeadPush] = None
     abgleich: Optional[Abgleich] = None
     telli_client: Optional[TelliClient] = None
+    kalender: Optional[Kalenderspiegel] = None
+    aufbewahrung: Optional[Aufbewahrung] = None
     usecase: Any = None
     verifizierung_pflicht: bool = False
     metriken: Metriken = field(default_factory=Metriken)
     sperre: threading.Lock = field(default_factory=threading.Lock)
     planer: Optional[Planer] = None
+    uhr: Uhr = field(default_factory=Uhr)
 
 
 def tool_definitionen(basis_url: str = "https://<backend>", nur: Optional[list[str]] = None) -> dict[str, Any]:
@@ -241,16 +282,22 @@ def telli_client_aus_konfig(konfig: Konfig) -> Optional[TelliClient]:
     return TelliClient(geheimnisse(konfig.telli_api_key)[-1], konfig.telli_api_url)
 
 
-def outbox_aus_konfig(konfig: Konfig, con) -> Optional[Outbox]:
-    return Outbox(con, konfig.kunde_webhook_url, konfig.kunde_webhook_secret) if konfig.kunde_webhook_url else None
+def outbox_aus_konfig(konfig: Konfig, con, uhr: Optional[Uhr] = None) -> Optional[Outbox]:
+    return Outbox(con, konfig.kunde_webhook_url, konfig.kunde_webhook_secret, jetzt=uhr) if konfig.kunde_webhook_url else None
 
 
 # ---------------------------------------------------------------- App
 def erstelle_app(konfig: Optional[Konfig] = None, con=None, outbox: Optional[Outbox] = None, spiegel=None,
-                 telli_client: Optional[TelliClient] = None, planer_starten: bool = True) -> FastAPI:
+                 telli_client: Optional[TelliClient] = None, planer_starten: bool = True,
+                 uhr: Optional[Uhr] = None, kalender: Optional[Kalender] = None) -> FastAPI:
+    """`uhr`: die eine Zeitquelle der Schicht (Standard: Systemzeit); eine übergebene Outbox wird auf sie gestellt.
+    `kalender`: Kalenderdienst hinter den Slots (Standard: laut Konfiguration, sonst die Slot-Tabelle)."""
     konfig = konfig or Konfig.aus_umgebung()
     if konfig.produktiv and konfig.fehlende_geheimnisse():
         raise RuntimeError(f"UMGEBUNG=prod, aber es fehlen: {', '.join(konfig.fehlende_geheimnisse())}")
+    if uhr is not None and outbox is not None:
+        outbox.jetzt = uhr
+    uhr = uhr or Uhr()
     con = con if con is not None else agent.init_db(path=konfig.db_pfad)
     from integrations.usecases import alle as alle_usecases
     usecase = alle_usecases().get(konfig.usecase)
@@ -259,20 +306,24 @@ def erstelle_app(konfig: Optional[Konfig] = None, con=None, outbox: Optional[Out
     verifizierung = usecase.verifizierung_pflicht if konfig.verifizierung_pflicht is None else konfig.verifizierung_pflicht
     mindestvorlauf = usecase.mindestvorlauf_h if konfig.mindestvorlauf_h is None else konfig.mindestvorlauf_h
     crm = LocalCRM(con, konfig.zeitzone, mindestvorlauf_h=mindestvorlauf,
-                   qualifizierung_noetig=usecase.buchung_erfordert_qualifizierung)
+                   qualifizierung_noetig=usecase.buchung_erfordert_qualifizierung, uhr=uhr)
     if outbox is None:
-        outbox = outbox_aus_konfig(konfig, con)
+        outbox = outbox_aus_konfig(konfig, con, uhr)
     if spiegel is None:
         spiegel = spiegel_aus_konfig(konfig)
     if telli_client is None and konfig.telli_api_key:
         telli_client = telli_client_aus_konfig(konfig)
-    ctx = Kontext(konfig, crm, outbox, Nachbereitung(crm, outbox, spiegel))
+    ctx = Kontext(konfig, crm, outbox, Nachbereitung(crm, outbox, spiegel, jetzt=uhr), uhr=uhr)
     ctx.usecase, ctx.verifizierung_pflicht = usecase, verifizierung
     if telli_client is not None and konfig.telli_agent_id:
         ctx.lead_push = LeadPush(crm, telli_client, konfig.telli_agent_id, sperre=ctx.sperre)
     if telli_client is not None:
         ctx.telli_client = telli_client
         ctx.abgleich = Abgleich(crm, telli_client, ctx.nachbereitung, sperre=ctx.sperre)
+    kalender = kalender if kalender is not None else kalender_aus_konfig(konfig)
+    if kalender is not None:
+        ctx.kalender = Kalenderspiegel(crm, kalender, uhr, ctx.nachbereitung, tage=konfig.kalender_tage, sperre=ctx.sperre)
+    ctx.aufbewahrung = Aufbewahrung(crm, Fristen.aus_konfig(konfig), uhr, sperre=ctx.sperre, pepper=konfig.datenschutz_pepper)
     ctx.planer = Planer(ctx)
 
     @asynccontextmanager
@@ -335,23 +386,63 @@ def erstelle_app(konfig: Optional[Konfig] = None, con=None, outbox: Optional[Out
                 return arbeit()
         return await run_in_threadpool(_laufen)
 
+    def umbuchung_melden(lead_id: int, alt: str, call_id: Optional[str]):
+        if ctx.outbox is not None:
+            ctx.nachbereitung._ereignis("termin.abgesagt", lead_id, {"abgesagt": alt, "grund": "Umbuchung", "umbuchung": True,
+                                                                    "call_id": call_id}, ctx.uhr())
+
+    def kalender_bestaetigen(ergebnis: dict) -> dict:
+        """Nach einer lokalen Vormerkung: im Kalenderdienst buchen, Antwort für den Agenten daraus ableiten.
+        Läuft ohne Datenbanksperre (HTTP), die Buchungsbestätigung selbst schreibt kurz unter der Sperre."""
+        r = ctx.kalender.bestaetigen(ergebnis["appointment_id"])
+        if r["ausgang"] == "bestaetigt":                                      # Ereignis termin.abgesagt bei Umbuchung: kalender.py
+            return {**ergebnis, "kalender": "bestaetigt", "extern_id": r["extern_id"]}
+        if r["ausgang"] == "abgelehnt":                                       # Zeit inzwischen vergeben: keine Buchung
+            fehler = "Dieser Termin ist inzwischen vergeben."
+            if ergebnis.get("umgebucht_von"):
+                fehler += f" Der bisherige Termin am {ergebnis['umgebucht_von']} bleibt bestehen."
+            return {"ok": False, "fehler": fehler + " Mit check_slots einen anderen Termin anbieten.", "kalender": "abgelehnt"}
+        if r.get("naechster_versuch"):                                       # Störung: Wiederholung nach Plan
+            hinweis = "Der Kalender war gerade nicht erreichbar; die Buchung ist vorgemerkt und wird automatisch bestätigt."
+        else:                                                                 # läuft gerade im Planer oder ist dort geplant
+            hinweis = "Die Buchung ist vorgemerkt; der Kalender bestätigt sie in Kürze automatisch."
+        return {**ergebnis, "kalender": "vorgemerkt", "hinweis": hinweis}
+
     # ------------------------------------------------------------ Betrieb
     @app.get("/health")
     def health():
         return {"status": "ok", "version": __version__, "geheimnisse_vollstaendig": not konfig.fehlende_geheimnisse(),
                 "planer": bool(ctx.planer and ctx.planer._thread and ctx.planer._thread.is_alive()),
-                "zeit": iso_utc(datetime.now(timezone.utc))}
+                "zeit": iso_utc(ctx.uhr())}
 
     @app.get("/metrics")
     async def metrics(request: Request):
         betrieb_pruefen(request)
         status = await gesperrt(lambda: {"outbox": ctx.outbox.status() if ctx.outbox else None,
                                          "spiegel": ctx.crm.spiegel_status() if ctx.nachbereitung.spiegel else None,
+                                         "kalender": ctx.kalender.status() if ctx.kalender else None,
                                          "zuordnung_offen": ctx.crm.zuordnung_offen()})
         return {"endpunkte": ctx.metriken.bericht(), "fehlende_geheimnisse": konfig.fehlende_geheimnisse(),
                 "planer": ctx.planer.letzter_bericht if ctx.planer else None,
+                "aufbewahrung": {"letzter_lauf": iso_utc(ctx.aufbewahrung.letzter_lauf) if ctx.aufbewahrung.letzter_lauf else None,
+                                 "fristen_tage": ctx.aufbewahrung.fristen.als_dict()},
                 "push": ctx.planer.letzter_push_bericht if ctx.planer else None,
                 "abgleich": ctx.planer.letzter_abgleich_bericht if ctx.planer else None, **status}
+
+    @app.get("/metrics/prometheus", response_class=PlainTextResponse)
+    async def metrics_prometheus(request: Request):
+        """Für einen Prometheus-Scrape (bearer_token in der Scrape-Konfiguration = TOOL_SECRET)."""
+        betrieb_pruefen(request)
+        extra = await gesperrt(lambda: {
+            "integrations_outbox_entries": ctx.outbox.status() if ctx.outbox else {},
+            "integrations_spiegel_auftraege": ctx.crm.spiegel_status() if ctx.nachbereitung.spiegel else {},
+            "integrations_kalender_auftraege": ctx.crm.kalender_status() if ctx.kalender else {},
+            "integrations_zuordnung_offen": len(ctx.crm.zuordnung_offen())})
+        extra["integrations_planer_alive"] = int(bool(ctx.planer and ctx.planer._thread and ctx.planer._thread.is_alive()))
+        extra["integrations_geheimnisse_vollstaendig"] = int(not konfig.fehlende_geheimnisse())
+        extra["integrations_tool_latenzbudget_ms"] = konfig.tool_latenzbudget_ms
+        kopf = f'# TYPE integrations_info gauge\nintegrations_info{{version="{__version__}",usecase="{ctx.usecase.id}"}} 1\n'
+        return PlainTextResponse(kopf + ctx.metriken.prometheus(extra), media_type="text/plain; version=0.0.4; charset=utf-8")
 
     @app.get("/tools/definitions")
     def definitions(request: Request):
@@ -414,7 +505,7 @@ def erstelle_app(konfig: Optional[Konfig] = None, con=None, outbox: Optional[Out
 
     # ------------------------------------------------------------ Custom Tools
     @app.post("/tools/{name}")
-    async def tool(name: str, request: Request):
+    async def tool(name: str, request: Request, hintergrund: BackgroundTasks):
         t0 = time.perf_counter()
         if konfig.tool_secret:
             try:
@@ -444,28 +535,35 @@ def erstelle_app(konfig: Optional[Konfig] = None, con=None, outbox: Optional[Out
             tools.call_id = aufruf.call_id
             ergebnis = tools.run(name, aufruf.argumente())
             if ergebnis.get("ok") and not ergebnis.get("wiederholt") and ctx.outbox is not None:   # Wiederholungen erzeugen keine Ereignisse
-                if name == "book_appointment" and ergebnis.get("umgebucht_von"):   # Umbuchung: alter Termin ist abgesagt
-                    ctx.nachbereitung._ereignis("termin.abgesagt", lead["id"], {"abgesagt": ergebnis["umgebucht_von"],
-                                                                                "grund": "Umbuchung", "umbuchung": True,
-                                                                                "call_id": aufruf.call_id}, datetime.now(timezone.utc))
+                if name == "book_appointment" and ergebnis.get("umgebucht_von") and not ergebnis.get("umbuchung_offen"):
+                    umbuchung_melden(lead["id"], ergebnis["umgebucht_von"], aufruf.call_id)   # ohne Kalender: alter Termin ist schon weg
                 if name == "cancel_appointment":
                     ctx.nachbereitung._ereignis("termin.abgesagt", lead["id"], {"abgesagt": ergebnis["abgesagt"],
                                                                                 "grund": ergebnis["grund"], "call_id": aufruf.call_id},
-                                                datetime.now(timezone.utc))
+                                                ctx.uhr())
                 if name == "create_ticket":
                     ctx.nachbereitung._ereignis("ticket.erstellt", lead["id"], {"ticket_nummer": ergebnis["ticket_nummer"],
                                                                                 "kategorie": ergebnis["kategorie"],
                                                                                 "beschreibung": aufruf.argumente().get("beschreibung"),
                                                                                 "telefon": lead["telefon"], "name": lead["name"],
                                                                                 "call_id": aufruf.call_id},
-                                                datetime.now(timezone.utc))
+                                                ctx.uhr())
             return ergebnis
 
         ergebnis = await gesperrt(arbeit)
+        if ctx.kalender is not None and name == "book_appointment" and ergebnis.get("ok") and not ergebnis.get("wiederholt") \
+                and ergebnis.get("appointment_id"):
+            ergebnis = await run_in_threadpool(lambda: kalender_bestaetigen(ergebnis))
+        if ctx.kalender is not None and name in ("book_appointment", "cancel_appointment"):
+            hintergrund.add_task(ctx.kalender.auftraege_ausfuehren)        # Absagen im Kalender nachziehen, nach der Antwort
         ms = (time.perf_counter() - t0) * 1000
         ctx.metriken.erfassen(f"tools/{name}", ms, bool(ergebnis.get("ok", True)))
+        logbuch.eintrag("tool", call_id=aufruf.call_id, lead_id=aufruf.external_id, endpunkt=f"tools/{name}", ms=round(ms, 1),
+                        ok=bool(ergebnis.get("ok", True)), wiederholt=ergebnis.get("wiederholt"), kalender=ergebnis.get("kalender"),
+                        weiterleiten=ergebnis.get("weiterleiten"), fehler=ergebnis.get("fehler"))
         if ms > konfig.tool_latenzbudget_ms:
-            agent.log(f"[INTEGRATION] Tool {name} über Latenzbudget: {ms:.0f} ms")
+            logbuch.warnung("tool.latenzbudget", call_id=aufruf.call_id, endpunkt=f"tools/{name}", ms=round(ms, 1),
+                            budget_ms=konfig.tool_latenzbudget_ms)
         return ergebnis
 
     # ------------------------------------------------------------ Custom Calendar (telli-Kontrakt)
@@ -485,16 +583,16 @@ def erstelle_app(konfig: Optional[Konfig] = None, con=None, outbox: Optional[Out
             slots = ctx.crm.freie_slots(ANGEBOTE_KALENDER)
             ctx.crm.angebote_merken(lead["id"], [s["slot_id"] for s in slots])
             return [Slot(start_iso=iso_utc(ctx.crm.start_utc(s["start"])),
-                         end_iso=iso_utc(ctx.crm.start_utc(slot_ende(s["start"])))) for s in slots], None
+                         end_iso=iso_utc(ctx.crm.start_utc(s.get("ende") or slot_ende(s["start"])))) for s in slots], None
 
         slots, grund = await gesperrt(arbeit)
         messen("calendar/available", t0, grund is None)
-        if grund:
-            agent.log(f"[INTEGRATION] /calendar/available leer: {grund}")
+        logbuch.eintrag("kalender.available", lead_id=anfrage.external_id(), endpunkt="calendar/available",
+                        ms=round((time.perf_counter() - t0) * 1000, 1), slots=len(slots), grund=grund)
         return VerfuegbarAntwort(available=slots)
 
     @app.post("/calendar/book", response_model=BuchenAntwort, response_model_exclude_none=True)
-    async def book(request: Request):
+    async def book(request: Request, hintergrund: BackgroundTasks):
         t0 = time.perf_counter()
         body = await request.body()
         telli_signatur_pruefen(body, request.headers)
@@ -503,22 +601,30 @@ def erstelle_app(konfig: Optional[Konfig] = None, con=None, outbox: Optional[Out
         def arbeit():
             lead = lead_aufloesen(anfrage)
             if lead is None:
-                return BuchenAntwort(status="failed", reason="Lead nicht im CRM gefunden")
+                return BuchenAntwort(status="failed", reason="Lead nicht im CRM gefunden"), None
             try:
                 start = iso_lesen(anfrage.start_iso)
             except ValueError:
-                return BuchenAntwort(status="failed", reason="start_iso ist kein ISO-8601-Zeitpunkt")
+                return BuchenAntwort(status="failed", reason="start_iso ist kein ISO-8601-Zeitpunkt"), lead["id"]
             slot = ctx.crm.slot_per_start(start)
             if slot is None or (slot["lead_id"] is not None and slot["lead_id"] != lead["id"]):
-                return BuchenAntwort(status="failed", reason="Appointment slot is no longer available")
+                return BuchenAntwort(status="failed", reason="Appointment slot is no longer available"), lead["id"]
             ergebnis = ctx.crm.tools(lead["id"]).run("book_appointment", {"slot_id": slot["slot_id"]})
             if ergebnis.get("ok"):
-                return BuchenAntwort(status="success")
+                return ergebnis, lead["id"]
             grund = ergebnis.get("fehler") or "; ".join(ergebnis.get("validierungsfehler", [])) or "Buchung abgelehnt"
-            return BuchenAntwort(status="failed", reason=grund)
+            return BuchenAntwort(status="failed", reason=grund), lead["id"]
 
-        antwort = await gesperrt(arbeit)
+        antwort, _ = await gesperrt(arbeit)
+        if isinstance(antwort, dict):                                        # lokal gebucht; Kalenderdienst bestätigt
+            if ctx.kalender is not None and not antwort.get("wiederholt") and antwort.get("appointment_id"):
+                antwort = await run_in_threadpool(lambda: kalender_bestaetigen(antwort))
+                hintergrund.add_task(ctx.kalender.auftraege_ausfuehren)
+            antwort = (BuchenAntwort(status="success") if antwort.get("ok")
+                       else BuchenAntwort(status="failed", reason="Appointment slot is no longer available"))
         messen("calendar/book", t0, antwort.status == "success")
+        logbuch.eintrag("kalender.book", lead_id=anfrage.external_id(), endpunkt="calendar/book", ok=antwort.status == "success",
+                        ms=round((time.perf_counter() - t0) * 1000, 1), grund=antwort.reason)
         return antwort
 
     # ------------------------------------------------------------ Contact Lookup Webhook
@@ -532,6 +638,8 @@ def erstelle_app(konfig: Optional[Konfig] = None, con=None, outbox: Optional[Out
         lead, ist_gesperrt = await gesperrt(lambda: (ctx.crm.lead_per_telefon(anfrage.phone_number),
                                                      ctx.crm.gesperrt(anfrage.phone_number)))
         messen("webhooks/contact-lookup", t0, lead is not None)
+        logbuch.eintrag("contact_lookup", lead_id=lead["id"] if lead else None, bekannt=lead is not None, gesperrt=ist_gesperrt,
+                        endpunkt="webhooks/contact-lookup", ms=round((time.perf_counter() - t0) * 1000, 1))
         if lead is None:
             return KontaktLookupAntwort(contact=None).model_dump()
         vorname, _, nachname = (lead["name"] or "").partition(" ")
@@ -553,11 +661,11 @@ def erstelle_app(konfig: Optional[Konfig] = None, con=None, outbox: Optional[Out
         if konfig.telli_webhook_secret:
             try:
                 message_id = svix_pruefen(konfig.telli_webhook_secret, body, request.headers,
-                                          toleranz_s=konfig.signatur_toleranz_s)
+                                          jetzt=ctx.uhr.sekunden(), toleranz_s=konfig.signatur_toleranz_s)
             except SignaturFehler as e:
                 raise HTTPException(401, str(e)) from e
         else:
-            message_id = request.headers.get("svix-id") or f"unsigniert_{int(time.time() * 1000)}"
+            message_id = request.headers.get("svix-id") or f"unsigniert_{int(ctx.uhr.sekunden() * 1000)}"
         daten = json_lesen(body)
         # Payload-Modelle werden vor der Sperre geprüft: Formfehler sind ein 400, keine halbe Verarbeitung
         try:
@@ -568,6 +676,9 @@ def erstelle_app(konfig: Optional[Konfig] = None, con=None, outbox: Optional[Out
         if ctx.planer is not None and ergebnis.get("status") == "verarbeitet":
             hintergrund.add_task(ctx.planer.tick)          # erst 2xx an telli, dann Zustellung und Spiegelung
         messen("webhooks/telli", t0, ergebnis.get("status") in ("verarbeitet", "duplikat", "ignoriert"))
+        logbuch.eintrag("webhook", call_id=ergebnis.get("call_id"), lead_id=ergebnis.get("lead_id"), event=ergebnis.get("event", daten.get("event")),
+                        status=ergebnis.get("status"), ergebnis=ergebnis.get("ergebnis"), flags=ergebnis.get("flags"),
+                        message_id=message_id, endpunkt="webhooks/telli", ms=round((time.perf_counter() - t0) * 1000, 1))
         return ergebnis
 
     return app

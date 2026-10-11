@@ -1,10 +1,10 @@
 """Nachbereitung: Das Gesprächsergebnis kommt aus dem Backend-Zustand, nicht aus der Behauptung der Plattform."""
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import pytest
 
 from integrations.crm import LocalCRM
-from integrations.modelle import CallEndedEreignis, iso_utc
+from integrations.modelle import CallEndedEreignis
 from integrations.nachbereitung import Nachbereitung
 
 TELEFON = "+49 251 000001"
@@ -30,12 +30,20 @@ def ereignis(ergebnis=None, status="connected", external_id="1", attempt=1, appo
 
 @pytest.fixture
 def crm(con):
-    return LocalCRM(con)
+    """Integrationsdatenbank mit stehender Uhr: zwei Minuten nach dem Ende der Beispielanrufe (ereignis())."""
+    from zoneinfo import ZoneInfo
+
+    import agent
+    from integrations.uhr import Testuhr
+    uhr = Testuhr("2026-10-10T09:05:00Z")
+    con.execute("DELETE FROM slots")
+    agent.slots_anlegen(con, uhr().astimezone(ZoneInfo("Europe/Berlin")).replace(tzinfo=None))
+    return LocalCRM(con, uhr=uhr)
 
 
 @pytest.fixture
 def nb(crm):
-    return Nachbereitung(crm, jetzt=lambda: datetime(2026, 10, 10, 9, 5, tzinfo=timezone.utc))
+    return Nachbereitung(crm, jetzt=crm.uhr)
 
 
 def qualifizieren_und_buchen(crm, lead_id=1):
@@ -157,7 +165,7 @@ def test_mirror_jobs_are_queued_in_the_transaction_and_run_outside_the_lock(crm)
 
     spiegel = Spiegel()
     crm.con.execute("UPDATE leads SET crm_id = 'hs_501' WHERE id = 1")
-    nb = Nachbereitung(crm, spiegel=spiegel, jetzt=lambda: datetime(2026, 10, 10, 9, 5, tzinfo=timezone.utc))
+    nb = Nachbereitung(crm, spiegel=spiegel, jetzt=crm.uhr)
     r = nb.verarbeiten(ereignis("rueckruf_vereinbart", extra_outcomes={"eigentuemer": "true",
                                                                        "rueckruf_zeitpunkt": "2026-10-12T14:00:00Z"}), "msg_18")
     assert r["spiegel_auftrag"] == 1 and spiegel.aufrufe == []                     # vorgemerkt, noch nichts gesendet
@@ -271,10 +279,11 @@ def test_mirror_retry_skips_steps_that_already_succeeded(crm):
                 raise TimeoutError("langsam")
 
     spiegel = Wacklig()
-    nb = Nachbereitung(crm, spiegel=spiegel)
+    nb = Nachbereitung(crm, spiegel=spiegel, jetzt=crm.uhr)
     nb.verarbeiten(ereignis("rueckruf_vereinbart"), "msg_30")
     assert nb.spiegeln()["wiederholen"] == 1 and spiegel.aufrufe == ["update", "notiz", "aufgabe"]
-    crm.con.execute("UPDATE spiegel_auftraege SET naechster_versuch = now()::TIMESTAMP")      # fällig stellen
+    assert nb.spiegeln()["erledigt"] == 0                                                 # zweiter Versuch erst nach 5 s
+    crm.uhr.vor(seconds=5)
     assert nb.spiegeln()["erledigt"] == 1
     assert spiegel.aufrufe == ["update", "notiz", "aufgabe", "aufgabe"]                   # keine zweite Notiz, kein zweites Update
 

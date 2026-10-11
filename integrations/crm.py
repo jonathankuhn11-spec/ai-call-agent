@@ -13,28 +13,33 @@ nutzt agent.Tools für alle Schreibzugriffe mit Geschäftsregeln. Es gibt keinen
 einen Lead zu qualifizieren oder einen Termin zu buchen.
 
 Zeit: Die TIMESTAMP-Spalten des CRM (Slots, Buchungen, Aufgaben, Protokoll) sind Wanduhrzeit in
-der konfigurierten Zeitzone (Standard Europe/Berlin). Die Verbindung wird darauf gesetzt
-(SET TimeZone), damit now() in DuckDB, die vom Agenten geschriebenen Zeiten und die hier
-umgerechneten UTC-Zeitpunkte der Plattform denselben Bezug haben, unabhängig von der Zeitzone
-des Hosts. Nur die Outbox rechnet intern in naiver UTC mit ihrer eigenen Uhr (outbox.py).
-Der Server nutzt seine eigene Datenbankdatei (DB_PATH); lokale Läufe von agent.py schreiben
-Host-Ortszeit und gehören in eine andere Datei.
+der konfigurierten Zeitzone (Standard Europe/Berlin). Jeder Zeitvergleich und jeder Zeitstempel
+kommt aus der einen Uhr der Schicht (integrations/uhr.py), umgerechnet in diese Wanduhrzeit;
+die Datenbankfunktion now() wird nicht benutzt, weil sie sich nicht stellen lässt. Die Verbindung
+wird trotzdem auf die Zone gesetzt (SET TimeZone), damit Zeiten, die der Prototyp agent.py über
+dieselbe Verbindung schreibt, denselben Bezug haben. Nur die Outbox rechnet intern in naiver UTC
+mit derselben Uhr (outbox.py). Der Server nutzt seine eigene Datenbankdatei (DB_PATH); lokale
+Läufe von agent.py schreiben Host-Ortszeit und gehören in eine andere Datei.
 """
 from __future__ import annotations
 
 import json
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional, Protocol
+from typing import Any, Callable, Optional, Protocol
 from zoneinfo import ZoneInfo
 
 import agent
 from integrations.modelle import telefon_normalisieren
+from integrations.uhr import Uhr
 
 LEAD_SPALTEN = ["id", "name", "telefon", "plz", "quelle", "status", "eigentuemer", "gebaeudetyp",
                 "dachflaeche_m2", "jahresverbrauch_kwh", "notiz", "crm_id"]
 ANGEBOT_GUELTIG_H = 24      # so lange darf ein angebotener Slot noch gebucht werden
 SLOT_DAUER_MIN = 60         # Beratungstermin
+ERINNERUNG_VORLAUF_H = 24   # Erinnerung an den Termin: einen Tag vorher ...
+ERINNERUNG_KURZFRIST_H = 2  # ... oder, bei kurzfristiger Buchung, zwei Stunden vorher; näher dran gar nicht mehr
+KALENDER_KARENZ_S = 10      # so lange gehört ein neuer Buchungsauftrag dem Server (Sofortbestätigung), dann dem Planer
 TICKET_KATEGORIEN = ("stoerung_internet", "stoerung_tv", "stoerung_telefon", "rechnung", "sonstiges")
 
 
@@ -42,13 +47,7 @@ class CRM(Protocol):
     """Was Nachbereitung, Contact Lookup und Lead-Push vom Kunden-CRM brauchen."""
 
     def lead(self, lead_id: Any) -> Optional[dict]: ...
-    def lead_anlegen(self, name: str, telefon: str, quelle: str, plz: Optional[str] = None) -> dict:
-        """Unbekannter Anrufer (Inbound): als neuen Lead aufnehmen, damit Rückruf, Notiz und Protokoll einen Platz haben."""
-        lid = self.con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM leads").fetchone()[0]
-        self.con.execute("INSERT INTO leads (id, name, telefon, plz, quelle, status, erstellt_am) VALUES (?, ?, ?, ?, ?, 'offen', now()::TIMESTAMP)",
-                         [lid, name[:100], telefon_normalisieren(telefon), plz, quelle[:50]])
-        return self.lead(lid)
-
+    def lead_anlegen(self, name: str, telefon: str, quelle: str, plz: Optional[str] = None) -> dict: ...
     def lead_per_telefon(self, telefon: str) -> Optional[dict]: ...
     def lead_aktualisieren(self, lead_id: Any, **felder) -> dict: ...
     def notiz(self, lead_id: Any, text: str) -> Any: ...
@@ -72,6 +71,9 @@ class PersistenteTools(agent.Tools):
 
     call_id: Optional[str] = None            # setzt der Server je Request; Verifizierung und Idempotenz hängen daran
 
+    def jetzt(self) -> datetime:
+        return self.crm.jetzt()                  # die Uhr der Schicht, nicht die der Datenbank
+
     def _slots_formatiert(self, rows) -> dict:
         wt = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
         return {"freie_termine": [{"slot_id": r[0], "zeit": f"{wt[r[1].weekday()]} {r[1]:%d.%m. %H:%M} Uhr"} for r in rows]}
@@ -81,14 +83,30 @@ class PersistenteTools(agent.Tools):
         if self.crm.qualifizierung_noetig:
             result = super().check_slots(**kwargs)
         else:                                         # Inbound-Service: Termine gibt es für jeden bekannten Kunden
-            rows = self.con.execute("SELECT id, start FROM slots WHERE lead_id IS NULL AND start > now()::TIMESTAMP "
-                                    "ORDER BY start LIMIT 2").fetchall()
+            rows = self.con.execute("SELECT id, start FROM slots WHERE lead_id IS NULL AND start > ? "
+                                    "ORDER BY start LIMIT 2", [self.jetzt()]).fetchall()
             result = self._slots_formatiert(rows)
         if "freie_termine" in result:
             neu = [s["slot_id"] for s in result["freie_termine"]]
             self.crm.angebote_merken(self.lead_id, neu)
             self.offered = vorher | set(neu)
         return result
+
+    def _slot_pruefen(self, slot_id) -> Optional[dict]:
+        """Vor jeder Buchung: Der Slot muss noch existieren (der Kalender-Spiegel kann ihn entfernt haben) und in der
+        Zukunft liegen (Angebote gelten 24 Stunden, ein Slot von heute Morgen kann inzwischen vorbei sein)."""
+        try:
+            sid = int(slot_id)
+        except (TypeError, ValueError):
+            return None
+        row = self.con.execute("SELECT start FROM slots WHERE id = ?", [sid]).fetchone()
+        if row is None and sid in self.offered:
+            return {"ok": False, "fehler": "Dieser Termin ist inzwischen vergeben. check_slots erneut aufrufen und einen "
+                                           "anderen Termin anbieten."}
+        if row is not None and row[0] <= self.jetzt():
+            return {"ok": False, "fehler": f"Der Termin am {row[0]:%d.%m.%Y %H:%M} Uhr liegt nicht mehr in der Zukunft. "
+                                           "check_slots erneut aufrufen."}
+        return None
 
     def _buchen_ohne_qualifizierung(self, **kwargs) -> dict:
         """Dieselben Regeln wie agent.Tools.book_appointment, nur ohne die PV-Qualifizierung."""
@@ -103,7 +121,8 @@ class PersistenteTools(agent.Tools):
             return {"ok": False, "fehler": "Termin ist bereits vergeben. Anderen Termin anbieten."}
         self.con.execute("UPDATE slots SET lead_id = ? WHERE id = ?", [self.lead_id, b.slot_id])
         aid = self.con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM appointments").fetchone()[0]
-        self.con.execute("INSERT INTO appointments VALUES (?, ?, ?, ?, now())", [aid, self.lead_id, b.slot_id, b.art])
+        self.con.execute("INSERT INTO appointments (id, lead_id, slot_id, art, gebucht_am) VALUES (?, ?, ?, ?, ?)",
+                         [aid, self.lead_id, b.slot_id, b.art, self.jetzt()])
         self.booked = True
         return {"ok": True, "termin": f"{slot[0]:%d.%m.%Y %H:%M} Uhr", "art": b.art}
 
@@ -116,22 +135,44 @@ class PersistenteTools(agent.Tools):
         return None
 
     def book_appointment(self, **kwargs):
-        bestehend = self.crm.termin(self.lead_id, zukunft=True)        # vergangene Termine bleiben Historie
+        """Buchen, idempotent, mit Umbuchung. Steht ein Kalenderdienst dahinter (crm.kalender_aktiv), ist die
+        Buchung hier erst vorgemerkt: Der Server bestätigt sie sofort danach im Kalender (kalender.py) und erst
+        dann wird ein bisheriger Termin abgesagt. Lehnt der Kalender ab, bleibt der alte Termin bestehen."""
+        bestehend = self.crm.termin(self.lead_id, zukunft=True, bestaetigt=True)   # vergangene Termine bleiben Historie
+        offen = self.crm.termin(self.lead_id, zukunft=True, unbestaetigt=True)
         slot_id = kwargs.get("slot_id")
         if bestehend and str(bestehend["slot_id"]) == str(slot_id):          # Wiederholung: idempotent
             self.booked = True
+            if offen:                                                          # "doch der alte": die Vormerkung entfällt
+                self.crm.termin_freigeben(offen["id"], verwerfen=True)
             return {"ok": True, "termin": f"{bestehend['start']:%d.%m.%Y %H:%M} Uhr", "art": bestehend["art"],
                     "wiederholt": True, "hinweis": "Dieser Termin war bereits gebucht."}
+        if offen and str(offen["slot_id"]) == str(slot_id):                  # Wiederholung, Kalender hat noch nicht bestätigt
+            self.booked = True
+            return {"ok": True, "termin": f"{offen['start']:%d.%m.%Y %H:%M} Uhr", "art": offen["art"], "wiederholt": True,
+                    "appointment_id": offen["id"], "hinweis": "Dieser Termin ist bereits vorgemerkt."}
         if bestehend:
             abgelehnt = self._kurzfristig(bestehend)                       # Umbuchung unterliegt demselben Mindestvorlauf
             if abgelehnt:
                 return abgelehnt
+        abgelehnt = self._slot_pruefen(slot_id)
+        if abgelehnt:
+            return abgelehnt
         result = super().book_appointment(**kwargs) if self.crm.qualifizierung_noetig else self._buchen_ohne_qualifizierung(**kwargs)
         if result.get("ok"):
-            if bestehend:                                                      # Umbuchung: alter Termin wird zur Absage
+            neu = self.crm.termin(self.lead_id, zukunft=True)                 # die eben angelegte Buchung (jüngste)
+            if self.crm.kalender_aktiv and neu:
+                result["appointment_id"] = neu["id"]
+                self.crm.kalender_auftrag(neu["id"], "buchen", ersetzt=bestehend["id"] if bestehend else None,
+                                          call_id=self.call_id)
+                if offen and offen["id"] != neu["id"]:                       # zweite Umbuchung vor der Bestätigung der ersten
+                    self.crm.termin_freigeben(offen["id"], verwerfen=True)
+                if bestehend:
+                    result["umgebucht_von"] = f"{bestehend['start']:%d.%m.%Y %H:%M} Uhr"
+                    result["umbuchung_offen"] = True                         # Absage des alten Termins folgt mit der Bestätigung
+            elif bestehend:                                                    # Umbuchung: alter Termin wird zur Absage
                 self.crm.termin_stornieren(bestehend["id"], "Umbuchung", self.call_id)
                 result["umgebucht_von"] = f"{bestehend['start']:%d.%m.%Y %H:%M} Uhr"
-            neu = self.crm.termin(self.lead_id, zukunft=True)
             if neu:
                 self.crm.erinnerung_planen(neu)
         return result
@@ -150,8 +191,18 @@ class PersistenteTools(agent.Tools):
         abgelehnt = self._kurzfristig(bestehend)
         if abgelehnt:
             return abgelehnt
+        # Umbuchungsfenster: der neue Termin ist vorgemerkt, der alte noch bestätigt; der Kunde meint beide
+        weitere = self.crm.termin(self.lead_id, zukunft=True, bestaetigt=True) if bestehend["extern_status"] == "offen" else None
+        if weitere and weitere["id"] != bestehend["id"]:
+            abgelehnt = self._kurzfristig(weitere)
+            if abgelehnt:
+                return abgelehnt
         self.crm.termin_stornieren(bestehend["id"], grund, self.call_id)
-        return {"ok": True, "abgesagt": f"{bestehend['start']:%d.%m.%Y %H:%M} Uhr", "grund": grund,
+        abgesagt = f"{bestehend['start']:%d.%m.%Y %H:%M} Uhr"
+        if weitere and weitere["id"] != bestehend["id"]:
+            self.crm.termin_stornieren(weitere["id"], grund, self.call_id)
+            abgesagt += f" und {weitere['start']:%d.%m.%Y %H:%M} Uhr"
+        return {"ok": True, "abgesagt": abgesagt, "grund": grund,
                 "hinweis": "Bei Bedarf mit check_slots einen neuen Termin anbieten."}
 
     def verify_customer(self, **kwargs):
@@ -202,12 +253,15 @@ class PersistenteTools(agent.Tools):
 
 
 class LocalCRM:
-    def __init__(self, con, zeitzone: str = "Europe/Berlin", mindestvorlauf_h: int = 0, qualifizierung_noetig: bool = True):
+    def __init__(self, con, zeitzone: str = "Europe/Berlin", mindestvorlauf_h: int = 0, qualifizierung_noetig: bool = True,
+                 uhr: Optional[Callable[[], datetime]] = None):
         self.con = con
         self.zeitzone = zeitzone
         self.tz = ZoneInfo(zeitzone)
+        self.uhr = uhr or Uhr()                                       # zeitzonenbewusste UTC-Zeit; stellbar in Tests
         self.mindestvorlauf_h = mindestvorlauf_h                      # Termine innerhalb dieser Frist sind nicht änderbar
         self.qualifizierung_noetig = qualifizierung_noetig            # PV: Termine nur für qualifizierte Eigentümer
+        self.kalender_aktiv = False                                   # True: ein Kalenderdienst bestätigt Buchungen (kalender.py)
         self._tiefe = 0                                               # verschachtelte transaktion()-Aufrufe
         con.execute(f"SET TimeZone = '{zeitzone}'")
         self._schema()
@@ -236,7 +290,7 @@ class LocalCRM:
         # Eingangszeit des Leads (für Speed-to-Lead); Seed-Leads von agent.init_db haben keine
         c.execute("ALTER TABLE leads ADD COLUMN IF NOT EXISTS erstellt_am TIMESTAMP")
         # liefert das CRM keine Eingangszeit, gilt die erste Sichtung durch die Integrationsschicht
-        c.execute("UPDATE leads SET erstellt_am = now()::TIMESTAMP WHERE erstellt_am IS NULL")
+        c.execute("UPDATE leads SET erstellt_am = ? WHERE erstellt_am IS NULL", [self.jetzt()])
         c.execute("""CREATE TABLE IF NOT EXISTS stornierungen (
             id INTEGER, lead_id INTEGER, slot_id INTEGER, start TIMESTAMP, grund TEXT, storniert_am TIMESTAMP)""")
         c.execute("ALTER TABLE stornierungen ADD COLUMN IF NOT EXISTS call_id TEXT")
@@ -251,6 +305,16 @@ class LocalCRM:
         c.execute("""CREATE TABLE IF NOT EXISTS spiegel_auftraege (
             id INTEGER PRIMARY KEY, lead_id INTEGER, ziel_id TEXT, auftrag TEXT, status TEXT, versuche INTEGER,
             naechster_versuch TIMESTAMP, letzte_antwort TEXT, erstellt_am TIMESTAMP)""")
+        # Kalenderdienst hinter den Slots (kalender.py): gespiegelte Zeiten, externe Buchungs-IDs, Aufträge
+        c.execute("ALTER TABLE slots ADD COLUMN IF NOT EXISTS ende TIMESTAMP")
+        c.execute("ALTER TABLE slots ADD COLUMN IF NOT EXISTS quelle TEXT")
+        c.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS extern_id TEXT")
+        c.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS extern_status TEXT")   # NULL: kein Kalender; offen; bestaetigt
+        c.execute("ALTER TABLE stornierungen ADD COLUMN IF NOT EXISTS extern_id TEXT")
+        c.execute("""CREATE TABLE IF NOT EXISTS kalender_auftraege (
+            id INTEGER PRIMARY KEY, art TEXT, appointment_id INTEGER, lead_id INTEGER, extern_id TEXT, ersetzt INTEGER,
+            call_id TEXT, grund TEXT, status TEXT, versuche INTEGER, naechster_versuch TIMESTAMP, letzte_antwort TEXT,
+            erstellt_am TIMESTAMP)""")
 
     def wandzeit(self, dt: Optional[datetime]) -> Optional[datetime]:
         """Beliebiger Zeitpunkt -> naive Wanduhrzeit der konfigurierten Zone (so speichert die DB)."""
@@ -264,7 +328,8 @@ class LocalCRM:
         return start_lokal.replace(tzinfo=self.tz).astimezone(timezone.utc)
 
     def jetzt(self) -> datetime:
-        return datetime.now(self.tz).replace(tzinfo=None)
+        """Jetzt als Wanduhrzeit der Zone, so wie die Tabellen speichern. Einzige Zeitquelle dieser Klasse."""
+        return self.wandzeit(self.uhr())
 
     @contextmanager
     def transaktion(self):
@@ -304,8 +369,8 @@ class LocalCRM:
     def lead_anlegen(self, name: str, telefon: str, quelle: str, plz: Optional[str] = None) -> dict:
         """Unbekannter Anrufer (Inbound): als neuen Lead aufnehmen, damit Rückruf, Notiz und Protokoll einen Platz haben."""
         lid = self.con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM leads").fetchone()[0]
-        self.con.execute("INSERT INTO leads (id, name, telefon, plz, quelle, status, erstellt_am) VALUES (?, ?, ?, ?, ?, 'offen', now()::TIMESTAMP)",
-                         [lid, name[:100], telefon_normalisieren(telefon), plz, quelle[:50]])
+        self.con.execute("INSERT INTO leads (id, name, telefon, plz, quelle, status, erstellt_am) VALUES (?, ?, ?, ?, ?, 'offen', ?)",
+                         [lid, name[:100], telefon_normalisieren(telefon), plz, quelle[:50], self.jetzt()])
         return self.lead(lid)
 
     def lead_per_telefon(self, telefon: str) -> Optional[dict]:
@@ -343,73 +408,192 @@ class LocalCRM:
 
     # ------------------------------------------------------------ Angebote, Slots, Buchung
     def angebote_merken(self, lead_id: int, slot_ids: list[int]):
-        self.con.executemany("INSERT INTO angebote VALUES (?, ?, now()::TIMESTAMP)", [(lead_id, s) for s in slot_ids])
+        jetzt = self.jetzt()
+        self.con.executemany("INSERT INTO angebote VALUES (?, ?, ?)", [(lead_id, s, jetzt) for s in slot_ids])
 
     def angebotene_slots(self, lead_id: int) -> set[int]:
         rows = self.con.execute(
-            f"SELECT slot_id FROM angebote WHERE lead_id = ? AND angeboten_am > now()::TIMESTAMP - INTERVAL {ANGEBOT_GUELTIG_H} HOUR",
-            [lead_id]).fetchall()
+            "SELECT slot_id FROM angebote WHERE lead_id = ? AND angeboten_am > ?",
+            [lead_id, self.jetzt() - timedelta(hours=ANGEBOT_GUELTIG_H)]).fetchall()
         return {r[0] for r in rows}
 
     def freie_slots(self, anzahl: int = 4) -> list[dict]:
         rows = self.con.execute(
-            "SELECT id, start FROM slots WHERE lead_id IS NULL AND start > now()::TIMESTAMP ORDER BY start LIMIT ?",
-            [anzahl]).fetchall()
-        return [{"slot_id": r[0], "start": r[1]} for r in rows]
+            "SELECT id, start, ende FROM slots WHERE lead_id IS NULL AND start > ? ORDER BY start LIMIT ?",
+            [self.jetzt(), anzahl]).fetchall()
+        return [{"slot_id": r[0], "start": r[1], "ende": r[2]} for r in rows]
 
     def slot_per_start(self, start_utc: datetime) -> Optional[dict]:
         """Slot zu einem UTC-Zeitpunkt; die Tabelle speichert Wanduhrzeit."""
         row = self.con.execute("SELECT id, start, lead_id FROM slots WHERE start = ?", [self.wandzeit(start_utc)]).fetchone()
         return {"slot_id": row[0], "start": row[1], "lead_id": row[2]} if row else None
 
-    def termin(self, lead_id: int, seit: Optional[datetime] = None, zukunft: bool = False) -> Optional[dict]:
+    def termin(self, lead_id: int, seit: Optional[datetime] = None, zukunft: bool = False, bestaetigt: bool = False,
+               unbestaetigt: bool = False) -> Optional[dict]:
         """Jüngster Termin des Leads; `seit`: nur Buchungen ab diesem Zeitpunkt (Gesprächsbeginn),
-        `zukunft`: nur Termine, die noch bevorstehen."""
-        sql = ("SELECT a.id, a.slot_id, s.start, a.art, a.gebucht_am FROM appointments a JOIN slots s ON s.id = a.slot_id "
-               "WHERE a.lead_id = ?")
+        `zukunft`: nur Termine, die noch bevorstehen; `bestaetigt`: ohne Buchungen, die der Kalenderdienst noch
+        bestätigen muss; `unbestaetigt`: nur diese. Ohne Kalenderdienst ist jede Buchung bestätigt."""
+        sql = ("SELECT a.id, a.slot_id, s.start, a.art, a.gebucht_am, a.extern_id, a.extern_status FROM appointments a "
+               "JOIN slots s ON s.id = a.slot_id WHERE a.lead_id = ?")
         params: list = [lead_id]
         if seit is not None:
             sql += " AND a.gebucht_am >= ?"
             params.append(self.wandzeit(seit))
         if zukunft:
-            sql += " AND s.start > now()::TIMESTAMP"
+            sql += " AND s.start > ?"
+            params.append(self.jetzt())
+        if bestaetigt:
+            sql += " AND (a.extern_status IS NULL OR a.extern_status = 'bestaetigt')"
+        if unbestaetigt:
+            sql += " AND a.extern_status = 'offen'"
         row = self.con.execute(sql + " ORDER BY a.gebucht_am DESC, a.id DESC LIMIT 1", params).fetchone()
         if not row:
             return None
-        return {"id": row[0], "slot_id": row[1], "start": row[2], "art": row[3], "gebucht_am": row[4]}
+        return {"id": row[0], "slot_id": row[1], "start": row[2], "art": row[3], "gebucht_am": row[4], "extern_id": row[5],
+                "extern_status": row[6]}
 
-    def termin_freigeben(self, appointment_id: int):
-        row = self.con.execute("SELECT slot_id FROM appointments WHERE id = ?", [appointment_id]).fetchone()
+    def termin_freigeben(self, appointment_id: int, verwerfen: bool = False):
+        """Buchung entfernen, Slot wieder frei, Erinnerung entfällt. `verwerfen`: offene Kalenderaufträge dazu
+        verfallen, eine schon bestätigte Kalenderbuchung wird dort abgesagt."""
+        row = self.con.execute("SELECT slot_id, extern_id, lead_id FROM appointments WHERE id = ?", [appointment_id]).fetchone()
         if row:
             self.con.execute("UPDATE slots SET lead_id = NULL WHERE id = ?", [row[0]])
             self.con.execute("DELETE FROM appointments WHERE id = ?", [appointment_id])
             self.con.execute("UPDATE erinnerungen SET status = 'entfallen' WHERE appointment_id = ? AND status = 'offen'",
                              [appointment_id])
+            if verwerfen and self.kalender_aktiv:
+                self.kalender_auftraege_verwerfen(appointment_id)
+                if row[1]:
+                    self.kalender_auftrag(appointment_id, "stornieren", extern_id=row[1], grund="Buchung verworfen", lead_id=row[2])
 
     def termin_stornieren(self, appointment_id: int, grund: str, call_id: Optional[str] = None):
-        row = self.con.execute("SELECT a.lead_id, a.slot_id, s.start FROM appointments a JOIN slots s ON s.id = a.slot_id "
+        row = self.con.execute("SELECT a.lead_id, a.slot_id, s.start, a.extern_id FROM appointments a JOIN slots s ON s.id = a.slot_id "
                                "WHERE a.id = ?", [appointment_id]).fetchone()
         if not row:
             return
         sid = self.con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM stornierungen").fetchone()[0]
-        self.con.execute("INSERT INTO stornierungen (id, lead_id, slot_id, start, grund, storniert_am, call_id) "
-                         "VALUES (?, ?, ?, ?, ?, now()::TIMESTAMP, ?)", [sid, row[0], row[1], row[2], grund[:200], call_id])
+        self.con.execute("INSERT INTO stornierungen (id, lead_id, slot_id, start, grund, storniert_am, call_id, extern_id) "
+                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [sid, row[0], row[1], row[2], grund[:200], self.jetzt(), call_id, row[3]])
+        if self.kalender_aktiv:
+            self.kalender_auftraege_verwerfen(appointment_id)
+            if row[3]:
+                self.kalender_auftrag(appointment_id, "stornieren", extern_id=row[3], grund=grund, call_id=call_id, lead_id=row[0])
         self.termin_freigeben(appointment_id)
 
+    def termin_bestaetigen(self, appointment_id: int, extern_id: str):
+        self.con.execute("UPDATE appointments SET extern_id = ?, extern_status = 'bestaetigt' WHERE id = ?",
+                         [extern_id, appointment_id])
+
     def stornierungen(self, lead_id: int, seit: Optional[datetime] = None) -> list[dict]:
-        sql = "SELECT id, slot_id, start, grund, storniert_am, call_id FROM stornierungen WHERE lead_id = ?"
+        sql = "SELECT id, slot_id, start, grund, storniert_am, call_id, extern_id FROM stornierungen WHERE lead_id = ?"
         params: list = [lead_id]
         if seit is not None:
             sql += " AND storniert_am >= ?"
             params.append(self.wandzeit(seit))
         rows = self.con.execute(sql + " ORDER BY id", params).fetchall()
-        return [dict(zip(["id", "slot_id", "start", "grund", "storniert_am", "call_id"], r)) for r in rows]
+        return [dict(zip(["id", "slot_id", "start", "grund", "storniert_am", "call_id", "extern_id"], r)) for r in rows]
+
+    # ------------------------------------------------------------ Kalenderdienst: gespiegelte Zeiten und Aufträge
+    def slots_spiegeln(self, zeiten: list[tuple[datetime, datetime]]) -> dict:
+        """Freie Zeiten des Kalenderdienstes (UTC, Start und Ende) in die Slot-Tabelle übernehmen.
+
+        Gebuchte Slots bleiben unberührt. Freie Slots, die der Kalender nicht mehr anbietet, verschwinden,
+        auch die Beispiel-Slots des Prototyps: Ist ein Kalender konfiguriert, ist er die einzige Quelle.
+        """
+        jetzt = self.jetzt()
+        extern = {self.wandzeit(s): self.wandzeit(e) for s, e in zeiten if self.wandzeit(s) > jetzt}
+        vorhanden = {r[1]: (r[0], r[2]) for r in self.con.execute(
+            "SELECT id, start, lead_id FROM slots WHERE start > ?", [jetzt]).fetchall()}
+        neu = entfernt = 0
+        for start, ende in extern.items():
+            if start in vorhanden:
+                self.con.execute("UPDATE slots SET ende = ?, quelle = 'kalender' WHERE id = ?", [ende, vorhanden[start][0]])
+            else:
+                sid = self.con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM slots").fetchone()[0]
+                self.con.execute("INSERT INTO slots (id, start, lead_id, ende, quelle) VALUES (?, ?, NULL, ?, 'kalender')",
+                                 [sid, start, ende])
+                neu += 1
+        for start, (sid, lead_id) in vorhanden.items():
+            if start not in extern and lead_id is None:                      # Angebotsvermerke bleiben: eine Buchung des
+                self.con.execute("DELETE FROM slots WHERE id = ?", [sid])     # verschwundenen Slots heißt dann "inzwischen vergeben"
+                entfernt += 1
+        frei, gebucht = self.con.execute(
+            "SELECT COUNT(*) FILTER (WHERE lead_id IS NULL), COUNT(*) FILTER (WHERE lead_id IS NOT NULL) FROM slots WHERE start > ?",
+            [jetzt]).fetchone()
+        return {"neu": neu, "entfernt": entfernt, "frei": frei, "gebucht": gebucht}
+
+    def slot_entfernen(self, slot_id: int):
+        """Der Kalender hat die Zeit inzwischen vergeben: Slot nicht mehr anbieten."""
+        self.con.execute("DELETE FROM slots WHERE id = ? AND lead_id IS NULL", [slot_id])
+
+    def kalender_auftrag(self, appointment_id: Optional[int], art: str, extern_id: Optional[str] = None,
+                         ersetzt: Optional[int] = None, call_id: Optional[str] = None, grund: Optional[str] = None,
+                         lead_id: Optional[int] = None) -> int:
+        """Auftrag an den Kalenderdienst vormerken (buchen | stornieren); ausgeführt in kalender.py ohne Sperre."""
+        if lead_id is None and appointment_id is not None:
+            row = self.con.execute("SELECT lead_id FROM appointments WHERE id = ?", [appointment_id]).fetchone()
+            lead_id = row[0] if row else None
+        if art == "buchen":
+            self.con.execute("UPDATE appointments SET extern_status = 'offen' WHERE id = ?", [appointment_id])
+        kid = self.con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM kalender_auftraege").fetchone()[0]
+        jetzt = self.jetzt()
+        # Buchungen bestätigt der Server sofort selbst (kalender.py); der Planer übernimmt erst nach einer Karenz
+        faellig = jetzt + timedelta(seconds=KALENDER_KARENZ_S) if art == "buchen" else jetzt
+        self.con.execute("INSERT INTO kalender_auftraege VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'offen', 0, ?, NULL, ?)",
+                         [kid, art, appointment_id, lead_id, extern_id, ersetzt, call_id, (grund or "")[:200], faellig, jetzt])
+        return kid
+
+    def kalender_auftraege_verwerfen(self, appointment_id: int):
+        """Buchungsaufträge zu einem Termin, der nicht mehr gilt: offene verfallen; einer, der gerade läuft (HTTP ohne
+        Sperre), wird als verworfen markiert und storniert seine Buchung selbst, sobald er zurück ist (kalender.py)."""
+        self.con.execute("UPDATE kalender_auftraege SET status = CASE WHEN status = 'laeuft' THEN 'verworfen_laeuft' ELSE 'verworfen' END "
+                         "WHERE appointment_id = ? AND art = 'buchen' AND status IN ('offen', 'laeuft')", [appointment_id])
+
+    def kalender_auftrag_status(self, auftrag_id: int) -> Optional[str]:
+        row = self.con.execute("SELECT status FROM kalender_auftraege WHERE id = ?", [auftrag_id]).fetchone()
+        return row[0] if row else None
+
+    def kalender_auftrag_fuer_termin(self, appointment_id: int) -> Optional[dict]:
+        """Jüngster Buchungsauftrag zu einem Termin, egal in welchem Status (für die Sofortbestätigung im Server)."""
+        row = self.con.execute(f"SELECT {', '.join(self.KALENDER_SPALTEN)} FROM kalender_auftraege WHERE appointment_id = ? "
+                               "AND art = 'buchen' ORDER BY id DESC LIMIT 1", [appointment_id]).fetchone()
+        return dict(zip(self.KALENDER_SPALTEN, row)) if row else None
+
+    KALENDER_SPALTEN = ["id", "art", "appointment_id", "lead_id", "extern_id", "ersetzt", "call_id", "grund", "status",
+                        "versuche", "naechster_versuch", "letzte_antwort"]
+
+    def kalender_auftraege_faellig(self, max_n: int = 50, appointment_id: Optional[int] = None) -> list[dict]:
+        sql = f"SELECT {', '.join(self.KALENDER_SPALTEN)} FROM kalender_auftraege WHERE status = 'offen'"
+        params: list = []
+        if appointment_id is not None:
+            sql += " AND appointment_id = ? AND art = 'buchen'"
+            params.append(appointment_id)
+        else:
+            sql += " AND naechster_versuch <= ?"
+            params.append(self.jetzt())
+        rows = self.con.execute(sql + " ORDER BY id LIMIT ?", [*params, max_n]).fetchall()
+        return [dict(zip(self.KALENDER_SPALTEN, r)) for r in rows]
+
+    def kalender_auftrag_beanspruchen(self, auftrag_id: int) -> bool:
+        """Unter der Sperre: nur ein Ausführender je Auftrag (Server-Sofortbestätigung oder Planer)."""
+        if self.con.execute("SELECT status FROM kalender_auftraege WHERE id = ?", [auftrag_id]).fetchone()[0] != "offen":
+            return False
+        self.con.execute("UPDATE kalender_auftraege SET status = 'laeuft' WHERE id = ?", [auftrag_id])
+        return True
+
+    def kalender_auftrag_abschliessen(self, auftrag_id: int, status: str, antwort: str, versuche: int,
+                                      naechster: Optional[datetime] = None):
+        self.con.execute("UPDATE kalender_auftraege SET status = ?, versuche = ?, letzte_antwort = ?, naechster_versuch = ? WHERE id = ?",
+                         [status, versuche, antwort[:300], self.wandzeit(naechster) if naechster else self.jetzt(), auftrag_id])
+
+    def kalender_status(self) -> dict:
+        return {r[0]: r[1] for r in self.con.execute("SELECT status, COUNT(*) FROM kalender_auftraege GROUP BY 1").fetchall()}
 
     # ------------------------------------------------------------ Tickets, Verifizierung (Inbound-Service)
     def ticket_anlegen(self, lead_id: int, call_id: Optional[str], kategorie: str, text: str) -> int:
         tid = self.con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM tickets").fetchone()[0]
-        self.con.execute("INSERT INTO tickets VALUES (?, ?, ?, ?, ?, 'offen', now()::TIMESTAMP)",
-                         [tid, lead_id, call_id, kategorie[:50], text[:2000]])
+        self.con.execute("INSERT INTO tickets VALUES (?, ?, ?, ?, ?, 'offen', ?)",
+                         [tid, lead_id, call_id, kategorie[:50], text[:2000], self.jetzt()])
         return tid
 
     def tickets(self, lead_id: int, seit: Optional[datetime] = None) -> list[dict]:
@@ -422,7 +606,7 @@ class LocalCRM:
         return [dict(zip(["id", "call_id", "kategorie", "text", "status", "erstellt_am"], r)) for r in rows]
 
     def verifizierung_merken(self, call_id: str, lead_id: int, ok: bool):
-        self.con.execute("INSERT INTO verifizierungen VALUES (?, ?, ?, now()::TIMESTAMP)", [call_id, lead_id, ok])
+        self.con.execute("INSERT INTO verifizierungen VALUES (?, ?, ?, ?)", [call_id, lead_id, ok, self.jetzt()])
 
     def verifizierungsversuche(self, call_id: str, lead_id: int) -> list[dict]:
         rows = self.con.execute("SELECT ok, versuch_am FROM verifizierungen WHERE call_id = ? AND lead_id = ? ORDER BY versuch_am",
@@ -436,26 +620,38 @@ class LocalCRM:
                                 [call_id, lead_id]).fetchone()[0] > 0
 
     # ------------------------------------------------------------ Erinnerungen (24 h vor dem Termin)
-    def erinnerung_planen(self, termin: dict, vorlauf_h: int = 24):
-        """Eine Erinnerung je Termin; bei Umbuchung entfällt die alte (termin_freigeben) und eine neue entsteht."""
+    def erinnerung_planen(self, termin: dict, vorlauf_h: int = ERINNERUNG_VORLAUF_H) -> Optional[datetime]:
+        """Eine Erinnerung je Termin; bei Umbuchung entfällt die alte (termin_freigeben) und eine neue entsteht.
+
+        Fällig ist sie `vorlauf_h` vor dem Termin. Liegt dieser Zeitpunkt bei der Buchung schon zurück
+        (kurzfristiger Termin), rückt sie auf zwei Stunden vor den Termin; liegt auch das zurück, gibt es
+        keine: Die Bestätigung im Gespräch war gerade erst. Rückgabe: Fälligkeit oder None.
+        """
         if self.con.execute("SELECT COUNT(*) FROM erinnerungen WHERE appointment_id = ? AND status = 'offen'",
                             [termin["id"]]).fetchone()[0]:
-            return
+            return None
+        jetzt = self.jetzt()
+        faellig = termin["start"] - timedelta(hours=vorlauf_h)
+        if faellig <= jetzt:
+            faellig = termin["start"] - timedelta(hours=ERINNERUNG_KURZFRIST_H)
+        if faellig <= jetzt:
+            return None
         lead_id = self.con.execute("SELECT lead_id FROM appointments WHERE id = ?", [termin["id"]]).fetchone()[0]
         eid = self.con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM erinnerungen").fetchone()[0]
-        self.con.execute("INSERT INTO erinnerungen VALUES (?, ?, ?, ?, 'offen', NULL)",
-                         [eid, termin["id"], lead_id, termin["start"] - timedelta(hours=vorlauf_h)])
+        self.con.execute("INSERT INTO erinnerungen VALUES (?, ?, ?, ?, 'offen', NULL)", [eid, termin["id"], lead_id, faellig])
+        return faellig
 
     def erinnerungen_faellig(self) -> list[dict]:
+        jetzt = self.jetzt()
         rows = self.con.execute(
             "SELECT e.id, e.lead_id, a.id, s.start, a.art FROM erinnerungen e JOIN appointments a ON a.id = e.appointment_id "
-            "JOIN slots s ON s.id = a.slot_id WHERE e.status = 'offen' AND e.faellig_am <= now()::TIMESTAMP "
-            "AND s.start > now()::TIMESTAMP ORDER BY e.id").fetchall()
+            "JOIN slots s ON s.id = a.slot_id WHERE e.status = 'offen' AND e.faellig_am <= ? "
+            "AND s.start > ? ORDER BY e.id", [jetzt, jetzt]).fetchall()
         return [dict(zip(["id", "lead_id", "appointment_id", "start", "art"], r)) for r in rows]
 
     def erinnerung_gesendet(self, erinnerung_id: int):
-        self.con.execute("UPDATE erinnerungen SET status = 'gesendet', gesendet_am = now()::TIMESTAMP WHERE id = ?",
-                         [erinnerung_id])
+        self.con.execute("UPDATE erinnerungen SET status = 'gesendet', gesendet_am = ? WHERE id = ?",
+                         [self.jetzt(), erinnerung_id])
 
     def erinnerungen(self, lead_id: int) -> list[dict]:
         rows = self.con.execute("SELECT id, appointment_id, faellig_am, status FROM erinnerungen WHERE lead_id = ? ORDER BY id",
@@ -465,7 +661,7 @@ class LocalCRM:
     # ------------------------------------------------------------ Notizen, Aufgaben, Sperrliste
     def notiz(self, lead_id: Any, text: str) -> int:
         nid = self.con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM notizen").fetchone()[0]
-        self.con.execute("INSERT INTO notizen VALUES (?, ?, ?, now()::TIMESTAMP)", [nid, int(lead_id), text[:4000]])
+        self.con.execute("INSERT INTO notizen VALUES (?, ?, ?, ?)", [nid, int(lead_id), text[:4000], self.jetzt()])
         return nid
 
     def notizen(self, lead_id: int) -> list[str]:
@@ -487,7 +683,7 @@ class LocalCRM:
         nummer = telefon_normalisieren(telefon)
         if not nummer:
             return
-        self.con.execute("INSERT OR REPLACE INTO sperrliste VALUES (?, ?, now()::TIMESTAMP)", [nummer, grund[:200]])
+        self.con.execute("INSERT OR REPLACE INTO sperrliste VALUES (?, ?, ?)", [nummer, grund[:200], self.jetzt()])
 
     def gesperrt(self, telefon: str) -> bool:
         nummer = telefon_normalisieren(telefon)
@@ -500,8 +696,8 @@ class LocalCRM:
             self.con.execute("UPDATE telli_kontakte SET contact_id = ?, loop_id = ? WHERE lead_id = ?",
                              [contact_id, loop_id, lead_id])
         else:
-            self.con.execute("INSERT INTO telli_kontakte (lead_id, contact_id, loop_id, erstellt_am) VALUES (?, ?, ?, now()::TIMESTAMP)",
-                             [lead_id, contact_id, loop_id])
+            self.con.execute("INSERT INTO telli_kontakte (lead_id, contact_id, loop_id, erstellt_am) VALUES (?, ?, ?, ?)",
+                             [lead_id, contact_id, loop_id, self.jetzt()])
 
     def telli_kontakt(self, lead_id: int) -> Optional[dict]:
         row = self.con.execute("SELECT contact_id, loop_id, next_call_at, dialer_status, dialer_grund FROM telli_kontakte "
@@ -519,8 +715,8 @@ class LocalCRM:
         """Zeile anlegen, falls der Kontakt nicht aus dem Lead-Push stammt; ohne loop_id gilt 'unbekannt',
         damit der Lead-Push keinen zweiten Anrufzyklus für einen Kontakt plant, den der Dialer schon bearbeitet."""
         if not self.con.execute("SELECT COUNT(*) FROM telli_kontakte WHERE lead_id = ?", [lead_id]).fetchone()[0]:
-            self.con.execute("INSERT INTO telli_kontakte (lead_id, contact_id, loop_id, erstellt_am) VALUES (?, ?, ?, now()::TIMESTAMP)",
-                             [lead_id, contact_id, loop_id or "unbekannt"])
+            self.con.execute("INSERT INTO telli_kontakte (lead_id, contact_id, loop_id, erstellt_am) VALUES (?, ?, ?, ?)",
+                             [lead_id, contact_id, loop_id or "unbekannt", self.jetzt()])
 
     def anruf_geplant_setzen(self, lead_id: int, next_call_at: Optional[datetime], loop_id: Optional[str] = None,
                              contact_id: Optional[str] = None):
@@ -531,20 +727,20 @@ class LocalCRM:
 
     def dialer_status_setzen(self, lead_id: int, status: Optional[str], grund: Optional[str], contact_id: Optional[str] = None):
         self._telli_zeile_sichern(lead_id, contact_id, None)
-        self.con.execute("UPDATE telli_kontakte SET dialer_status = ?, dialer_grund = ?, dialer_am = now()::TIMESTAMP, "
-                         "contact_id = COALESCE(contact_id, ?) WHERE lead_id = ?", [status, grund, contact_id, lead_id])
+        self.con.execute("UPDATE telli_kontakte SET dialer_status = ?, dialer_grund = ?, dialer_am = ?, "
+                         "contact_id = COALESCE(contact_id, ?) WHERE lead_id = ?", [status, grund, self.jetzt(), contact_id, lead_id])
 
     def abgleich_kandidaten(self, mindestalter_min: int = 60, max_alter_tage: int = 14, max_n: int = 50) -> list[dict]:
         """Leads mit telli-Kontakt, deren Anrufe seit mindestens `mindestalter_min` nicht abgeglichen wurden."""
+        jetzt = self.jetzt()
         rows = self.con.execute(
-            f"SELECT lead_id, contact_id FROM telli_kontakte WHERE contact_id IS NOT NULL "
-            f"AND erstellt_am >= now()::TIMESTAMP - INTERVAL {int(max_alter_tage)} DAY "
-            f"AND (abgleich_am IS NULL OR abgleich_am <= now()::TIMESTAMP - INTERVAL {int(mindestalter_min)} MINUTE) "
-            f"ORDER BY COALESCE(abgleich_am, erstellt_am) LIMIT ?", [max_n]).fetchall()
+            "SELECT lead_id, contact_id FROM telli_kontakte WHERE contact_id IS NOT NULL AND erstellt_am >= ? "
+            "AND (abgleich_am IS NULL OR abgleich_am <= ?) ORDER BY COALESCE(abgleich_am, erstellt_am) LIMIT ?",
+            [jetzt - timedelta(days=max_alter_tage), jetzt - timedelta(minutes=mindestalter_min), max_n]).fetchall()
         return [{"lead_id": r[0], "contact_id": r[1]} for r in rows]
 
     def abgleich_merken(self, lead_id: int):
-        self.con.execute("UPDATE telli_kontakte SET abgleich_am = now()::TIMESTAMP WHERE lead_id = ?", [lead_id])
+        self.con.execute("UPDATE telli_kontakte SET abgleich_am = ? WHERE lead_id = ?", [self.jetzt(), lead_id])
 
     def leads_fuer_push(self) -> list[dict]:
         """Offene Leads ohne telli-Kontakt und ohne Sperrvermerk: die Kandidaten für den Dialer."""
@@ -574,14 +770,15 @@ class LocalCRM:
     # ------------------------------------------------------------ Spiegel-Aufträge (Kunden-CRM)
     def spiegel_einreihen(self, lead_id: int, ziel_id: Any, auftrag: dict) -> int:
         sid = self.con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM spiegel_auftraege").fetchone()[0]
-        self.con.execute("INSERT INTO spiegel_auftraege VALUES (?, ?, ?, ?, 'offen', 0, now()::TIMESTAMP, NULL, now()::TIMESTAMP)",
-                         [sid, lead_id, str(ziel_id), json.dumps(auftrag, ensure_ascii=False, default=str)])
+        jetzt = self.jetzt()
+        self.con.execute("INSERT INTO spiegel_auftraege VALUES (?, ?, ?, ?, 'offen', 0, ?, NULL, ?)",
+                         [sid, lead_id, str(ziel_id), json.dumps(auftrag, ensure_ascii=False, default=str), jetzt, jetzt])
         return sid
 
     def spiegel_faellig(self, max_n: int = 50) -> list[dict]:
         rows = self.con.execute(
             "SELECT id, lead_id, ziel_id, auftrag, versuche FROM spiegel_auftraege "
-            "WHERE status = 'offen' AND naechster_versuch <= now()::TIMESTAMP ORDER BY id LIMIT ?", [max_n]).fetchall()
+            "WHERE status = 'offen' AND naechster_versuch <= ? ORDER BY id LIMIT ?", [self.jetzt(), max_n]).fetchall()
         return [{"id": r[0], "lead_id": r[1], "ziel_id": r[2], "auftrag": json.loads(r[3]), "versuche": r[4]} for r in rows]
 
     def spiegel_abschliessen(self, auftrag_id: int, ok: bool, antwort: str, versuche: int, naechster: Optional[datetime],
@@ -606,8 +803,8 @@ class LocalCRM:
         return False
 
     def webhook_merken(self, message_id: str, call_id: Optional[str], ereignis: str):
-        self.con.execute("INSERT OR IGNORE INTO webhook_eingang VALUES (?, ?, ?, now()::TIMESTAMP)",
-                         [message_id, call_id, ereignis])
+        self.con.execute("INSERT OR IGNORE INTO webhook_eingang VALUES (?, ?, ?, ?)",
+                         [message_id, call_id, ereignis, self.jetzt()])
 
     def anruf_protokollieren(self, lead_id: int, start: Optional[datetime], ende: Optional[datetime], ergebnis: str,
                              turns: int, tool_fehler: int, flags: list[str], transkript: list[dict]) -> int:
