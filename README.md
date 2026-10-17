@@ -1,19 +1,57 @@
-# ai-call-agent: Outbound-Lead-Qualifizierung mit Tool-Calling und UAT
+# ai-call-agent: Voice-Agent-Deployment von Scoping bis Go-live
 
-![Tests](https://github.com/jonathankuhn11-spec/ai-call-agent/actions/workflows/tests.yml/badge.svg)
+[![Tests](https://github.com/jonathankuhn11-spec/ai-call-agent/actions/workflows/tests.yml/badge.svg)](https://github.com/jonathankuhn11-spec/ai-call-agent/actions/workflows/tests.yml)
+![Abdeckung](https://img.shields.io/badge/Abdeckung-95%25-brightgreen)
+![Python](https://img.shields.io/badge/Python-3.12-blue)
+![Lizenz](https://img.shields.io/badge/Lizenz-MIT-lightgrey)
 
-Prototyp eines Call-Agenten, der Online-Leads eines PV-Anbieters anruft, qualifiziert und einen Beratungstermin
-bucht. Gebaut wie ein Kunden-Deployment: mit Scoping-Dokument, Geschäftsregeln im Code, einer typisierten
-Entscheidungsschicht vor dem Sprachmodell, automatisiertem User-Acceptance-Test gegen simulierte Kunden,
-einem Dashboard, das jede Iteration gegen die vorige stellt, einer Integrationsschicht, die den Agenten
-entlang der dokumentierten Schnittstellen der Voice-Plattform telli an CRM, Kalender und Ticketsystem
-anbindet, und einem Deployment-Playbook von der Unterschrift bis zum ersten produktiven Anruf.
+Ein Call-Agent, der Online-Leads anruft, qualifiziert und Beratungstermine bucht, **gebaut wie ein
+Kunden-Deployment auf telli**: Scoping mit KPIs, Geschäftsregeln im Code statt im Prompt, automatisierter UAT
+gegen simulierte Kunden, eine Integrationsschicht entlang der dokumentierten telli-Schnittstellen (Custom Tools,
+Custom Calendar, Contact Lookup, Webhooks) zu Salesforce, HubSpot, Cal.com und Ticketsystem, Kanal-Fallback
+per SMS oder WhatsApp und ein Playbook von der Unterschrift bis zur Übergabe.
 
-**Kunde (fiktiv):** SonnenWerk Energie · **Use Case:** Outbound-Qualifizierung und Terminbuchung ·
-**Stack:** Python, Ollama (Qwen 2.5, lokal), Pydantic, DuckDB, FastAPI, Docker, Jev (TypeSafe AI, optional), Streamlit ·
-**Status:** zwei Betriebsarten, UAT 49 von 50 im geführten Modus mit Qwen 2.5 7B, lokaler Sprach-Layer (Push-to-talk),
-Integrationsschicht mit Plattform-Simulator und Kalenderdienst-Adapter (291 Tests, Demo, Lasttest und Abnahme in CI);
-Telefonie und Plattform-Account offen
+**Für Reviewer in 60 Sekunden**
+
+| | |
+| --- | --- |
+| **Der Fall** | PV-Anbieter (fiktiv): Leads in unter 5 Minuten anrufen, in vier Fragen qualifizieren, nur passende Termine an den Vertrieb. Zweiter Use Case: Inbound-Service für Techniker-Termine (Telko). |
+| **Ergebnis** | UAT **49 von 50** Gesprächen mit einem lokalen 7B-Modell, null erfundene Buchungen; vom Baseline-Stand 1 von 10 in sechs dokumentierten Iterationen ([Ergebnisse](#ergebnisse)) |
+| **Engineering** | 305 Tests, 95 % Abdeckung als CI-Gate, Lasttest, Docker, Abnahme von außen mit Go/No-Go, DSGVO-Löschung je Telefonnummer |
+| **Deployment** | [Deployment-Case mit Business Case](docs/deployment-case-telli.md) (+53 % Termine, Annahmen offen gelegt), [Playbook in sieben Phasen](docs/playbook), [Scoping](SCOPING.md), [telli-Konfigurationspakete](docs/telli-konfig) |
+| **Kernidee** | Das Modell formuliert, der Code entscheidet. Das Ergebnis eines Anrufs kommt aus CRM und Kalender, nie aus der Behauptung des Agenten. |
+
+**Selbst ausprobieren, ohne Ollama, ohne Account, ohne Telefonie:**
+
+```bash
+git clone https://github.com/jonathankuhn11-spec/ai-call-agent.git && cd ai-call-agent
+python -m pip install -r requirements.txt
+python -m integrations demo      # beide Use Cases gegen den Plattform-Simulator, Kundensystem-Attrappe
+python -m pytest -q              # 305 Tests, rund eine Minute
+```
+
+<details>
+<summary><b>English summary</b></summary>
+
+A voice agent that calls inbound web leads, qualifies them and books appointments, built the way a customer
+deployment on telli would be run: a signed-off scoping with KPIs, business rules enforced in code rather than in
+the prompt, automated UAT against simulated customers (49/50 conversations passed with a local 7B model, zero
+hallucinated bookings), and an integration layer that follows telli's documented interfaces (custom tools, custom
+calendar, contact lookup, webhooks) into Salesforce, HubSpot, Cal.com and a ticketing system. Leads the dialer
+never reaches get an SMS or WhatsApp follow-up with a self-service booking link, with consent, opt-out and quiet
+hours enforced in code. 305 tests, 95 % coverage, load test, Docker, an external go/no-go acceptance check and a
+seven-phase deployment playbook. The [deployment case](docs/deployment-case-telli.md) walks through an enterprise
+rollout end to end, including a business case with explicit assumptions. Documentation is in German because the
+fictional customers are German.
+</details>
+
+**Stack:** Python, FastAPI, Pydantic, DuckDB, Ollama (Qwen 2.5, lokal), faster-whisper und Piper (Sprache),
+Docker, Streamlit, Jev (optional) · **Offen:** echter telli-Account und Telefonie
+
+**Inhalt:** [Problem](#das-problem) · [Betriebsarten](#zwei-betriebsarten) · [UAT](#user-acceptance-test-mit-simulierten-kunden) ·
+[Ergebnisse](#ergebnisse) · [Sprach-Layer](#sprach-layer) · [Integrationsschicht](#integrationsschicht-der-agent-im-tech-stack-des-kunden) ·
+[Kanal-Fallback](#kanal-fallback-sms-oder-whatsapp-wenn-das-telefon-nicht-reicht) · [Playbook](#deployment-playbook) ·
+[Reproduzieren](#reproduzieren) · [Grenzen](#grenzen)
 
 ## Das Problem
 
@@ -331,6 +369,19 @@ datenschutz --auskunft +49…` gibt alles zu einer Nummer als ein Dokument, `--l
 entfernt Inhalte, sagt Termine ab und lässt die Nummer als Werbesperre stehen; das Löschprotokoll hält nur einen
 Hash der Nummer.
 
+### Kanal-Fallback: SMS oder WhatsApp, wenn das Telefon nicht reicht
+
+Gibt der Auto-Dialer auf (`auto_dialer_status_changed` mit `scheduler_gave_up_*`), war bisher eine manuelle Aufgabe
+das Ende. Ein Teil dieser Leads bucht aber per Nachricht, wenn er nie ans Telefon geht. Mit `NACHFASS_KANAL=sms`
+(oder `whatsapp`) und `NACHFASS_LINK` plant [`integrations/nachfass.py`](integrations/nachfass.py) eine Nachricht
+mit Self-Service-Buchungslink und meldet sie als Ereignis `nachricht.nachfassen` über dieselbe signierte Outbox;
+das SMS-Gateway oder die Automationsplattform des Kunden stellt zu. Der Code erzwingt, was sonst im Gateway
+vergessen wird: **Einwilligung je Kanal** (eine Telefon-Einwilligung gilt nicht für SMS, § 7 UWG), **Sperrliste
+schlägt alles**, **höchstens eine Nachricht je Lead in 14 Tagen** (auch bei Replays), **Zustellfenster Mo bis Sa,
+9 bis 20 Uhr Ortszeit** über die Zeitumstellung hinweg und **nur offene Leads**. Die Aufgabe für den Vertrieb
+bleibt bestehen; die Rückgewinnungsquote (Buchungen nach der Nachricht) ist eine Kennzahl, ein Löschersuchen
+entfernt Verlauf und Einwilligung mit.
+
 ## Deployment-Playbook
 
 [`docs/playbook/`](docs/playbook) beschreibt den Weg von der Unterschrift zum ersten produktiven Anruf, auf
@@ -387,14 +438,15 @@ macOS und Linux: statt der vierten Zeile `source .venv/bin/activate`.
 | Integrationsschicht: Server für die Plattform | `python -m integrations serve --port 8000` |
 | Tool-Definitionen für die telli-Konfiguration | `python -m integrations definitions --url https://backend.kunde.example` |
 | Lead-Push in den Dialer, ohne zu senden | `python -m integrations push --trocken` |
-| Tests | `python -m pytest -q` |
+| Tests mit Abdeckung | `python -m pytest -q --cov` (oder `make test`) |
+| Statische Prüfung | `ruff check .` (oder `make lint`) |
 
 Jev ist optional. Mit einem API-Key von TypeSafe AI in einer Datei `.env` (Vorlage: [`.env.example`](.env.example))
 übernimmt Jev Absichtserkennung und Faktencheck; ohne Key laufen dieselben Entscheidungen über die Regex-Schicht.
 Die Geheimnisse der Integrationsschicht (API-Key, Webhook-Secret, Tool-Secret) stehen in derselben Datei; ohne sie
 laufen die Endpunkte unsigniert, für lokale Tests. Die Datei `.env` steht in der `.gitignore`.
 
-Die 291 Tests brauchen weder Ollama noch Jev noch Audio-Hardware noch einen Plattform-Account: Das LLM wird durch
+Die 305 Tests brauchen weder Ollama noch Jev noch Audio-Hardware noch einen Plattform-Account: Das LLM wird durch
 skriptierte Antworten und Extraktionen ersetzt, die Jev-API durch einen Stub, Mikrofon und Stimme durch Attrappen,
 die Voice-Plattform durch den Simulator und HubSpot, telli-API, Cal.com und Kundensystem durch `httpx.MockTransport`,
 der jede Anfrage auf Pfad, Body, Header und Signatur prüft. Die Zeit steht in den Tests (eine Testuhr für Backend,
@@ -431,6 +483,7 @@ integrations/     Integrationsschicht nach den telli-Schnittstellen
   simulator.py      Plattform-Simulator: spielt telli für Demo und Tests; Cal.com-Attrappe
   kalender.py       Kalenderdienst hinter den Slots: Cal.com API v2, Kalender-Spiegel, Buchungsbestätigung, Aufträge mit Wiederholung
   pruefung.py       Abnahme von außen: dieselben Requests wie die Plattform, Go/No-Go, Abnahmeprotokoll
+  nachfass.py       Kanal-Fallback: SMS/WhatsApp mit Buchungslink, Einwilligung, Sperrfenster, Zustellfenster
   aufbewahrung.py   Aufbewahrungsfristen je Datenart, Auskunft (Art. 15) und Löschung (Art. 17) je Telefonnummer
   logbuch.py        strukturiertes Log: eine JSON-Zeile je Vorgang, korreliert über call_id, ohne Transkripte und Nummern
   uhr.py            die eine Uhr der Schicht (Systemzeit) und die stellbare Testuhr
@@ -438,13 +491,15 @@ integrations/     Integrationsschicht nach den telli-Schnittstellen
 pilot_dashboard.py  Streamlit-Cockpit: Kennzahlen, Flags, Review, Wochenreport aus der Integrationsdatenbank
 scripts/lasttest.py Lasttest: parallele Gespräche, p50/p95, Schwelle
 Dockerfile, docker-compose.yml  Container für die Integrationsschicht
+Makefile, pyproject.toml        Kurzbefehle (make test, demo, lint) und Ruff-/Abdeckungsregeln
+docs/deployment-case-telli.md  Enterprise-Rollout end to end: Business Case, Architektur, Plan, Risiken, 90 Tage
 docs/integrationen.md   Schnittstellen, Payloads, Sicherheit, Ergebnis-Tabelle, Betrieb, Grenzen
 docs/telli-agent-konfiguration.md  Was im Agent-Builder einzutragen ist (PV-Fall), Hand-Doku mit Drift-Test
 docs/telli-konfig/      erzeugte Konfigurationspakete je Use Case
 docs/use-cases/         zweites Scoping: Telko-Inbound
 docs/playbook/          Scoping-Workshop, Integrations-Checkliste, UAT, Go-live-Runbook, KPIs, Eskalation, Enablement
 SCOPING.md        Deployment-Scoping: Problem, KPIs, Kriterien, Edge Cases, Recht, Pilotplan
-tests/            291 Tests mit skriptiertem LLM, Jev-Stub, Audio-Attrappen, Plattform-Simulator, Cal.com-Attrappe, Testuhr und MockTransport
+tests/            305 Tests mit skriptiertem LLM, Jev-Stub, Audio-Attrappen, Plattform-Simulator, Cal.com-Attrappe, Testuhr und MockTransport
 eval_history.json Kennzahlen je Lauf
 eval_results.json Transkripte und Bewertung des letzten Laufs
 ```

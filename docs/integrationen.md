@@ -321,6 +321,13 @@ Plattform) antworten mit `wiederholt: true` und erzeugen keine zweiten Ereigniss
 Umbuchung ohne vorherige Absage meldet `termin.abgesagt` für den alten Slot mit `umbuchung: true`. Ereignisse rund um den Termin: `termin.gebucht`, `termin.abgesagt`,
 `termin.erinnerung`; dazu `ticket.erstellt`, `anruf.geplant`, `dialer.beendet`.
 
+**Kanal-Fallback (`nachricht.nachfassen`).** Mit `NACHFASS_KANAL` (`sms` oder `whatsapp`) und `NACHFASS_LINK` erzeugt
+ein aufgegebener Auto-Dialer zusätzlich zur Aufgabe ein Ereignis mit `kanal`, `an` (Nummer), `senden_ab` (UTC, nächster
+Zeitpunkt im Zustellfenster Mo bis Sa 9 bis 20 Uhr Ortszeit), `text` und `link`. Das Kundensystem stellt zum Zeitpunkt
+`senden_ab` zu. Voraussetzung ist eine Einwilligung je Kanal (`Nachfass.einwilligung_setzen`, Spalte
+`leads.einwilligung_kanaele`); Sperrliste und ein Sperrfenster von 14 Tagen je Lead gelten immer. Details und
+Begründung in `integrations/nachfass.py`.
+
 ## 7. HubSpot- und Salesforce-Adapter
 
 telli synchronisiert Kontakte nativ mit HubSpot. Was die native Synchronisation nicht tut, macht
