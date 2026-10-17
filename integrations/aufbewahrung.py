@@ -200,6 +200,9 @@ class Aufbewahrung:
             weg("kalender_auftraege", "lead_id = ? AND status NOT IN ('offen', 'laeuft')")
             if self._tabelle("outbox"):
                 weg("outbox", "body LIKE ?", [f'%"lead_id":{lid},%'])
+            if self._tabelle("nachfass"):                                      # Kanal-Fallback (nachfass.py)
+                weg("nachfass")
+                con.execute("UPDATE leads SET einwilligung_kanaele = NULL WHERE id = ?", [lid])
             con.execute("UPDATE leads SET name = 'gelöscht', telefon = NULL, plz = NULL, quelle = NULL, status = 'geloescht', "
                         "eigentuemer = NULL, gebaeudetyp = NULL, dachflaeche_m2 = NULL, jahresverbrauch_kwh = NULL, notiz = NULL "
                         "WHERE id = ?", [lid])

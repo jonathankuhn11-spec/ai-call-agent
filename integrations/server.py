@@ -228,6 +228,7 @@ class Kontext:
     telli_client: Optional[TelliClient] = None
     kalender: Optional[Kalenderspiegel] = None
     aufbewahrung: Optional[Aufbewahrung] = None
+    nachfass: Any = None                       # integrations.nachfass.Nachfass, wenn NACHFASS_KANAL gesetzt
     usecase: Any = None
     verifizierung_pflicht: bool = False
     metriken: Metriken = field(default_factory=Metriken)
@@ -313,7 +314,13 @@ def erstelle_app(konfig: Optional[Konfig] = None, con=None, outbox: Optional[Out
         spiegel = spiegel_aus_konfig(konfig)
     if telli_client is None and konfig.telli_api_key:
         telli_client = telli_client_aus_konfig(konfig)
-    ctx = Kontext(konfig, crm, outbox, Nachbereitung(crm, outbox, spiegel, jetzt=uhr), uhr=uhr)
+    nachfass = None
+    if konfig.nachfass_kanal:
+        from integrations.nachfass import Nachfass, Nachfassregel
+        nachfass = Nachfass(crm, Nachfassregel(kanal=konfig.nachfass_kanal, link=konfig.nachfass_link,
+                                               kunde=konfig.nachfass_kunde or usecase.kunde, zeitzone=konfig.zeitzone))
+    ctx = Kontext(konfig, crm, outbox, Nachbereitung(crm, outbox, spiegel, jetzt=uhr, nachfass=nachfass), uhr=uhr)
+    ctx.nachfass = nachfass
     ctx.usecase, ctx.verifizierung_pflicht = usecase, verifizierung
     if telli_client is not None and konfig.telli_agent_id:
         ctx.lead_push = LeadPush(crm, telli_client, konfig.telli_agent_id, sperre=ctx.sperre)

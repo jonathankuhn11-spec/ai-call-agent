@@ -52,8 +52,9 @@ def _zeit(text: Optional[str]) -> Optional[datetime]:
 
 class Nachbereitung:
     def __init__(self, crm: LocalCRM, outbox: Optional[Outbox] = None, spiegel: Optional[CRM] = None,
-                 schluessel: Optional[dict[str, str]] = None, jetzt=None):
+                 schluessel: Optional[dict[str, str]] = None, jetzt=None, nachfass=None):
         self.crm, self.outbox, self.spiegel = crm, outbox, spiegel
+        self.nachfass = nachfass                  # integrations.nachfass.Nachfass: Kanal-Fallback, optional
         self.k = {**OUTCOME_SCHLUESSEL, **(schluessel or {})}
         self.jetzt = jetzt or (lambda: datetime.now(timezone.utc))
 
@@ -121,6 +122,13 @@ class Nachbereitung:
                     aus["aufgabe_id"] = aid
                     self._ereignis("aufgabe.erstellt", lead["id"], {"aufgabe_id": aid, "titel": "Nicht erreicht: manuell nachfassen",
                                                                      "faellig": iso_utc(faellig)}, self.jetzt())
+                    if self.nachfass is not None:                 # Kanal-Fallback: Nachricht mit Buchungslink
+                        nf = self.nachfass.planen(aktuell, f"dialer:{grund}", self.jetzt())
+                        aus["nachfass"] = nf["nachfass"] if nf["nachfass"] == "geplant" else f"uebersprungen:{nf['grund']}"
+                        if nf["nachfass"] == "geplant":
+                            self._ereignis("nachricht.nachfassen", lead["id"], {
+                                "nachfass_id": nf["nachfass_id"], "kanal": nf["kanal"], "an": nf["telefon"],
+                                "senden_ab": iso_utc(nf["senden_ab"]), "text": nf["text"], "link": nf["link"]}, self.jetzt())
                 self._ereignis("dialer.beendet", lead["id"], {"grund": grund}, self.jetzt())
         return aus
 
