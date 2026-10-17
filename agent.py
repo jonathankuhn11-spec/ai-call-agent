@@ -20,9 +20,9 @@ from typing import Literal, Optional
 
 import duckdb
 import ollama
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 import jev
-from pydantic import BaseModel, Field, ValidationError, field_validator
 
 MODEL = "qwen2.5:7b"
 DB_PATH = "crm.duckdb"

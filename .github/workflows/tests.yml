@@ -13,11 +13,13 @@ jobs:
         with:
           python-version: "3.12"
       - name: Abhängigkeiten installieren
-        run: python -m pip install -r requirements.txt ruff
-      - name: Statische Prüfung (undefinierte Namen, ungenutzte Importe)
-        run: ruff check --select F,E9 .
-      - name: Tests (ohne Ollama, ohne Jev-Zugang, ohne Plattform-Account; die Zeit steht in den Tests)
-        run: python -m pytest -q
+        run: python -m pip install -r requirements.txt ruff pytest-cov
+      - name: Statische Prüfung (Regeln in pyproject.toml: Fehler, wahrscheinliche Bugs, Importreihenfolge)
+        run: ruff check .
+      - name: Tests mit Abdeckung (ohne Ollama, ohne Jev-Zugang, ohne Plattform-Account; die Zeit steht in den Tests)
+        run: |
+          python -m pytest -q --cov --cov-report=term --cov-report=markdown:coverage.md --cov-fail-under=90
+          cat coverage.md >> "$GITHUB_STEP_SUMMARY"
       - name: Integrationsschicht, Demo im Prozess (beide Use Cases, Plattform-Simulator, Attrappen-Kundensystem)
         run: python -m integrations demo
       - name: Lasttest (40 Gespräche, 10 parallel, Outbox liefert währenddessen an ein langsames Kundensystem; geteilte Runner schwanken, Staging-Schwelle ist 300 ms)

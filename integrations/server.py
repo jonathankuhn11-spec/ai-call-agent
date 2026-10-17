@@ -26,7 +26,6 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-
 from typing import Any, Callable, Optional
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
@@ -35,21 +34,32 @@ from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
 import agent
-from integrations import __version__
+from integrations import __version__, logbuch
+from integrations.abgleich import Abgleich, anruf_nachholen
+from integrations.aufbewahrung import Aufbewahrung, Fristen
 from integrations.crm import LocalCRM, slot_ende
 from integrations.hubspot import HubSpotCRM
 from integrations.kalender import Kalender, Kalenderspiegel, kalender_aus_konfig
 from integrations.konfig import Konfig
-from integrations import logbuch
-from integrations.modelle import (BuchenAnfrage, BuchenAntwort, KontaktLookupAnfrage,
-                                  KontaktLookupAntwort, KontaktLookupKontakt, KontaktReferenz, Slot, ToolAufruf,
-                                  VerfuegbarAnfrage, VerfuegbarAntwort, iso_lesen, iso_utc, telefon_normalisieren)
+from integrations.modelle import (
+    BuchenAnfrage,
+    BuchenAntwort,
+    KontaktLookupAnfrage,
+    KontaktLookupAntwort,
+    KontaktLookupKontakt,
+    KontaktReferenz,
+    Slot,
+    ToolAufruf,
+    VerfuegbarAnfrage,
+    VerfuegbarAntwort,
+    iso_lesen,
+    iso_utc,
+    telefon_normalisieren,
+)
 from integrations.nachbereitung import Nachbereitung
 from integrations.outbox import Outbox
 from integrations.salesforce import SalesforceCRM
 from integrations.signatur import SignaturFehler, bearer_pruefen, geheimnisse, svix_pruefen, telli_pruefen
-from integrations.abgleich import Abgleich, anruf_nachholen
-from integrations.aufbewahrung import Aufbewahrung, Fristen
 from integrations.telli import LeadPush, TelliClient, TelliFehler
 from integrations.uhr import Uhr
 

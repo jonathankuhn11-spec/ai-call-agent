@@ -375,7 +375,7 @@ class Leitfaden:
 
     def __init__(self, con, tools: Tools, lead_id: int):
         self.con, self.tools, self.lead_id = con, tools, lead_id
-        self.asked = {f: 0 for f in FIELDS}
+        self.asked = dict.fromkeys(FIELDS, 0)
         self.unknown = set()
         self.pending: Optional[str] = None       # zuletzt gestellte Frage (Feldname)
         self.offered: list = []                  # angebotene Termine (slot_id, Zeittext)

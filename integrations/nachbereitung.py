@@ -23,8 +23,16 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from integrations.crm import CRM, LocalCRM
-from integrations.modelle import (DIALER_AUFGEGEBEN, ERGEBNISSE, AutoDialerEreignis, CallEndedEreignis, CallRescheduledEreignis,
-                                  Ereignis, iso_lesen, iso_utc)
+from integrations.modelle import (
+    DIALER_AUFGEGEBEN,
+    ERGEBNISSE,
+    AutoDialerEreignis,
+    CallEndedEreignis,
+    CallRescheduledEreignis,
+    Ereignis,
+    iso_lesen,
+    iso_utc,
+)
 from integrations.outbox import Outbox
 
 OUTCOME_SCHLUESSEL = {
@@ -380,6 +388,7 @@ class Nachbereitung:
     def spiegeln(self, sperre=None, max_n: int = 50) -> dict[str, int]:
         """Offene Spiegel-Aufträge ausführen: Datenbank unter der Sperre, HTTP ohne. Rückgabe: Zähler."""
         from contextlib import nullcontext
+
         from integrations.outbox import RETRY_PLAN_S
         sperre = sperre or nullcontext()
         bericht = {"erledigt": 0, "wiederholen": 0, "tot": 0}
@@ -390,12 +399,13 @@ class Nachbereitung:
         for a in auftraege:
             auftrag, ok, antwort = a["auftrag"], True, "ok"
             erledigt = set(auftrag.get("erledigt", []))          # Schritte, die beim letzten Versuch schon durchkamen
-            schritte = [("update", lambda: self.spiegel.lead_aktualisieren(a["ziel_id"], **auftrag["felder"])),
-                        ("notiz", lambda: self.spiegel.notiz(a["ziel_id"], auftrag["notiz"]))]
+            ziel = a["ziel_id"]                                   # Werte binden: die Schritte laufen in dieser Iteration
+            schritte = [("update", lambda ziel=ziel, auftrag=auftrag: self.spiegel.lead_aktualisieren(ziel, **auftrag["felder"])),
+                        ("notiz", lambda ziel=ziel, auftrag=auftrag: self.spiegel.notiz(ziel, auftrag["notiz"]))]
             if auftrag.get("aufgabe"):
                 t = auftrag["aufgabe"]
-                schritte.append(("aufgabe", lambda: self.spiegel.aufgabe(a["ziel_id"], t["titel"], iso_lesen(t["faellig"]),
-                                                                          t.get("text", ""))))
+                schritte.append(("aufgabe", lambda ziel=ziel, t=t: self.spiegel.aufgabe(ziel, t["titel"], iso_lesen(t["faellig"]),
+                                                                                        t.get("text", ""))))
             for name, schritt in schritte:
                 if name in erledigt:
                     continue

@@ -21,7 +21,6 @@ from integrations.modelle import iso_lesen, iso_utc
 from integrations.signatur import svix_kopfzeilen, telli_signatur
 from integrations.uhr import Uhr
 
-
 INBOUND_PERSONAS = ("termin_verschieben", "termin_kurzfristig", "termin_bestaetigen", "stoerung", "nicht_verifiziert")
 
 

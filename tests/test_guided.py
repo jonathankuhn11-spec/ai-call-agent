@@ -1,9 +1,9 @@
 """Geführter Modus: Leitfaden im Code, LLM nur für Extraktion und Formulierung."""
 import pytest
+from conftest import customer
 
 import agent
 import guided
-from conftest import customer
 
 
 @pytest.fixture

@@ -4,8 +4,8 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
-
 from conftest import KUNDEN_SECRET
+
 from integrations.modelle import Ereignis
 from integrations.outbox import RETRY_PLAN_S, Outbox
 from integrations.signatur import SignaturFehler, svix_pruefen
@@ -67,7 +67,7 @@ def test_retry_plan_matches_the_documented_schedule_and_ends_in_dead_letter(aufb
     outbox, kunde, uhr = aufbau
     kunde["ausfaelle"] = 99
     outbox.einreihen(ereignis(3))
-    for versuch, pause in enumerate(RETRY_PLAN_S[1:], start=1):
+    for _versuch, pause in enumerate(RETRY_PLAN_S[1:], start=1):
         assert outbox.zustellen()["wiederholen"] == 1
         assert outbox.zustellen() == {"zugestellt": 0, "wiederholen": 0, "tot": 0}       # noch nicht fällig
         uhr.vor(pause - 1)

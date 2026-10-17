@@ -55,7 +55,7 @@ def kennzahlen(crm, tage: int = 7, jetzt: Optional[datetime] = None) -> dict[str
     # Speed-to-Lead: Eingang des Leads -> erster Anrufversuch (Leads mit Eingangszeit, deren erster Versuch im Fenster liegt).
     # calls.start ist der Gesprächsbeginn; der Wählzeitpunkt (triggered_at) liegt Sekunden davor und wird nicht gespeichert.
     dauern = []
-    for lid, erstellt, erster in con.execute(
+    for _lid, erstellt, erster in con.execute(
             "SELECT l.id, l.erstellt_am, MIN(c.start) FROM leads l JOIN calls c ON c.lead_id = l.id "
             "WHERE l.erstellt_am IS NOT NULL AND c.start IS NOT NULL GROUP BY 1, 2 HAVING MIN(c.start) >= ?", [von]).fetchall():
         if erster >= erstellt:

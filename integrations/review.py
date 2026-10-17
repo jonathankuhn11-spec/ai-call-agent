@@ -164,7 +164,7 @@ def aus_telli(client, crm, agent_id: Optional[str] = None, limit: int = 100,
     """Anrufe von telli (List Calls), Ergebnis und Flags aus der lokalen Nachbereitung dazu (Flag call:<id>)."""
     pruefung = pruefung or Transkriptpruefung()
     lokal: dict[str, tuple] = {}
-    for cid, lead_id, ergebnis, flags in crm.con.execute("SELECT id, lead_id, ergebnis, flags FROM calls").fetchall():
+    for _cid, lead_id, ergebnis, flags in crm.con.execute("SELECT id, lead_id, ergebnis, flags FROM calls").fetchall():
         for f in json.loads(flags or "[]"):
             if f.startswith("call:"):
                 lokal[f[5:]] = (lead_id, ergebnis, json.loads(flags or "[]"))

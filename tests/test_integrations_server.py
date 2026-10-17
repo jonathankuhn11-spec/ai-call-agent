@@ -8,11 +8,10 @@ import json
 import time
 
 import pytest
-
 from conftest import API_KEY, TOOL_SECRET
+
 from integrations.modelle import iso_lesen
 from integrations.signatur import telli_signatur
-
 
 BETRIEB = {"Authorization": f"Bearer {TOOL_SECRET}"}
 
@@ -138,8 +137,9 @@ def test_webhook_rejects_bad_signatures_and_ignores_other_events(sim, client, uh
     assert r.status_code == 401                                                        # ... oder aus der Zukunft
     body = json.dumps({"event": "call_rescheduled"}).encode()
     assert client.post("/webhooks/telli", content=body).status_code == 401              # unsigniert
-    from integrations.signatur import svix_kopfzeilen
     from conftest import WEBHOOK_SECRET
+
+    from integrations.signatur import svix_kopfzeilen
     kopf = svix_kopfzeilen(WEBHOOK_SECRET, "msg_r", body, int(uhr.sekunden()))
     assert client.post("/webhooks/telli", content=body, headers=kopf).json()["status"] == "lead_unbekannt"
     body = json.dumps({"event": "contact_status_changed"}).encode()
@@ -199,6 +199,7 @@ def test_facts_from_an_inbound_call_resolve_the_lead_by_from_number(sim, app):
 
 def test_flat_call_ended_payload_without_event_key(client, uhr):
     from conftest import WEBHOOK_SECRET
+
     from integrations.signatur import svix_kopfzeilen
     body = json.dumps({"call_id": "flach_1", "external_contact_id": "4", "status": "connected", "state": "ended",
                        "outcomes": [{"key": "ergebnis", "value": "kein_interesse"}]}).encode()
@@ -322,6 +323,7 @@ def test_short_notice_bookings_get_a_two_hour_reminder_or_none(app, uhr):
 
 def _signiert(body: dict, msg_id: str, uhr=None):
     from conftest import WEBHOOK_SECRET
+
     from integrations.signatur import svix_kopfzeilen
     roh = json.dumps(body).encode()
     return roh, svix_kopfzeilen(WEBHOOK_SECRET, msg_id, roh, int(uhr.sekunden()) if uhr else None)
