@@ -8,8 +8,8 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
-
 from conftest import API_KEY, KUNDEN_SECRET, TOOL_SECRET, WEBHOOK_SECRET
+
 from integrations.kalender import CalComKalender, KalenderFehler, Kalenderspiegel, kalender_aus_konfig
 from integrations.outbox import RETRY_PLAN_S
 from integrations.simulator import CalComAttrappe

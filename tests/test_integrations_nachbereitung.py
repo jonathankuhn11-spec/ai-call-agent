@@ -308,9 +308,8 @@ def test_nested_transactions_share_the_outer_one(crm):
         with crm.transaktion():
             crm.notiz(1, "innen")
     assert crm.notizen(1) == ["außen", "innen"]
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError), crm.transaktion():
+        crm.notiz(1, "weg")
         with crm.transaktion():
-            crm.notiz(1, "weg")
-            with crm.transaktion():
-                raise RuntimeError("innen kaputt")
+            raise RuntimeError("innen kaputt")
     assert crm.notizen(1) == ["außen", "innen"] and crm._tiefe == 0

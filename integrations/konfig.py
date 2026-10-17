@@ -46,6 +46,7 @@ class Konfig:
     hubspot_token         Private-App-Token; gesetzt = Spiegelung nach HubSpot
     salesforce_*          Instance-URL plus Token oder Client-Credentials; gesetzt = Spiegelung nach Salesforce
     kalender              Kalenderdienst hinter den Slots: leer (Tabelle) oder "calcom" mit calcom_*
+    nachfass_*            Kanal-Fallback (integrations/nachfass.py): Kanal sms|whatsapp und Buchungslink; leer = aus
     fristen               Aufbewahrung in Tagen je Datenart (AUFBEWAHRUNG_<ART>_TAGE), siehe aufbewahrung.Fristen
     """
     db_pfad: str = "crm.duckdb"
@@ -80,6 +81,9 @@ class Konfig:
     kalender_takt_s: int = 300     # Verfügbarkeit des Kalenderdienstes spiegeln
     kalender_tage: int = 14        # so weit voraus
     aufbewahrung_takt_s: int = 86400   # Fristen täglich anwenden (integrations/aufbewahrung.py)
+    nachfass_kanal: str = ""           # "" = aus, "sms" oder "whatsapp" (integrations/nachfass.py)
+    nachfass_link: str = ""            # Self-Service-Buchungslink in der Nachricht
+    nachfass_kunde: str = ""           # Absendername in der Nachricht; leer = Kunde des Use Case
     datenschutz_pepper: str = ""       # geheimer Schlüssel für das Pseudonym im Löschprotokoll
     fristen: dict = field(default_factory=dict)   # Abweichungen von den Vorgaben, z. B. {"transkripte": 14}
     extra: dict = field(default_factory=dict)
@@ -120,6 +124,9 @@ class Konfig:
             kalender_tage=int(lesen("KALENDER_TAGE", "14")),
             aufbewahrung_takt_s=int(lesen("AUFBEWAHRUNG_TAKT_S", "86400")),
             datenschutz_pepper=lesen("DATENSCHUTZ_PEPPER"),
+            nachfass_kanal=lesen("NACHFASS_KANAL").lower(),
+            nachfass_link=lesen("NACHFASS_LINK"),
+            nachfass_kunde=lesen("NACHFASS_KUNDE"),
             fristen={art: int(lesen(f"AUFBEWAHRUNG_{art.upper()}_TAGE")) for art in
                      ("transkripte", "tickets", "verifizierungen", "zustellungen", "webhooks", "erinnerungen", "protokoll")
                      if lesen(f"AUFBEWAHRUNG_{art.upper()}_TAGE")},

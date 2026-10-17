@@ -6,7 +6,6 @@ wird vom Code erzwungen, nicht vom Prompt erbeten.
 from datetime import timedelta
 
 import pytest
-
 from conftest import API_KEY, KUNDEN_SECRET, TOOL_SECRET, WEBHOOK_SECRET
 
 

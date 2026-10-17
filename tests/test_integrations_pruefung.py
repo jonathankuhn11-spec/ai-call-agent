@@ -7,8 +7,8 @@ import json
 
 import httpx
 import pytest
-
 from conftest import API_KEY, TOOL_SECRET, WEBHOOK_SECRET
+
 from integrations.konfig import Konfig
 from integrations.pruefung import Abnahme, Bericht, Pruefpunkt
 

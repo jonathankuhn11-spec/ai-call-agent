@@ -3,6 +3,7 @@ import json
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
 from integrations.crm import LocalCRM
 from integrations.modelle import TelliAnrufPlanen, TelliKontaktAnlegen
@@ -45,7 +46,7 @@ def test_contact_body_is_camel_case_and_strict():
         "properties": [{"key": "quelle", "value": "Website-Formular"}, {"key": "plz", "value": "48143"},
                        {"key": "eigentuemer", "value": True}]}
     assert kontakt_aus_lead({"id": 8, "name": "Cher", "telefon": "+1"}).lastName == "Unbekannt"
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         TelliKontaktAnlegen(firstName="A", lastName="B", phoneNumber="+1", first_name="falsch")     # snake_case abgelehnt
 
 

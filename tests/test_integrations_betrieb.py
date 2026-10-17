@@ -3,6 +3,7 @@ import io
 import json
 
 from conftest import TOOL_SECRET
+
 from integrations import logbuch
 
 

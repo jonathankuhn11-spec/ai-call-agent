@@ -6,6 +6,7 @@ pseudonymisiert den Lead, entfernt Inhalte und lässt die Nummer auf der Sperrli
 import json
 
 from conftest import TOOL_SECRET
+
 from integrations import kennzahlen
 from integrations.aufbewahrung import Aufbewahrung, Fristen, nummer_hash
 from integrations.konfig import Konfig
@@ -132,13 +133,13 @@ def test_erasure_pseudonymises_the_lead_and_keeps_the_number_blocked(app, sim, u
 def test_erasure_with_a_calendar_cancels_the_external_booking(con, konfig, kundensystem, telli_attrappe, quiet, uhr):
     from datetime import datetime, timezone
 
+    from conftest import API_KEY, KUNDEN_SECRET, WEBHOOK_SECRET
     from fastapi.testclient import TestClient
 
     import agent
     from integrations.outbox import Outbox
     from integrations.server import erstelle_app
     from integrations.simulator import CalComAttrappe, PlattformSimulator
-    from conftest import API_KEY, KUNDEN_SECRET, WEBHOOK_SECRET
 
     calcom = CalComAttrappe([datetime(2026, 10, 14, 6, 30, tzinfo=timezone.utc), datetime(2026, 10, 14, 8, 30, tzinfo=timezone.utc)])
     con.execute("DELETE FROM slots")

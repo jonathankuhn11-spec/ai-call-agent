@@ -3,10 +3,10 @@ das Attrappen-Kundensystem empfängt die signierten Ereignisse. Zum Schluss der 
 Der Leitfaden aus guided.py läuft unverändert, wenn seine Tools über HTTP gehen.
 """
 import pytest
+from conftest import TOOL_SECRET, customer
 
 import agent
 import guided
-from conftest import TOOL_SECRET, customer
 
 
 def test_pilot_conversations_end_in_the_right_crm_state(sim, app, kundensystem):

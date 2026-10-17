@@ -26,7 +26,6 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-
 from typing import Any, Callable, Optional
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
@@ -35,21 +34,32 @@ from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
 import agent
-from integrations import __version__
+from integrations import __version__, logbuch
+from integrations.abgleich import Abgleich, anruf_nachholen
+from integrations.aufbewahrung import Aufbewahrung, Fristen
 from integrations.crm import LocalCRM, slot_ende
 from integrations.hubspot import HubSpotCRM
 from integrations.kalender import Kalender, Kalenderspiegel, kalender_aus_konfig
 from integrations.konfig import Konfig
-from integrations import logbuch
-from integrations.modelle import (BuchenAnfrage, BuchenAntwort, KontaktLookupAnfrage,
-                                  KontaktLookupAntwort, KontaktLookupKontakt, KontaktReferenz, Slot, ToolAufruf,
-                                  VerfuegbarAnfrage, VerfuegbarAntwort, iso_lesen, iso_utc, telefon_normalisieren)
+from integrations.modelle import (
+    BuchenAnfrage,
+    BuchenAntwort,
+    KontaktLookupAnfrage,
+    KontaktLookupAntwort,
+    KontaktLookupKontakt,
+    KontaktReferenz,
+    Slot,
+    ToolAufruf,
+    VerfuegbarAnfrage,
+    VerfuegbarAntwort,
+    iso_lesen,
+    iso_utc,
+    telefon_normalisieren,
+)
 from integrations.nachbereitung import Nachbereitung
 from integrations.outbox import Outbox
 from integrations.salesforce import SalesforceCRM
 from integrations.signatur import SignaturFehler, bearer_pruefen, geheimnisse, svix_pruefen, telli_pruefen
-from integrations.abgleich import Abgleich, anruf_nachholen
-from integrations.aufbewahrung import Aufbewahrung, Fristen
 from integrations.telli import LeadPush, TelliClient, TelliFehler
 from integrations.uhr import Uhr
 
@@ -228,6 +238,7 @@ class Kontext:
     telli_client: Optional[TelliClient] = None
     kalender: Optional[Kalenderspiegel] = None
     aufbewahrung: Optional[Aufbewahrung] = None
+    nachfass: Any = None                       # integrations.nachfass.Nachfass, wenn NACHFASS_KANAL gesetzt
     usecase: Any = None
     verifizierung_pflicht: bool = False
     metriken: Metriken = field(default_factory=Metriken)
@@ -313,7 +324,13 @@ def erstelle_app(konfig: Optional[Konfig] = None, con=None, outbox: Optional[Out
         spiegel = spiegel_aus_konfig(konfig)
     if telli_client is None and konfig.telli_api_key:
         telli_client = telli_client_aus_konfig(konfig)
-    ctx = Kontext(konfig, crm, outbox, Nachbereitung(crm, outbox, spiegel, jetzt=uhr), uhr=uhr)
+    nachfass = None
+    if konfig.nachfass_kanal:
+        from integrations.nachfass import Nachfass, Nachfassregel
+        nachfass = Nachfass(crm, Nachfassregel(kanal=konfig.nachfass_kanal, link=konfig.nachfass_link,
+                                               kunde=konfig.nachfass_kunde or usecase.kunde, zeitzone=konfig.zeitzone))
+    ctx = Kontext(konfig, crm, outbox, Nachbereitung(crm, outbox, spiegel, jetzt=uhr, nachfass=nachfass), uhr=uhr)
+    ctx.nachfass = nachfass
     ctx.usecase, ctx.verifizierung_pflicht = usecase, verifizierung
     if telli_client is not None and konfig.telli_agent_id:
         ctx.lead_push = LeadPush(crm, telli_client, konfig.telli_agent_id, sperre=ctx.sperre)

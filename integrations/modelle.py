@@ -508,7 +508,8 @@ class Ereignis(BaseModel):
     model_config = Strikt
     id: str
     typ: Literal["anruf.beendet", "anruf.geplant", "dialer.beendet", "termin.gebucht", "termin.abgesagt",
-                 "termin.erinnerung", "aufgabe.erstellt", "lead.gesperrt", "ticket.erstellt"]
+                 "termin.erinnerung", "aufgabe.erstellt", "lead.gesperrt", "ticket.erstellt",
+                 "nachricht.nachfassen"]
     version: int = 1
     zeit: str
     lead_id: int

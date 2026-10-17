@@ -1,7 +1,8 @@
 """Agent-Loop mit skriptiertem LLM: Tool-Aufrufe, Selbstkorrektur, Intent-Routing."""
+from conftest import customer
+
 import agent
 import jev
-from conftest import customer
 
 
 def test_happy_path_books_only_after_customer_chose_a_slot(con, no_jev, quiet, llm):

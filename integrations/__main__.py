@@ -220,8 +220,8 @@ def cmd_kalender(a, konfig: Konfig):
     """Kalenderdienst von Hand: spiegeln, offene Aufträge ausführen, Stand zeigen (bei laufendem Server über /metrics)."""
     from integrations.crm import LocalCRM
     from integrations.kalender import Kalenderspiegel, kalender_aus_konfig
-    from integrations.server import outbox_aus_konfig
     from integrations.nachbereitung import Nachbereitung
+    from integrations.server import outbox_aus_konfig
     kalender = kalender_aus_konfig(konfig)
     if kalender is None:
         sys.exit("Kein Kalenderdienst konfiguriert (KALENDER=calcom, CALCOM_API_KEY, CALCOM_EVENT_TYPE_ID in .env). "
