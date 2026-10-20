@@ -1,0 +1,78 @@
+name: Plattform
+
+on:
+  push:
+    paths: ["plattform/**", ".github/workflows/plattform.yml"]
+  pull_request:
+    paths: ["plattform/**", ".github/workflows/plattform.yml"]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plattform
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: shk
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: shk
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U shk -d shk" --health-interval 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Abhängigkeiten installieren
+        run: python -m pip install -r requirements.txt ruff
+      - name: Statische Prüfung
+        run: ruff check --select F,E9 .
+      - name: Tests (SQLite im Speicher)
+        run: python -m pytest -q
+      - name: Referenzfluss (Heizungsausfall per Telefon bis Outbox)
+        run: python -m core demo
+      - name: Core gegen PostgreSQL starten und Durchstich per HTTP
+        env:
+          DATABASE_URL: postgresql+psycopg://shk:ci@localhost:5432/shk
+          CORE_API_KEY: ci-key
+        run: |
+          python -m core serve --port 8100 > serve.log 2>&1 &
+          for i in $(seq 1 40); do curl -fsS http://127.0.0.1:8100/health > /dev/null 2>&1 && break; sleep 0.5; done
+          H='-H X-API-Key:ci-key -H Content-Type:application/json'
+          M=$(curl -fsS $H -d '{"name":"CI-Betrieb"}' http://127.0.0.1:8100/mandanten | python -c 'import json,sys;print(json.load(sys.stdin)["id"])')
+          curl -fsS $H -H "X-Mandant:$M" -d '{"name":"Monteur","qualifikationen":["gas"]}' http://127.0.0.1:8100/ressourcen
+          curl -fsS $H -H "X-Mandant:$M" -d '{"telefon":"0221 555","name":"Kunde","anliegen":"Heizung ist aus","anlagentyp":"gas_brennwert"}' http://127.0.0.1:8100/voice/servicefall
+          curl -fsS $H -H "X-Mandant:$M" http://127.0.0.1:8100/twin/betrieb
+          curl -fsS $H -H "X-Mandant:$M" "http://127.0.0.1:8100/ontologie/export?mit_tbox=true" | head -5
+          kill %1 || (cat serve.log; exit 1)
+
+  voice:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plattform
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Voice-Abhängigkeiten installieren
+        run: python -m pip install -r requirements-voice.txt
+      - name: Agent importieren und Werkzeuge prüfen (ohne LiveKit-Server, ohne Schlüssel)
+        env:
+          CORE_MANDANT: ci
+        run: |
+          python -c "import voice.agent as a; names = sorted(t.info.name for t in a.Assistenz('CI').tools); print(names); assert names == ['kunde_suchen', 'rueckruf_vormerken', 'servicefall_anlegen', 'zeitfenster_abfragen']"
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Core-Image bauen
+        run: docker build -t shk-core:ci plattform
+      - name: Referenzfluss im Container
+        run: docker run --rm shk-core:ci python -m core demo

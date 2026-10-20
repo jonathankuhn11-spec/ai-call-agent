@@ -1,0 +1,124 @@
+# SHK-Backoffice-Plattform. Profile:
+#   (ohne)      postgres, core, worker                       docker compose up -d
+#   voice       + redis, livekit, livekit-sip, voice-agent   docker compose --profile voice up -d
+#   ops         + n8n (Eingangsworkflows)                    docker compose --profile ops up -d
+#   auth        + keycloak (OIDC für Büro-Oberfläche)        docker compose --profile auth up -d
+#   ontologie   + Apache Jena Fuseki (SPARQL)                docker compose --profile ontologie up -d
+# Fremd-Images mit :latest vor dem Produktivbetrieb auf eine geprüfte Version pinnen.
+
+x-core-umgebung: &core-umgebung
+  DATABASE_URL: postgresql+psycopg://shk:${POSTGRES_PASSWORD}@postgres:5432/shk
+  CORE_API_KEY: ${CORE_API_KEY}
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: shk
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: shk
+    volumes: [postgres-daten:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shk -d shk"]
+      interval: 5s
+      retries: 10
+
+  core:
+    build: .
+    environment: *core-umgebung
+    ports: ["127.0.0.1:8100:8100"]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  worker:
+    build: .
+    command: ["python", "-m", "core", "worker"]
+    environment:
+      <<: *core-umgebung
+      CSV_EXPORT: /app/export
+    volumes: [export:/app/export]
+    depends_on:
+      core: {condition: service_healthy}
+
+  redis:
+    image: redis:7-alpine
+    profiles: [voice]
+    network_mode: host
+
+  livekit:
+    image: livekit/livekit-server:latest
+    profiles: [voice]
+    command: ["--config", "/etc/livekit.yaml"]
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+    volumes: ["./deploy/livekit/livekit.yaml:/etc/livekit.yaml:ro"]
+    network_mode: host   # RTC/UDP-Portbereiche; auf Linux-Hosts empfohlen
+    depends_on: [redis]
+
+  livekit-sip:
+    image: livekit/sip:latest
+    profiles: [voice]
+    environment:
+      SIP_CONFIG_FILE: /etc/sip.yaml
+    volumes: ["./deploy/livekit/sip.yaml:/etc/sip.yaml:ro"]
+    network_mode: host   # SIP 5060/UDP und RTP-Portbereich
+    depends_on: [redis, livekit]
+
+  voice-agent:
+    build:
+      context: .
+      args: {MIT_VOICE: "1"}
+    profiles: [voice]
+    command: ["python", "-m", "voice.agent", "start"]
+    environment:
+      LIVEKIT_URL: ws://127.0.0.1:7880
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+      CORE_URL: http://127.0.0.1:8100
+      CORE_API_KEY: ${CORE_API_KEY}
+      CORE_MANDANT: ${CORE_MANDANT}
+      BETRIEB_NAME: ${BETRIEB_NAME}
+      STT_ANBIETER: ${STT_ANBIETER:-azure}
+      TTS_ANBIETER: ${TTS_ANBIETER:-azure}
+      AZURE_SPEECH_KEY: ${AZURE_SPEECH_KEY:-}
+      AZURE_SPEECH_REGION: ${AZURE_SPEECH_REGION:-germanywestcentral}
+      TTS_STIMME: ${TTS_STIMME:-de-DE-KatjaNeural}
+      LLM_ANBIETER: ${LLM_ANBIETER:-anthropic}
+      LLM_MODELL: ${LLM_MODELL:-claude-haiku-5-5}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+    network_mode: host
+    depends_on: [livekit, core]
+
+  n8n:
+    image: n8nio/n8n:latest
+    profiles: [ops]
+    ports: ["127.0.0.1:5678:5678"]
+    environment:
+      GENERIC_TIMEZONE: Europe/Berlin
+      N8N_DIAGNOSTICS_ENABLED: "false"
+    volumes: [n8n-daten:/home/node/.n8n]
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    profiles: [auth]
+    command: ["start-dev"]
+    ports: ["127.0.0.1:8180:8080"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${POSTGRES_PASSWORD}
+
+  fuseki:
+    image: stain/jena-fuseki:latest
+    profiles: [ontologie]
+    ports: ["127.0.0.1:3030:3030"]
+    environment:
+      ADMIN_PASSWORD: ${POSTGRES_PASSWORD}
+      FUSEKI_DATASET_1: shk
+    volumes: [fuseki-daten:/fuseki]
+
+volumes:
+  postgres-daten:
+  export:
+  n8n-daten:
+  fuseki-daten:

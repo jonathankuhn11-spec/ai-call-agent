@@ -1,0 +1,87 @@
+# SHK-Backoffice-Plattform: Backend-Grundgerüst
+
+Umsetzung der [Backend-Architektur](https://claude.ai/code/artifact/5e3d448e-c793-4d16-9df1-ab6385ae2abf)
+als lauffähiger Code: kanonisches Datenmodell mit CRM und Disposition, Servicefall-Statusautomat,
+Event-Log, Transactional Outbox, Freigabe-Inbox (Klassen A/B/C), Digital Twin des Betriebs,
+OWL-Ontologie mit Turtle-/SPARQL-Export und ein Voice-Agent auf LiveKit Agents mit Tool-API.
+
+Das Verzeichnis ist in sich geschlossen und kann unverändert in ein eigenes Repository umziehen.
+
+```
+plattform/
+├── core/                 Core-Service (FastAPI, SQLAlchemy)
+│   ├── modelle.py        kanonisches Datenmodell (12 Entitäten)
+│   ├── domaene.py        Statusautomat, Event-Log, Outbox, Freigabe-Policies
+│   ├── disposition.py    freie Zeitfenster: Qualifikation, Arbeitszeit, Fahrzeitpuffer, Kollision
+│   ├── regeln.py         deterministische Regeln: Rufnummern, Dringlichkeit, Sicherheitsfälle
+│   ├── twin.py           Digital Twin: Anlage (Wartung, Historie) und Betrieb (Bestand, Auslastung)
+│   ├── ontologie.py      Anlagentypen-Vokabular, RDF-Export
+│   ├── zustellung.py     Outbox-Worker mit Backoff, Dead-Letter, CSV-Degradierung
+│   ├── api.py            REST-API inkl. /voice/* für den Agenten
+│   └── demo.py           Referenzfluss „Heizungsausfall bis Outbox“
+├── voice/                Voice-Agent (LiveKit Agents) und Tool-Client
+├── ontologie/shk.ttl     Domänenontologie (OWL 2, Brick-Abgleich)
+├── deploy/livekit/       LiveKit-Server, SIP-Gateway, Trunk und Dispatch-Regel
+├── docker-compose.yml    Profile: Basis, voice, ops (n8n), auth (Keycloak), ontologie (Fuseki)
+├── KATALOG.md            Open-Source-Komponenten mit Lizenz und Einbindungsart
+└── VOICE-AGENT.md        Auswahl des Voice-Agenten und Aufbau des Voice-Backends
+```
+
+## Schnellstart
+
+```bash
+cd plattform
+pip install -r requirements.txt
+python -m core demo                 # Referenzfluss im Speicher, ohne Telefonie und LLM
+python -m pytest -q                 # Tests (SQLite)
+python -m core serve                # API auf :8100, Doku unter http://localhost:8100/docs
+```
+
+Mit Docker: `cp .env.example .env`, Werte setzen, `docker compose up -d` (PostgreSQL, Core, Worker).
+Voice zusätzlich mit `--profile voice`, siehe [VOICE-AGENT.md](VOICE-AGENT.md).
+
+## API im Überblick
+
+Alle Fachendpunkte verlangen `X-Mandant`; mit gesetztem `CORE_API_KEY` zusätzlich `X-API-Key`.
+
+| Bereich | Endpunkte |
+| --- | --- |
+| CRM | `POST/GET /kunden`, `GET/PATCH /kunden/{id}`, `POST /kunden/{id}/objekte`, `POST /objekte/{id}/anlagen`, `GET /anlagentypen` |
+| Disposition | `POST/GET /ressourcen`, `GET /disposition/zeitfenster`, `GET /termine` |
+| Vorgänge | `POST/GET /servicefaelle`, `GET /servicefaelle/{id}` (mit Event-Historie), `POST /servicefaelle/{id}/status`, `POST /servicefaelle/{id}/termine` |
+| Freigabe | `GET /freigaben`, `POST /freigaben`, `POST /freigaben/{id}/entscheidung` |
+| Betrieb | `GET /outbox?status=tot` (Dead-Letter), `GET /ereignisse` |
+| Digital Twin | `GET /twin/betrieb`, `GET /twin/anlagen/{id}` |
+| Ontologie | `GET /ontologie/tbox`, `GET /ontologie/export?mit_tbox=true` (text/turtle) |
+| Voice-Tools | `POST /voice/kunde-suchen`, `/voice/zeitfenster`, `/voice/servicefall`, `/voice/gespraech-beendet` |
+
+Ontologie in Fuseki laden (Profil `ontologie`):
+`curl -X POST -H "X-Mandant: …" localhost:8100/ontologie/export?mit_tbox=true -o daten.ttl` und
+`curl -u admin:… -H "Content-Type: text/turtle" --data-binary @daten.ttl localhost:3030/shk/data`.
+
+## Abweichungen von der Architektur und Begründung
+
+| Architektur | Umsetzung | Grund |
+| --- | --- | --- |
+| Core in TypeScript/NestJS | Python/FastAPI | eine Sprache mit dem Voice-Agenten (LiveKit Agents, Pipecat sind Python-first) und dem bestehenden Prototyp |
+| Schema je Mandant | Spalte `mandant_id`, RLS-fähig | einfachere Migrationen; Row-Level Security ohne Schemaänderung nachrüstbar |
+| pg-boss als Queue | eigene Outbox-Tabelle + Worker | pg-boss ist Node-spezifisch; Semantik (Idempotenz, Backoff, Dead-Letter) identisch |
+| Voice-SaaS im MVP | LiveKit Agents selbst betrieben, SaaS über Tool-API anschließbar | Anpassbarkeit und Datenhoheit, siehe VOICE-AGENT.md |
+| CRM und Plantafel einkaufen | eigener CRM-/Dispositionskern im kanonischen Modell | dient Betrieben ohne Fachsoftware als System of Record; mit Fachsoftware bleibt sie führend und wird über Adapter (ExternalRef) synchronisiert |
+
+## Stand und offene Punkte
+
+Getestet (pytest, SQLite): Referenzfluss Ende-zu-Ende, Statusautomat, Freigabeklassen, Dubletten,
+Mandantentrennung, Disposition (Qualifikation, Wochenende, Kollision, Puffer), Sicherheitsfall
+Gasgeruch, Outbox-Idempotenz und Dead-Letter, Digital Twin, SPARQL über Export und TBox,
+API-Key, Tool-Client des Voice-Agenten. In CI zusätzlich: Start gegen PostgreSQL, Docker-Build,
+Import des Voice-Agenten.
+
+Nicht getestet bzw. offen:
+- echter Anruf über SIP (braucht Carrier-Trunk, Server mit öffentlicher IP, STT/TTS-Schlüssel)
+- Fachsoftware-Adapter (openHandwerk, pds …): abhängig von der API-Klärung, bis dahin CSV-Degradierung
+- Freigabe-Inbox als Weboberfläche (API steht; Oberfläche z. B. mit Refine oder React-Admin)
+- Finanzanbindung (Lexware Office, sevDesk, DATEV, XRechnung über Mustang Project)
+- Datenbankmigrationen (Alembic) statt `create_all`, Row-Level-Security-Policies, OIDC im Core
+- AVV, TOMs, Löschkonzept: rechtliche Unterlagen vor dem ersten Pilotkunden
+- Namespace der Ontologie (`https://w3id.org/shk-backoffice/ont#`) ist ein Platzhalter
