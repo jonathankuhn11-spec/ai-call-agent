@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Impressum · {{auftritt.marke}}</title>
+  <meta name="robots" content="noindex">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header><a class="marke" href="./">{{auftritt.marke}}</a></header>
+<main>
+  <h1>Impressum</h1>
+  <p>Angaben gemäß § 5 Digitale-Dienste-Gesetz (DDG)</p>
+
+  <h2>Anbieter</h2>
+  <p>{{anbieter.bezeichnung}}<br>
+    {{anbieter.strasse}}<br>
+    {{anbieter.plz_ort}}</p>
+
+  <h3>Vertretungsberechtigte Gesellschafter</h3>
+  <p>{{anbieter.gesellschafter_1}}<br>
+    {{anbieter.gesellschafter_2}}<br>
+    (jeweils Anschrift wie oben)</p>
+
+  <h2>Kontakt</h2>
+  <p>E-Mail: <a href="mailto:{{kontakt.email}}">{{kontakt.email}}</a><br>
+    Telefon: <a href="tel:{{kontakt.telefon_e164}}">{{kontakt.telefon}}</a></p>
+
+  <h2>Register und Umsatzsteuer</h2>
+  <p>Eine Eintragung in das Handels- oder Gesellschaftsregister besteht nicht.
+    Eine Umsatzsteuer-Identifikationsnummer ist nicht erteilt.</p>
+
+  <p><small>Stand: {{auftritt.stand}}</small></p>
+</main>
+<footer>
+  <a href="./">Startseite</a>
+  <a href="datenschutz.html">Datenschutz</a>
+</footer>
+</body>
+</html>

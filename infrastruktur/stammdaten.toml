@@ -1,0 +1,33 @@
+# Stammdaten des Außenauftritts: die einzige Datei, die vor dem Go-live auszufüllen ist.
+#
+# Jeder Wert "" gilt als offen. build.py rendert offene Werte in der Vorschau als
+# sichtbares [OFFEN: schluessel]; mit --strict (Deployment) bricht der Build ab.
+# Diese Angaben werden veröffentlicht (Impressum, Signatur, Einseiter). Nichts
+# eintragen, was nicht öffentlich stehen darf; für die Anschrift ggf. eine
+# ladungsfähige Geschäftsadresse (c/o-Service, kein Postfach) verwenden.
+
+[auftritt]
+marke = ""                 # Arbeitstitel des Vorhabens, z. B. für Seitentitel und Signatur
+domain = ""                # ohne Protokoll, z. B. "beispiel.de"
+stand = ""                 # Datum der Rechtstexte, z. B. "20. Oktober 2026"
+
+[anbieter]
+# Bis zur Eintragung einer UG treten die Gesellschafter als GbR auf (§ 705 BGB).
+# Ohne gewählten GbR-Namen: "Vorname Nachname und Vorname Nachname GbR".
+# NICHT "UG (haftungsbeschränkt)" vor Eintragung; nach Notartermin allenfalls "UG i. G.".
+bezeichnung = ""
+gesellschafter_1 = ""      # vollständiger Vor- und Nachname
+gesellschafter_2 = ""
+strasse = ""               # ladungsfähige Anschrift, kein Postfach
+plz_ort = ""
+
+[kontakt]
+email = ""                 # Postfach auf der eigenen Domain, kein Freemail
+telefon = ""               # Anzeigeform, z. B. "0221 1234567"
+telefon_e164 = ""          # für tel:-Links, z. B. "+492211234567"
+
+[dienstleister]
+# Erscheinen in der Datenschutzerklärung als Auftragsverarbeiter (Art. 28 DSGVO).
+# Jeweils "Firma, Anschrift" des tatsächlich gebuchten Anbieters; AVV abschließen.
+email_anbieter = ""        # z. B. Postfach-Anbieter laut Vertrag
+telefon_anbieter = ""      # z. B. VoIP-Anbieter laut Vertrag

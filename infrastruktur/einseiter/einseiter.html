@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>{{auftritt.marke}} · Einseiter Bedarfsanalyse</title>
+  <style>
+    @page { size: A4; margin: 16mm 17mm 14mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #1c2430; font: 10pt/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "DejaVu Sans", sans-serif; }
+    .kopf { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #0b5cad; padding-bottom: 3mm; }
+    .marke { font-size: 15pt; font-weight: 700; }
+    .kontakt { text-align: right; font-size: 9pt; color: #5a6675; }
+    h1 { font-size: 16pt; line-height: 1.25; margin: 6mm 0 3mm; }
+    h2 { font-size: 11pt; color: #0b5cad; margin: 4.5mm 0 1.5mm; }
+    p, ul { margin: 0 0 2mm; } ul { padding-left: 5mm; }
+    .spalten { display: grid; grid-template-columns: 1fr 1fr; gap: 7mm; }
+    .hinweis { background: #f3f5f8; border-left: 3px solid #0b5cad; padding: 2mm 3mm; }
+    .dsgvo { margin-top: 5mm; border-top: 1px solid #dde2e8; padding-top: 3mm; font-size: 7.6pt; line-height: 1.38; color: #333d4a; }
+    .dsgvo h2 { font-size: 8.6pt; margin: 0 0 1.5mm; color: #1c2430; }
+    .dsgvo p { margin: 0 0 1.3mm; }
+    mark.offen { background: #ffd54a; }
+  </style>
+</head>
+<body>
+  <div class="kopf">
+    <div class="marke">{{auftritt.marke}}</div>
+    <div class="kontakt">{{anbieter.gesellschafter_1}} · {{anbieter.gesellschafter_2}}<br>
+      {{kontakt.email}} · {{kontakt.telefon}} · {{auftritt.domain}}</div>
+  </div>
+
+  <h1>Wo bleiben in Ihrem Betrieb Anfragen und Büroarbeit liegen?</h1>
+  <p>Wir sind zwei Gründer aus dem Raum Köln und untersuchen, wie Sanitär-, Heizungs- und Klimabetriebe
+    Anrufe, Termine, Angebote und Dokumentation organisieren, wenn Chef und Monteure auf der Baustelle sind.
+    Aus den Ergebnissen entwickeln wir ein digitales Backoffice, das Anfragen annimmt, strukturiert erfasst
+    und in die vorhandene Handwerkersoftware überträgt.</p>
+  <p class="hinweis"><strong>Transparenz:</strong> Wir verkaufen derzeit nichts. Das Vorhaben ist in der
+    Bedarfsanalyse und Entwicklungsphase; ein fertiges Produkt gibt es noch nicht.</p>
+
+  <div class="spalten">
+    <div>
+      <h2>Was wir Sie fragen</h2>
+      <ul>
+        <li>Wer nimmt Anfragen an, wenn alle draußen sind?</li>
+        <li>Wann ist Ihnen zuletzt ein Auftrag durchgerutscht, und warum?</li>
+        <li>Mit welcher Software arbeiten Sie, und wo hakt es?</li>
+      </ul>
+      <p>Etwa 20 Minuten, telefonisch oder vor Ort, zu einem Termin Ihrer Wahl.</p>
+    </div>
+    <div>
+      <h2>Was Sie davon haben</h2>
+      <ul>
+        <li>Unsere anonymisierte Auswertung: wie vergleichbare Betriebe Telefon und Büro organisieren.</li>
+        <li>Auf Wunsch eine Pilotteilnahme, sobald eine erste Version erprobt werden kann.</li>
+        <li>Keine Kosten, keine Verpflichtung.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="dsgvo">
+    <h2>Datenschutzhinweis nach Art. 14 DSGVO</h2>
+    <p><strong>Verantwortlich:</strong> {{anbieter.bezeichnung}}, {{anbieter.strasse}}, {{anbieter.plz_ort}},
+      {{kontakt.email}}, {{kontakt.telefon}}.</p>
+    <p><strong>Daten und Herkunft:</strong> Firmenname, Name der Inhaberin bzw. des Inhabers, geschäftliche Anschrift,
+      Telefonnummer und Website Ihres Betriebs. Wir haben diese Angaben aus öffentlich zugänglichen Quellen
+      erhoben, insbesondere aus dem Impressum Ihrer Website und Branchenverzeichnissen. Hinzu kommen Notizen aus
+      unserem Gespräch, sofern Sie teilnehmen.</p>
+    <p><strong>Zweck und Rechtsgrundlage:</strong> Bedarfsanalyse und Marktforschung für die Entwicklung unseres
+      Angebots, einschließlich der Vereinbarung eines Interviews. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO;
+      unser berechtigtes Interesse liegt darin, die Anforderungen von SHK-Betrieben zu verstehen, bevor wir eine
+      Lösung entwickeln. Auswertungen geben wir nur anonymisiert weiter, nie mit Bezug zu Ihrem Betrieb.</p>
+    <p><strong>Empfänger:</strong> Keine Weitergabe an Dritte. Technische Dienstleister (E-Mail, Telefonie, Ablage)
+      verarbeiten Daten nur in unserem Auftrag nach Art. 28 DSGVO.</p>
+    <p><strong>Speicherdauer:</strong> Bis zum Abschluss der Bedarfsanalyse, längstens zwölf Monate nach dem letzten
+      Kontakt; bei Widerspruch löschen wir sofort und vermerken nur die Sperre, damit wir Sie nicht erneut ansprechen.</p>
+    <p><strong>Ihre Rechte:</strong> Auskunft, Berichtigung, Löschung, Einschränkung, Datenübertragbarkeit
+      (Art. 15–18, 20 DSGVO) und Beschwerde bei der Aufsichtsbehörde (Art. 77 DSGVO), für uns die
+      Landesbeauftragte für Datenschutz und Informationsfreiheit NRW. <strong>Sie können der Verarbeitung
+      jederzeit widersprechen (Art. 21 DSGVO)</strong>; eine kurze Nachricht an {{kontakt.email}} genügt.
+      Vollständige Datenschutzerklärung: {{auftritt.domain}}/datenschutz.html</p>
+  </div>
+</body>
+</html>

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Datenschutz · {{auftritt.marke}}</title>
+  <meta name="robots" content="noindex">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header><a class="marke" href="./">{{auftritt.marke}}</a></header>
+<main>
+  <h1>Datenschutzerklärung</h1>
+  <p>Informationen nach Art. 13 Datenschutz-Grundverordnung (DSGVO) zur Verarbeitung
+    personenbezogener Daten beim Besuch dieser Website und bei der Kontaktaufnahme.</p>
+
+  <h2>1. Verantwortlicher</h2>
+  <p>{{anbieter.bezeichnung}}, vertreten durch {{anbieter.gesellschafter_1}} und {{anbieter.gesellschafter_2}}<br>
+    {{anbieter.strasse}}, {{anbieter.plz_ort}}<br>
+    E-Mail: <a href="mailto:{{kontakt.email}}">{{kontakt.email}}</a>, Telefon: {{kontakt.telefon}}</p>
+  <p>Ein Datenschutzbeauftragter ist nicht benannt, da die Voraussetzungen des § 38 BDSG nicht vorliegen.</p>
+
+  <h2>2. Aufruf der Website (Hosting)</h2>
+  <p>Diese Website ist eine statische Seite. Sie setzt keine Cookies, verwendet kein Tracking und keine
+    Analysewerkzeuge und lädt keine Inhalte von Drittservern (auch keine Schriftarten). Eine Einwilligung
+    nach § 25 TDDDG ist daher nicht erforderlich.</p>
+  <p>Gehostet wird die Website bei GitHub Pages, einem Dienst der GitHub, Inc., 88 Colin P. Kelly Jr. Street,
+    San Francisco, CA 94107, USA. Beim Aufruf verarbeitet GitHub technisch notwendig die IP-Adresse,
+    Datum und Uhrzeit, die aufgerufene Seite sowie Browserangaben und speichert die IP-Adresse
+    zu Sicherheitszwecken in Protokolldateien. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO; unser
+    berechtigtes Interesse liegt in der sicheren und stabilen Bereitstellung der Website.</p>
+  <p>Dabei können Daten in die USA übermittelt werden. GitHub, Inc. ist nach dem EU-U.S. Data Privacy
+    Framework zertifiziert; die Übermittlung stützt sich auf den Angemessenheitsbeschluss der
+    Europäischen Kommission vom 10. Juli 2023 (Art. 45 DSGVO). Weitere Informationen:
+    <a href="https://docs.github.com/de/site-policy/privacy-policies/github-general-privacy-statement">Datenschutzerklärung von GitHub</a>.</p>
+
+  <h2>3. Kontakt per E-Mail oder Telefon</h2>
+  <p>Wenn Sie uns kontaktieren, verarbeiten wir Ihre Angaben (Name, Betrieb, Kontaktdaten, Inhalt der
+    Nachricht oder des Gesprächs), um Ihr Anliegen zu bearbeiten. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b
+    DSGVO, soweit es um die Anbahnung einer Zusammenarbeit geht, im Übrigen Art. 6 Abs. 1 lit. f DSGVO
+    (berechtigtes Interesse an der Beantwortung von Anfragen).</p>
+  <p>Für E-Mail und Telefonie setzen wir folgende Auftragsverarbeiter nach Art. 28 DSGVO ein:<br>
+    E-Mail: {{dienstleister.email_anbieter}}<br>
+    Telefonie: {{dienstleister.telefon_anbieter}}</p>
+
+  <h2>4. Teilnahme an Interviews zur Bedarfsanalyse</h2>
+  <p>Wenn wir Ihren Betrieb im Rahmen unserer Bedarfsanalyse kontaktieren, informieren wir Sie
+    gesondert nach Art. 14 DSGVO über Herkunft, Zweck und Speicherdauer der Daten
+    (siehe <a href="einseiter.pdf">Einseiter</a>).</p>
+
+  <h2>5. Speicherdauer</h2>
+  <p>Wir löschen Kontaktanfragen, sobald das Anliegen erledigt ist und keine gesetzlichen
+    Aufbewahrungspflichten (insbesondere § 257 HGB, § 147 AO) entgegenstehen. Die Protokolldaten des
+    Hostings richten sich nach den Fristen von GitHub.</p>
+
+  <h2>6. Ihre Rechte</h2>
+  <p>Sie haben das Recht auf Auskunft (Art. 15 DSGVO), Berichtigung (Art. 16), Löschung (Art. 17),
+    Einschränkung der Verarbeitung (Art. 18) und Datenübertragbarkeit (Art. 20). Eine formlose
+    Nachricht an die oben genannte E-Mail-Adresse genügt.</p>
+  <p><strong>Widerspruchsrecht (Art. 21 DSGVO):</strong> Soweit wir Daten auf Grundlage von
+    Art. 6 Abs. 1 lit. f DSGVO verarbeiten, können Sie aus Gründen, die sich aus Ihrer besonderen
+    Situation ergeben, jederzeit widersprechen. Einer Verwendung zu Zwecken der Direktwerbung
+    können Sie jederzeit ohne Angabe von Gründen widersprechen.</p>
+  <p>Sie haben zudem das Recht, sich bei einer Datenschutz-Aufsichtsbehörde zu beschweren
+    (Art. 77 DSGVO). Für uns zuständig ist die Landesbeauftragte für Datenschutz und
+    Informationsfreiheit Nordrhein-Westfalen, Kavalleriestraße 2–4, 40213 Düsseldorf.</p>
+
+  <h2>7. Keine automatisierte Entscheidungsfindung</h2>
+  <p>Eine automatisierte Entscheidungsfindung einschließlich Profiling nach Art. 22 DSGVO findet nicht statt.
+    Die Bereitstellung Ihrer Daten ist weder gesetzlich noch vertraglich vorgeschrieben.</p>
+
+  <p><small>Stand: {{auftritt.stand}}</small></p>
+</main>
+<footer>
+  <a href="./">Startseite</a>
+  <a href="impressum.html">Impressum</a>
+</footer>
+</body>
+</html>

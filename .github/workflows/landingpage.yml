@@ -1,0 +1,60 @@
+name: Landingpage
+
+# Baut Landingpage und Einseiter (PDF) aus infrastruktur/ und veröffentlicht sie auf GitHub Pages.
+# Veröffentlicht wird nur manuell (workflow_dispatch) oder, sobald die Repository-Variable
+# LANDINGPAGE_LIVE auf "true" steht, bei jedem Push auf main. Der Deploy-Build läuft mit --strict:
+# Solange stammdaten.toml offene Werte enthält, geht nichts online.
+
+on:
+  push:
+    branches: [main]
+    paths: ["infrastruktur/**", ".github/workflows/landingpage.yml"]
+  pull_request:
+    paths: ["infrastruktur/**", ".github/workflows/landingpage.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: landingpage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vorschau:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Vorschau bauen (offene Stammdaten als Warnung, Einseiter als PDF über das vorinstallierte Chrome)
+        run: python infrastruktur/build.py --pdf
+      - uses: actions/upload-artifact@v5
+        with:
+          name: landingpage-vorschau
+          path: infrastruktur/dist
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.LANDINGPAGE_LIVE == 'true')
+    needs: vorschau
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Produktionsbuild (bricht bei offenen Stammdaten ab)
+        run: python infrastruktur/build.py --strict --pdf
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: infrastruktur/dist
+      - id: deployment
+        uses: actions/deploy-pages@v4

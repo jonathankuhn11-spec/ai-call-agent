@@ -1,0 +1,9 @@
+-- 
+{{anbieter.gesellschafter_1}}
+{{auftritt.marke}} · Bedarfsanalyse für SHK-Betriebe
+
+Telefon {{kontakt.telefon}} · {{kontakt.email}}
+https://{{auftritt.domain}}
+
+{{anbieter.bezeichnung}}, {{anbieter.strasse}}, {{anbieter.plz_ort}}
+Gesellschafter: {{anbieter.gesellschafter_1}}, {{anbieter.gesellschafter_2}}

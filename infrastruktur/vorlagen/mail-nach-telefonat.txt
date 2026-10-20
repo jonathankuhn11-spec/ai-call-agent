@@ -1,0 +1,24 @@
+Betreff: Unser Telefonat – Interview zur Büroorganisation im SHK-Betrieb
+
+Guten Tag [ANREDE NACHNAME],
+
+vielen Dank für das Gespräch [heute / am DATUM]. Wie besprochen sende ich Ihnen
+unseren Einseiter. Er erklärt kurz, wer wir sind, was wir untersuchen, und enthält
+den Datenschutzhinweis nach Art. 14 DSGVO, also woher wir Ihre Kontaktdaten haben
+und wie wir damit umgehen.
+
+[VARIANTE A – Termin vereinbart]
+Ich bestätige unseren Termin am [DATUM] um [UHRZEIT] [telefonisch unter NUMMER / bei Ihnen vor Ort].
+Das Gespräch dauert etwa 20 Minuten.
+
+[VARIANTE B – Termin offen]
+Wenn Sie zu einem Interview von etwa 20 Minuten bereit sind, antworten Sie einfach
+mit zwei, drei Terminvorschlägen, die Ihnen passen.
+
+Als Dankeschön erhalten Sie nach Abschluss unserer Befragung die anonymisierte Auswertung.
+Möchten Sie nicht weiter kontaktiert werden, genügt eine kurze Antwort auf diese E-Mail.
+
+Mit freundlichen Grüßen
+{{anbieter.gesellschafter_1}}
+
+Anlage: Einseiter (PDF) – auch abrufbar unter https://{{auftritt.domain}}/einseiter.pdf
