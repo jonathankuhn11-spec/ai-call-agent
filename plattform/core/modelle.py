@@ -11,10 +11,10 @@ import uuid
 from datetime import date, datetime, time, timezone
 from typing import Any
 
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, Index, Integer, String, Text, Time, UniqueConstraint
+from sqlalchemy import JSON, Date, ForeignKey, Index, Integer, String, Text, Time, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from core.db import Basis
+from core.db import Basis, UtcZeit
 
 
 def neue_id() -> str:
@@ -35,7 +35,7 @@ class Mandant(Basis):
     # Fahrzeitpuffer vor und nach Terminen, Schrittweite der Zeitfenster
     puffer_minuten: Mapped[int] = mapped_column(Integer, default=30)
     raster_minuten: Mapped[int] = mapped_column(Integer, default=30)
-    erstellt: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=jetzt)
+    erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
 
 
 class _Mandantenbezug:
@@ -55,7 +55,7 @@ class Kunde(_Mandantenbezug, Basis):
     einwilligungen: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     vertragsstatus: Mapped[str] = mapped_column(String(30), default="ohne")  # ohne, wartungsvertrag
     notiz: Mapped[str | None] = mapped_column(Text)
-    erstellt: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=jetzt)
+    erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
 
     objekte: Mapped[list[Objekt]] = relationship(back_populates="kunde")
 
@@ -113,8 +113,8 @@ class Servicefall(_Mandantenbezug, Basis):
     quelle: Mapped[str] = mapped_column(String(20), default="manuell")  # telefon, email, web, manuell
     benoetigte_qualifikation: Mapped[str | None] = mapped_column(String(50))
     dauer_minuten: Mapped[int] = mapped_column(Integer, default=90)
-    erstellt: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=jetzt)
-    geaendert: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=jetzt, onupdate=jetzt)
+    erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
+    geaendert: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt, onupdate=jetzt)
 
     kunde: Mapped[Kunde] = relationship()
     anlage: Mapped[Anlage | None] = relationship()
@@ -127,8 +127,8 @@ class Termin(_Mandantenbezug, Basis):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
     servicefall_id: Mapped[str] = mapped_column(String(32), ForeignKey("servicefall.id"), index=True)
     ressource_id: Mapped[str] = mapped_column(String(32), ForeignKey("ressource.id"))
-    beginn: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    ende: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    beginn: Mapped[datetime] = mapped_column(UtcZeit)
+    ende: Mapped[datetime] = mapped_column(UtcZeit)
     status: Mapped[str] = mapped_column(String(20), default="vorgeschlagen")  # vorgeschlagen, bestaetigt, abgesagt
 
     servicefall: Mapped[Servicefall] = relationship(back_populates="termine")
@@ -145,7 +145,7 @@ class Kommunikation(_Mandantenbezug, Basis):
     transkript: Mapped[str | None] = mapped_column(Text)
     zusammenfassung: Mapped[str | None] = mapped_column(Text)
     extraktion: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    zeit: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=jetzt)
+    zeit: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
 
 
 class Freigabe(_Mandantenbezug, Basis):
@@ -158,9 +158,9 @@ class Freigabe(_Mandantenbezug, Basis):
     servicefall_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("servicefall.id"))
     status: Mapped[str] = mapped_column(String(20), default="offen")  # offen, freigegeben, abgelehnt
     begruendung: Mapped[str | None] = mapped_column(Text)
-    erstellt: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=jetzt)
+    erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
     entschieden_von: Mapped[str | None] = mapped_column(String(100))
-    entschieden_am: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    entschieden_am: Mapped[datetime | None] = mapped_column(UtcZeit)
 
 
 class Ereignis(_Mandantenbezug, Basis):
@@ -173,7 +173,7 @@ class Ereignis(_Mandantenbezug, Basis):
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     akteur: Mapped[str] = mapped_column(String(10))  # mensch, ki, system
     akteur_name: Mapped[str | None] = mapped_column(String(100))
-    zeit: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=jetzt)
+    zeit: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
 
 
 class OutboxEintrag(_Mandantenbezug, Basis):
@@ -187,7 +187,7 @@ class OutboxEintrag(_Mandantenbezug, Basis):
     idempotenz_schluessel: Mapped[str] = mapped_column(String(120))
     status: Mapped[str] = mapped_column(String(20), default="ausstehend")  # ausstehend, zugestellt, tot
     versuche: Mapped[int] = mapped_column(Integer, default=0)
-    naechster_versuch: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=jetzt)
+    naechster_versuch: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
     letzter_fehler: Mapped[str | None] = mapped_column(Text)
 
 
@@ -199,4 +199,4 @@ class ExternalRef(_Mandantenbezug, Basis):
     entitaet_id: Mapped[str] = mapped_column(String(32))
     zielsystem: Mapped[str] = mapped_column(String(50))
     externe_id: Mapped[str] = mapped_column(String(120))
-    letzter_sync: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=jetzt)
+    letzter_sync: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)

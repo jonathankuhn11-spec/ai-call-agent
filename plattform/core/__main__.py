@@ -1,6 +1,8 @@
 """Kommandozeile des Core-Service.
 
-    python -m core serve [--port 8100]     API starten (DATABASE_URL, CORE_API_KEY aus der Umgebung)
+    python -m core serve [--port 8100]     API und Büro-Oberfläche (/app) starten (DATABASE_URL, CORE_API_KEY)
+    python -m core serve --demo            dito, legt bei leerer DB fiktive Demodaten an
+    python -m core seed                    fiktive Demodaten anlegen, gibt die Mandanten-ID aus
     python -m core demo                    Demo-Mandant anlegen und Referenzfluss einmal durchspielen
     python -m core worker [--intervall 5]  Outbox-Worker (Zustellung an Adapter, hier CSV-Degradierung)
 """
@@ -21,7 +23,9 @@ def main() -> None:
     serve = unter.add_parser("serve")
     serve.add_argument("--host", default=os.environ.get("HOST", "0.0.0.0"))
     serve.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8100")))
+    serve.add_argument("--demo", action="store_true")
     unter.add_parser("demo")
+    unter.add_parser("seed")
     worker = unter.add_parser("worker")
     worker.add_argument("--intervall", type=float, default=5.0)
     worker.add_argument("--csv-verzeichnis", type=Path, default=Path(os.environ.get("CSV_EXPORT", "export")))
@@ -31,7 +35,18 @@ def main() -> None:
         import uvicorn
 
         from core.api import app_erzeugen
-        uvicorn.run(app_erzeugen(), host=args.host, port=args.port)
+        app = app_erzeugen()
+        if args.demo:
+            from core.seed import demodaten_anlegen
+            with app.state.db.sitzungen() as s:
+                print(f"Demo-Mandant: {demodaten_anlegen(s)}", flush=True)
+        uvicorn.run(app, host=args.host, port=args.port)
+    elif args.befehl == "seed":
+        from core.seed import demodaten_anlegen
+        db = Datenbank()
+        db.schema_anlegen()
+        with db.sitzungen() as s:
+            print(demodaten_anlegen(s))
     elif args.befehl == "demo":
         from core.demo import referenzfluss
         print(json.dumps(referenzfluss(), indent=2, ensure_ascii=False, default=str))

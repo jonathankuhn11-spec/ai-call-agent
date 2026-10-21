@@ -10,20 +10,25 @@ from __future__ import annotations
 import os
 import secrets
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from core import domaene, twin
+from core import domaene, management, twin
 from core.db import Datenbank
 from core.disposition import freie_zeitfenster, kollidiert
 from core.modelle import (Anlage, Ereignis, Freigabe, Kommunikation, Kunde, Mandant, Objekt, OutboxEintrag,
                           Ressource, Servicefall, Termin)
 from core.ontologie import ANLAGENTYPEN, TBOX, anlagentyp, exportieren
 from core.regeln import dringlichkeit_bewerten, qualifikation_fuer, telefon_normalisieren
+
+UI_VERZEICHNIS = Path(__file__).resolve().parent / "ui"
 
 Dringlichkeit = Literal["notdienst", "hoch", "normal", "niedrig"]
 
@@ -212,6 +217,10 @@ class VoiceServicefall(_Schema):
     beginn: datetime | None = None
 
 
+class SparqlAbfrage(_Schema):
+    abfrage: str = Field(..., max_length=5000)
+
+
 class VoiceGespraechBeendet(_Schema):
     telefon: str | None = None
     servicefall_id: str | None = None
@@ -259,6 +268,17 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    # Büro-Oberfläche (statisch, ohne Build-Schritt); spricht dieselbe API mit X-API-Key und X-Mandant
+    app.mount("/app", StaticFiles(directory=UI_VERZEICHNIS, html=True), name="ui")
+
+    @app.get("/", include_in_schema=False)
+    def startseite() -> RedirectResponse:
+        return RedirectResponse("/app/")
+
+    @app.get("/mandanten", response_model=list[MandantAus], dependencies=[Depends(pruefen)])
+    def mandanten(s: Session = Depends(sitzung)):
+        return s.scalars(select(Mandant).order_by(Mandant.name)).all()
 
     # --- Mandanten ---------------------------------------------------------------------------
     @app.post("/mandanten", response_model=MandantAus, status_code=201, dependencies=[Depends(pruefen)])
@@ -507,6 +527,33 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     def ontologie_export(mit_tbox: bool = False, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
         return Response(exportieren(s, m, mit_tbox).serialize(format="turtle"), media_type="text/turtle")
 
+    @app.post("/ontologie/sparql")
+    def ontologie_sparql(daten: SparqlAbfrage, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        try:
+            return management.sparql(s, m, daten.abfrage)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        except Exception as e:  # noqa: BLE001  Syntaxfehler der Abfrage gehören zum Nutzer, nicht zum Server
+            raise HTTPException(422, f"SPARQL-Fehler: {e}") from e
+
+    # --- Management ---------------------------------------------------------------------------
+    @app.post("/wartung/planen")
+    def wartung_planen(vorlauf_tage: int = Query(60, ge=0, le=365), kunden_anschreiben: bool = True,
+                       m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        neu = management.wartung_planen(s, m, app.state.uhr().date(), vorlauf_tage, kunden_anschreiben)
+        s.commit()
+        return {"angelegt": len(neu), "servicefaelle": neu}
+
+    @app.get("/kennzahlen")
+    def kennzahlen(tage: int = Query(30, ge=1, le=365), m: Mandant = Depends(mandant_kontext),
+                   s: Session = Depends(sitzung)) -> dict[str, Any]:
+        return management.kennzahlen(s, m, app.state.uhr(), tage)
+
+    @app.get("/plantafel")
+    def plantafel(tag: date | None = None, tage: int = Query(5, ge=1, le=14), m: Mandant = Depends(mandant_kontext),
+                  s: Session = Depends(sitzung)) -> dict[str, Any]:
+        return management.plantafel(s, m, tag or app.state.uhr().date(), tage)
+
     # --- Tool-API für den Voice-Agenten ------------------------------------------------------
     @app.post("/voice/kunde-suchen")
     def voice_kunde_suchen(daten: VoiceKundeSuchen, m: Mandant = Depends(mandant_kontext),
@@ -528,7 +575,12 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         if bewertung.sicherheitshinweis:
             return {"sicherheitsfall": True, "hinweis": bewertung.sicherheitshinweis, "zeitfenster": []}
         tage = 1 if bewertung.dringlichkeit == "notdienst" else 2 if bewertung.dringlichkeit == "hoch" else 7
-        fenster = freie_zeitfenster(s, m, app.state.uhr(), tage, 90, qualifikation_fuer(daten.anlagentyp), daten.anzahl)
+        # Dem Anrufer verschiedene Uhrzeiten anbieten, nicht dieselbe Zeit mit zwei Monteuren
+        fenster, gesehen = [], set()
+        for z in freie_zeitfenster(s, m, app.state.uhr(), tage, 90, qualifikation_fuer(daten.anlagentyp), daten.anzahl * 4):
+            if z.beginn not in gesehen and len(fenster) < daten.anzahl:
+                gesehen.add(z.beginn)
+                fenster.append(z)
         return {"sicherheitsfall": False, "dringlichkeit": bewertung.dringlichkeit,
                 "zeitfenster": [{"ressource_id": z.ressource_id, "monteur": z.ressource_name,
                                  "beginn": z.beginn.isoformat(), "ende": z.ende.isoformat()} for z in fenster]}

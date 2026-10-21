@@ -17,8 +17,11 @@ plattform/
 │   ├── twin.py           Digital Twin: Anlage (Wartung, Historie) und Betrieb (Bestand, Auslastung)
 │   ├── ontologie.py      Anlagentypen-Vokabular, RDF-Export
 │   ├── zustellung.py     Outbox-Worker mit Backoff, Dead-Letter, CSV-Degradierung
+│   ├── management.py     Wartungsplanung, Kennzahlen, Plantafel, SPARQL über den Zwilling
 │   ├── api.py            REST-API inkl. /voice/* für den Agenten
-│   └── demo.py           Referenzfluss „Heizungsausfall bis Outbox“
+│   ├── seed.py           fiktive Demodaten relativ zum heutigen Datum
+│   ├── demo.py           Referenzfluss „Heizungsausfall bis Outbox“
+│   └── ui/               Büro-Oberfläche (statisch, ohne Build-Schritt), ausgeliefert unter /app
 ├── voice/                Voice-Agent (LiveKit Agents) und Tool-Client
 ├── ontologie/shk.ttl     Domänenontologie (OWL 2, Brick-Abgleich)
 ├── deploy/livekit/       LiveKit-Server, SIP-Gateway, Trunk und Dispatch-Regel
@@ -34,8 +37,25 @@ cd plattform
 pip install -r requirements.txt
 python -m core demo                 # Referenzfluss im Speicher, ohne Telefonie und LLM
 python -m pytest -q                 # Tests (SQLite)
-python -m core serve                # API auf :8100, Doku unter http://localhost:8100/docs
+python -m core serve --demo         # API und Oberfläche auf :8100 mit fiktiven Demodaten
 ```
+
+Danach `http://localhost:8100/` öffnen (Oberfläche) bzw. `/docs` (OpenAPI). Ohne gesetzten
+`CORE_API_KEY` bleibt das Schlüsselfeld der Anmeldung leer.
+
+## Büro-Oberfläche
+
+| Ansicht | Inhalt |
+| --- | --- |
+| Cockpit | Kennzahlen, Auslastung je Monteur, dringende Vorgänge, letzte Ereignisse (Betriebs-Zwilling) |
+| Anruf simulieren | spielt die Werkzeugkette des Voice-Agenten ohne Telefon durch, inkl. Sicherheitsfall Gasgeruch |
+| Freigabe-Inbox | offene Aktionen der Klassen B und C, Freigeben/Ablehnen mit Protokolleintrag |
+| Vorgänge | Kanban über den Statusautomaten; Detail mit Terminvorschlag aus der Disposition und Statuswechsel |
+| Plantafel | Einsätze je Monteur und Tag, vorgemerkt vs. bestätigt |
+| Kunden & Anlagen | CRM-Suche, Kundendetail mit Anlagen-Zwilling (Wartungsstatus, Ontologieklasse) |
+| Wartungsplanung | fällige Anlagen aus dem Zwilling, Planung als Servicefälle plus Kundenerinnerung zur Freigabe |
+| Ontologie | vorbereitete SPARQL-Abfragen und freies Abfragefeld über TBox und Instanzdaten |
+| Ereignisprotokoll | Event-Log und Outbox inkl. Dead-Letter |
 
 Mit Docker: `cp .env.example .env`, Werte setzen, `docker compose up -d` (PostgreSQL, Core, Worker).
 Voice zusätzlich mit `--profile voice`, siehe [VOICE-AGENT.md](VOICE-AGENT.md).
@@ -52,7 +72,8 @@ Alle Fachendpunkte verlangen `X-Mandant`; mit gesetztem `CORE_API_KEY` zusätzli
 | Freigabe | `GET /freigaben`, `POST /freigaben`, `POST /freigaben/{id}/entscheidung` |
 | Betrieb | `GET /outbox?status=tot` (Dead-Letter), `GET /ereignisse` |
 | Digital Twin | `GET /twin/betrieb`, `GET /twin/anlagen/{id}` |
-| Ontologie | `GET /ontologie/tbox`, `GET /ontologie/export?mit_tbox=true` (text/turtle) |
+| Ontologie | `GET /ontologie/tbox`, `GET /ontologie/export?mit_tbox=true` (text/turtle), `POST /ontologie/sparql` (nur SELECT/ASK) |
+| Management | `POST /wartung/planen`, `GET /kennzahlen`, `GET /plantafel`, `GET /mandanten` |
 | Voice-Tools | `POST /voice/kunde-suchen`, `/voice/zeitfenster`, `/voice/servicefall`, `/voice/gespraech-beendet` |
 
 Ontologie in Fuseki laden (Profil `ontologie`):
@@ -80,7 +101,7 @@ Import des Voice-Agenten.
 Nicht getestet bzw. offen:
 - echter Anruf über SIP (braucht Carrier-Trunk, Server mit öffentlicher IP, STT/TTS-Schlüssel)
 - Fachsoftware-Adapter (openHandwerk, pds …): abhängig von der API-Klärung, bis dahin CSV-Degradierung
-- Freigabe-Inbox als Weboberfläche (API steht; Oberfläche z. B. mit Refine oder React-Admin)
+- Oberfläche ohne OIDC-Anmeldung (API-Key im Browser-Sitzungsspeicher); für den Pilot Keycloak davorschalten
 - Finanzanbindung (Lexware Office, sevDesk, DATEV, XRechnung über Mustang Project)
 - Datenbankmigrationen (Alembic) statt `create_all`, Row-Level-Security-Policies, OIDC im Core
 - AVV, TOMs, Löschkonzept: rechtliche Unterlagen vor dem ersten Pilotkunden

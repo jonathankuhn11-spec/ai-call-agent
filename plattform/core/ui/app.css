@@ -1,0 +1,86 @@
+:root {
+  --text: #18212b; --gedämpft: #5b6775; --fläche: #f5f7fa; --karte: #ffffff; --linie: #dfe4ea;
+  --akzent: #0b5cad; --akzent-text: #ffffff; --ok: #1d7a46; --warn: #a86400; --kritisch: #b42318;
+  --ok-fläche: #e4f4ea; --warn-fläche: #fdf1dc; --kritisch-fläche: #fde8e6; --info-fläche: #e6f0fb;
+  --radius: 8px; --schatten: 0 1px 2px rgba(16, 24, 40, .06);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --text: #e7ecf2; --gedämpft: #9aa6b4; --fläche: #0f141a; --karte: #171e26; --linie: #2a3440;
+    --akzent: #6aaef5; --akzent-text: #0b1520; --ok: #5fcf8f; --warn: #f0b354; --kritisch: #f2867b;
+    --ok-fläche: #173326; --warn-fläche: #3a2c14; --kritisch-fläche: #3d1c1a; --info-fläche: #16283c;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--fläche); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.layout { display: grid; grid-template-columns: 230px 1fr; min-height: 100vh; }
+.seitenleiste { background: var(--karte); border-right: 1px solid var(--linie); padding: 16px 12px; display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; height: 100vh; }
+.marke { font-weight: 700; padding: 4px 10px 14px; }
+.mandant { display: block; font-weight: 400; font-size: 12px; color: var(--gedämpft); }
+.seitenleiste a { color: var(--text); text-decoration: none; padding: 7px 10px; border-radius: 6px; display: flex; justify-content: space-between; }
+.seitenleiste a:hover { background: var(--fläche); }
+.seitenleiste a.aktiv { background: var(--info-fläche); color: var(--akzent); font-weight: 600; }
+#abmelden { margin-top: auto; }
+main { padding: 24px 28px 48px; max-width: 1400px; outline: none; min-width: 0; }
+h1 { font-size: 22px; margin: 0 0 4px; } h2 { font-size: 17px; margin: 0 0 12px; } h3 { font-size: 15px; margin: 0 0 8px; }
+.unterzeile { color: var(--gedämpft); margin: 0 0 20px; }
+.raster { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-bottom: 20px; }
+.kacheln { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin-bottom: 20px; }
+.karte { background: var(--karte); border: 1px solid var(--linie); border-radius: var(--radius); padding: 16px; box-shadow: var(--schatten); min-width: 0; }
+.kachel .wert { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kachel .bez { color: var(--gedämpft); font-size: 13px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; color: var(--gedämpft); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--linie); vertical-align: top; }
+tr.klickbar { cursor: pointer; } tr.klickbar:hover td { background: var(--fläche); }
+.tabelle-rahmen { overflow-x: auto; }
+.marke-tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.t-notdienst, .t-ueberfaellig, .t-tot, .t-C { background: var(--kritisch-fläche); color: var(--kritisch); }
+.t-hoch, .t-bald_faellig, .t-vorgeschlagen, .t-B, .t-offen { background: var(--warn-fläche); color: var(--warn); }
+.t-normal, .t-niedrig, .t-aktuell, .t-bestaetigt, .t-A, .t-freigegeben, .t-zugestellt { background: var(--ok-fläche); color: var(--ok); }
+.t-neutral, .t-ohne_intervall, .t-abgelehnt { background: var(--fläche); color: var(--gedämpft); border: 1px solid var(--linie); }
+button, .knopf { font: inherit; border: 1px solid var(--akzent); background: var(--akzent); color: var(--akzent-text); padding: 6px 14px; border-radius: 6px; cursor: pointer; }
+button.leise { background: transparent; color: var(--akzent); border-color: var(--linie); }
+button.gefahr { background: transparent; color: var(--kritisch); border-color: var(--linie); }
+button:disabled { opacity: .5; cursor: default; }
+input, select, textarea { font: inherit; color: var(--text); background: var(--karte); border: 1px solid var(--linie); border-radius: 6px; padding: 6px 10px; width: 100%; }
+textarea { min-height: 80px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+label { display: grid; gap: 4px; font-size: 13px; color: var(--gedämpft); margin-bottom: 10px; }
+.aktionen { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.zeile { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+.zeile > label { flex: 1 1 180px; }
+dialog { border: 1px solid var(--linie); border-radius: 12px; background: var(--karte); color: var(--text); padding: 20px; width: min(720px, calc(100vw - 32px)); max-height: 85vh; }
+dialog::backdrop { background: rgba(10, 15, 20, .45); }
+.fehler { color: var(--kritisch); } .hinweis { background: var(--info-fläche); border-radius: 6px; padding: 10px 12px; }
+.sicherheit { background: var(--kritisch-fläche); color: var(--kritisch); border-radius: 6px; padding: 12px; font-weight: 600; }
+.kanban { display: grid; grid-template-columns: repeat(6, minmax(170px, 1fr)); gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+.spalte { background: var(--karte); border: 1px solid var(--linie); border-radius: var(--radius); padding: 10px; min-height: 120px; }
+.spalte h3 { display: flex; justify-content: space-between; font-size: 13px; color: var(--gedämpft); text-transform: uppercase; letter-spacing: .03em; }
+.fallkarte { border: 1px solid var(--linie); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; background: var(--fläche); cursor: pointer; font-size: 13px; }
+.fallkarte strong { display: block; font-size: 14px; }
+.plantafel { display: grid; gap: 1px; background: var(--linie); border: 1px solid var(--linie); border-radius: var(--radius); overflow: hidden; }
+.pt-zelle { background: var(--karte); padding: 8px; min-height: 64px; font-size: 13px; min-width: 0; }
+.pt-kopf { background: var(--fläche); font-weight: 600; font-size: 12px; color: var(--gedämpft); }
+.einsatz { border-left: 3px solid var(--akzent); background: var(--info-fläche); border-radius: 4px; padding: 4px 6px; margin-bottom: 4px; cursor: pointer; }
+.einsatz.vorgeschlagen { border-left-color: var(--warn); background: var(--warn-fläche); }
+.einsatz.notdienst { border-left-color: var(--kritisch); }
+.verlauf { list-style: none; padding: 0; margin: 0; font-size: 13px; }
+.verlauf li { padding: 6px 0; border-bottom: 1px dashed var(--linie); }
+.gespraech { display: grid; gap: 8px; }
+.sprechblase { padding: 8px 12px; border-radius: 10px; max-width: 85%; }
+.sprechblase.agent { background: var(--info-fläche); }
+.sprechblase.anrufer { background: var(--fläche); border: 1px solid var(--linie); justify-self: end; }
+.sprechblase.system { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--gedämpft); background: transparent; border: 1px dashed var(--linie); max-width: 100%; }
+.wahl { display: flex; gap: 8px; flex-wrap: wrap; }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+pre { background: var(--fläche); border: 1px solid var(--linie); border-radius: 6px; padding: 10px; overflow: auto; max-height: 360px; }
+.balken { height: 8px; border-radius: 4px; background: var(--fläche); overflow: hidden; border: 1px solid var(--linie); }
+.balken span { display: block; height: 100%; background: var(--akzent); }
+@media (max-width: 860px) {
+  .layout { grid-template-columns: 1fr; }
+  .seitenleiste { position: static; height: auto; flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--linie); }
+  .marke { width: 100%; padding-bottom: 6px; } #abmelden { margin-top: 0; }
+  main { padding: 16px; }
+}

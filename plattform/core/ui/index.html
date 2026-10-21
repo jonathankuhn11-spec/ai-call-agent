@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SHK-Backoffice</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="layout">
+  <nav class="seitenleiste" aria-label="Hauptnavigation">
+    <div class="marke">SHK-Backoffice<span id="mandant-name" class="mandant"></span></div>
+    <a href="#cockpit" data-ansicht="cockpit">Cockpit</a>
+    <a href="#anruf" data-ansicht="anruf">Anruf simulieren</a>
+    <a href="#freigaben" data-ansicht="freigaben">Freigabe-Inbox <span id="zaehler-freigaben" class="zaehler"></span></a>
+    <a href="#vorgaenge" data-ansicht="vorgaenge">Vorgänge</a>
+    <a href="#plantafel" data-ansicht="plantafel">Plantafel</a>
+    <a href="#kunden" data-ansicht="kunden">Kunden &amp; Anlagen</a>
+    <a href="#wartung" data-ansicht="wartung">Wartungsplanung</a>
+    <a href="#ontologie" data-ansicht="ontologie">Ontologie</a>
+    <a href="#protokoll" data-ansicht="protokoll">Ereignisprotokoll</a>
+    <button id="abmelden" class="leise">Mandant wechseln</button>
+  </nav>
+  <main id="inhalt" tabindex="-1"></main>
+</div>
+
+<dialog id="anmeldung">
+  <form method="dialog" id="anmeldeformular">
+    <h2>Anmelden</h2>
+    <label>API-Key <input id="api-key" type="password" autocomplete="off" placeholder="leer lassen, wenn CORE_API_KEY nicht gesetzt ist"></label>
+    <label>Betrieb <select id="mandant-auswahl"></select></label>
+    <p id="anmeldefehler" class="fehler" hidden></p>
+    <div class="aktionen"><button id="mandanten-laden" type="button" class="leise">Betriebe laden</button><button type="submit">Öffnen</button></div>
+  </form>
+</dialog>
+
+<dialog id="detail"><div id="detail-inhalt"></div><form method="dialog"><button class="leise">Schließen</button></form></dialog>
+<script src="app.js"></script>
+</body>
+</html>
