@@ -63,7 +63,7 @@ vorbereitet · `Referenz` = geprüfte Alternative für eine spätere Entscheidun
 | rdflib | BSD-3-Clause | RDF, Turtle, SPARQL in Python | aktiv (`core/ontologie.py`) | — |
 | Apache Jena Fuseki | Apache-2.0 | Triple Store, SPARQL-Endpunkt | optional (Profil `ontologie`) | lädt `ontologie/shk.ttl` + Export |
 | Protégé | BSD-2-Clause | Ontologie-Editor | Referenz | Pflege von `shk.ttl` |
-| Brick Schema | BSD-3-Clause | Ontologie für Gebäudetechnik | aktiv als Abgleich (`skos:broadMatch`) | Ausbau für TGA-Anlagen |
+| Brick Schema | BSD-3-Clause | Ontologie für Gebäudetechnik | aktiv als Abgleich (`skos:broadMatch`), Kopie 1.4.1 in `drittanbieter/ontologie/` | Ausbau für TGA-Anlagen |
 | SAREF4BLDG (ETSI) | offene ETSI-Spezifikation | Gebäude-Ontologie | Referenz | Abgleich mit IFC |
 | Eclipse Ditto | EPL-2.0 | Digital-Twin-Plattform für Gerätezustände | Referenz | erst bei Telemetrie (z. B. Wärmepumpen-Störmeldungen) |
 | Eclipse BaSyx | MIT/EPL-2.0 | Asset Administration Shell (Industrie 4.0) | Referenz | falls Hersteller AAS liefern |
@@ -73,7 +73,7 @@ vorbereitet · `Referenz` = geprüfte Alternative für eine spätere Entscheidun
 | Projekt | Lizenz | Rolle | Einbindung | Einschätzung |
 | --- | --- | --- | --- | --- |
 | Mustang Project | Apache-2.0 | ZUGFeRD/Factur-X erzeugen und prüfen | Referenz | Finanzanbindung Stufe 1 |
-| KoSIT-Validator + XRechnung-Konfiguration | Apache-2.0 | Validierung XRechnung | Referenz | Pflichtprüfung vor Versand |
+| KoSIT-Validator + XRechnung-Konfiguration | Apache-2.0 | Validierung XRechnung | aktiv (`drittanbieter/xrechnung/pruefen.sh`, Test in der Suite) | erzeugte XRechnung besteht die Prüfung (Konfiguration 3.0.2) |
 | reportlab | BSD-3 | Rechnungs- und Rapport-PDF (`core/rechnung.py`, `core/einsatz.py`) | Bibliothek | genügt für den Pilot; ZUGFeRD-Einbettung später über Mustang |
 | pypdf | BSD-3 | eingebettetes ZUGFeRD-XML und Text aus PDF-Belegen (`core/belege.py`) | Bibliothek | reine Python-Bibliothek, keine Systemabhängigkeit |
 | Tesseract OCR | Apache-2.0 | Texterkennung fotografierter Belege | optional (`MIT_OCR=1` im Dockerfile, Aufruf per CLI) | Trefferquote bei Fotos begrenzt; Büro prüft die Felder; Alternative: Dokumenten-KI eines Anbieters nur mit AVV |
@@ -82,6 +82,15 @@ vorbereitet · `Referenz` = geprüfte Alternative für eine spätere Entscheidun
 | sevDesk API v1 | kommerziell | Kunden und Rechnungen anlegen | `core/adapter/sevdesk.py` | API-Token des Betriebs |
 | DATEV-Format EXTF (Buchungsstapel) | Spezifikation | Belegpaket für die Kanzlei | `core/adapter/belegpaket.py` | Textformat cp1252, ohne DATEV-Schnittstellenvertrag nutzbar (Import durch die Kanzlei) |
 | seven.io | kommerziell | SMS-Versand | `core/adapter/sms.py` | deutscher Anbieter, AVV; nur mit dokumentierter Einwilligung |
+
+## Mitgeführte Kopien und Spiegel
+
+Auf Wunsch des Betreibers führt `drittanbieter/` alles mit, was zum Bauen, Prüfen und Betreiben ohne externe Quellen nötig ist:
+Lizenztexte aller Komponenten, die Brick-Ontologie 1.4.1 (Ziel der Abgleiche in `ontologie/shk.ttl`), KoSIT-Validator und
+XRechnung-Konfiguration 3.0.2 (die erzeugte XRechnung besteht die Prüfung), ein Wheelhouse aller Python-Pakete für
+`docker build --build-arg OFFLINE=1`, Image-Archive aller Container (alle Versionen fest, kein `latest`). Binärartefakte
+entstehen reproduzierbar mit `drittanbieter/spiegeln.sh` und werden über `SHA256SUMS` geprüft. Copyleft-Komponenten (AGPL,
+GPL) werden weder kopiert noch betrieben; Einzelheiten in [`drittanbieter/README.md`](drittanbieter/README.md).
 
 ## Bezug zu bestehenden eigenen Repositories
 

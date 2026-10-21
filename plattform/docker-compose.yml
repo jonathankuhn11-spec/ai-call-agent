@@ -4,7 +4,7 @@
 #   ops         + n8n (Eingangsworkflows)                    docker compose --profile ops up -d
 #   auth        + keycloak (OIDC, Realm shk importiert)       docker compose --profile auth up -d
 #   ontologie   + Apache Jena Fuseki (SPARQL)                docker compose --profile ontologie up -d
-# Fremd-Images mit :latest vor dem Produktivbetrieb auf eine geprüfte Version pinnen.
+# Fremd-Images sind auf geprüfte Versionen festgelegt (Liste und Spiegel: drittanbieter/IMAGES.txt, drittanbieter/spiegeln.sh --images).
 # Betrieb auf einem Server: deploy/server/ (HOSTING.md).
 
 # Datenbankrollen (deploy/postgres/rollen.sql): shk = Eigentümer, nur Migrationen;
@@ -17,7 +17,7 @@ x-core-umgebung: &core-umgebung
 
 services:
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:0.8.7-pg16
     environment:
       POSTGRES_USER: shk
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -61,12 +61,12 @@ services:
       core: {condition: service_healthy}
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.4-alpine
     profiles: [voice]
     network_mode: host
 
   livekit:
-    image: livekit/livekit-server:latest
+    image: livekit/livekit-server:v1.13.10
     profiles: [voice]
     command: ["--config", "/etc/livekit.yaml"]
     environment:
@@ -76,7 +76,7 @@ services:
     depends_on: [redis]
 
   livekit-sip:
-    image: livekit/sip:latest
+    image: livekit/sip:v1.21.0
     profiles: [voice]
     environment:
       SIP_CONFIG_FILE: /etc/sip.yaml
@@ -111,7 +111,7 @@ services:
     depends_on: [livekit, core]
 
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:2.45.1
     profiles: [ops]
     ports: ["127.0.0.1:5678:5678"]
     environment:
@@ -131,7 +131,7 @@ services:
     volumes: ["./deploy/keycloak/shk-realm.json:/opt/keycloak/data/import/shk-realm.json:ro"]
 
   fuseki:
-    image: stain/jena-fuseki:latest
+    image: stain/jena-fuseki:5.1.0
     profiles: [ontologie]
     ports: ["127.0.0.1:3030:3030"]
     environment:

@@ -33,6 +33,7 @@ plattform/
 ├── HOSTING.md            Hosting in Deutschland, Einrichtung, Sicherung, Sicherheitskonzept
 ├── docker-compose.yml    Profile: Basis, voice, ops (n8n), auth (Keycloak), ontologie (Fuseki)
 ├── KATALOG.md            Open-Source-Komponenten mit Lizenz und Einbindungsart
+├── drittanbieter/        mitgeführte Fremdartefakte: Lizenztexte, Brick-Ontologie, KoSIT-Validator, Wheelhouse, Image-Spiegel (spiegeln.sh)
 └── VOICE-AGENT.md        Auswahl des Voice-Agenten und Aufbau des Voice-Backends
 ```
 

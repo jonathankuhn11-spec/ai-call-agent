@@ -1,0 +1,11 @@
+# Gespiegelte Binärartefakte (per spiegeln.sh erzeugt, Prüfsummen in SHA256SUMS); nicht versioniert
+wheelhouse/*
+!wheelhouse/.gitkeep
+images/*
+!images/.gitkeep
+xrechnung/*.zip
+xrechnung/*.jar
+xrechnung/konfiguration/
+xrechnung/berichte/
+xrechnung/LICENSE
+xrechnung/NOTICE
