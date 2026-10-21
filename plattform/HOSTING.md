@@ -48,16 +48,15 @@ Was nur Sie erledigen können, ist mit **(Sie)** markiert: Verträge, Konten, DN
    Anbieter abschließen.
 2. **DNS (Sie):** A- (und AAAA-)Einträge für `backoffice.<domain>` und `auth.<domain>` auf die
    Server-IP.
-3. **Geheimnisse:** auf dem Server `cd /opt/shk/plattform && cp .env.example .env`, alle Werte mit
-   `openssl rand -base64 32` erzeugen, `SHK_DOMAIN=backoffice.<domain>`, `ACME_EMAIL`,
-   `SHK_ADMIN_NETZE` (Büro-IP) setzen. `.env` gehört nie ins Repository.
-4. **Erstes Ausrollen:** Images entstehen im Workflow „Plattform ausrollen“ (Actions, Eingabe
-   Version). Danach auf dem Server `plattform/deploy/server/deploy.sh 0.2.0`. Solange die Plattform
-   nicht auf `main` liegt: `git checkout plattform/backend-grundgeruest` in `/opt/shk`.
-   Ist das GHCR-Paket privat, einmalig `docker login ghcr.io` mit einem Token (Recht `read:packages`).
-5. **Ersten Mandanten anlegen:**
-   `curl -H "X-API-Key: $CORE_API_KEY" -H 'Content-Type: application/json' -d '{"name":"Betrieb"}' http://127.0.0.1:8100/mandanten`
-   (die ausgegebene `id` ist die Mandanten-ID).
+3. **Images bauen:** Workflow „Plattform ausrollen“ (Actions, Eingabe Version, z. B. `0.2.0`). Ist das
+   GHCR-Paket privat, auf dem Server einmalig `docker login ghcr.io` mit einem Token (Recht `read:packages`).
+4. **Erstausrollung:** auf dem Server als Nutzer `shk`
+   `cd /opt/shk/plattform && deploy/server/einrichten.sh 0.2.0`. Das Skript fragt Domain, E-Mail und
+   Büro-Netz ab, erzeugt `.env` mit Zufallsgeheimnissen (inkl. `INTEGRATIONS_KEY`), prüft die
+   DNS-Einträge, ruft `deploy.sh` auf und legt den ersten Mandanten an. `.env` gehört nie ins
+   Repository. Für jede weitere Version genügt `deploy/server/deploy.sh <version>`.
+5. **Mandant und Stammdaten:** die Mandanten-ID steht nach Schritt 4 in `.env` (`CORE_MANDANT`);
+   Firmendaten, IBAN und Kanzlei-Adresse trägt der Inhaber in der Oberfläche unter „Einstellungen“ ein.
 6. **Benutzer in Keycloak:** Admin-Konsole `https://auth.<domain>/admin` (nur aus `SHK_ADMIN_NETZE`),
    Realm `shk`: zuerst einen eigenen Admin-Benutzer im Realm `master` anlegen und den
    Bootstrap-Admin löschen. Dann je Person einen Benutzer mit Attribut `mandant` = Mandanten-ID und
@@ -65,9 +64,15 @@ Was nur Sie erledigen können, ist mit **(Sie)** markiert: Verträge, Konten, DN
 7. **Automatisches Ausrollen (optional):** in GitHub unter Settings → Environments ein Environment
    `produktion` mit Pflicht-Reviewer anlegen; Variable `DEPLOY_HOST`, Secrets `DEPLOY_SSH_KEY`
    (privater Schlüssel zum Nutzer `shk`) und `DEPLOY_KNOWN_HOSTS` (`ssh-keyscan <host>`).
-8. **Telefonie (Sie):** SIP-Trunk bei einem deutschen Carrier, Rufumleitung der Betriebsnummer,
-   Zugangsdaten in `deploy/livekit/`, dann `SHK_PROFILE_ZUSATZ="--profile voice" deploy.sh <version>`.
-   Firewall für 5060/udp auf die IP-Bereiche des Carriers einschränken.
+8. **Telefonie (Sie):** SIP-Trunk bei einem deutschen Carrier und Sprachdienst-Schlüssel, dann nach
+   TELEFONIE.md: `deploy/livekit/trunk-anlegen.sh`, `python -m voice.probe`, Testanruf, zuletzt die
+   Rufumleitung der Betriebsnummer. Firewall für 5060/udp auf die IP-Bereiche des Carriers einschränken.
+9. **Vor dem ersten Pilotkunden:** AVV mit Anlagen aus `recht/` unterschreiben lassen, Löschlauf
+   (täglich 02:45 Uhr per Cron, `python -m core loeschlauf`) nach der ersten Nacht im Protokoll prüfen
+   (`GET /ereignisse`, Typ `loeschung.lauf`).
+10. **Eigenes Repository (optional):** leeres Repository auf GitHub anlegen und
+    `plattform/deploy/repo-abspalten.sh <url>` ausführen; danach `cloud-init.yaml` des Servers auf die
+    neue Quelle zeigen lassen (das Skript passt Pfade und Workflows an).
 
 ## Sicherung und Wiederherstellung
 

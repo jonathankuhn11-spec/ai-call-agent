@@ -125,10 +125,11 @@ $("#anmeldeformular").addEventListener("submit", () => {
 $("#abmelden").addEventListener("click", () => abmelden());
 
 // --- Routing ---------------------------------------------------------------------------------
-const ANSICHTEN = { cockpit, anruf, freigaben, vorgaenge, plantafel, kunden, wartung, ontologie, protokoll };
+const ANSICHTEN = { cockpit, anruf, freigaben, vorgaenge, plantafel, kunden, wartung, ontologie, rechnungen, protokoll, einstellungen };
 async function zeigen() {
   if (!speicher("mandant")) return anmelden();
   $("#mandant-name").textContent = speicher("mandantName") || "";
+  try { $("#nav-einstellungen").hidden = !(await ich()).rechte.includes("verwalten"); } catch { /* Anmeldung läuft */ }
   const name = (location.hash.slice(1) || "cockpit").split("/")[0];
   document.querySelectorAll(".seitenleiste a").forEach((a) => a.classList.toggle("aktiv", a.dataset.ansicht === name));
   const ziel = $("#inhalt");
@@ -301,10 +302,11 @@ async function fallDetail(id) {
 
 // --- Plantafel -------------------------------------------------------------------------------
 async function plantafel(ziel) {
-  const p = await api("/plantafel?tage=5");
+  const [p, wir] = await Promise.all([api("/plantafel?tage=5"), ich()]);
   const tage = [...Array(p.tage).keys()].map((i) => new Date(Date.parse(`${p.von}T12:00:00Z`) + i * 86400000));
   const gleicherTag = (iso, d) => TAGESSCHLUESSEL.format(new Date(iso)) === TAGESSCHLUESSEL.format(d);
-  ziel.innerHTML = `<h1>Plantafel</h1><p class="unterzeile">Einsätze je Monteur; gelb = vorgemerkt (wartet auf Freigabe), blau = bestätigt.</p>
+  ziel.innerHTML = `<h1>Plantafel</h1><p class="unterzeile">${wir.eingeschraenkt ? "Ihre Einsätze" : "Einsätze je Monteur"}; gelb = vorgemerkt (wartet auf Freigabe), blau = bestätigt.</p>
+    ${wir.eingeschraenkt && !p.ressourcen.length ? `<p class="hinweis">Ihrem Konto ist noch kein Monteur zugeordnet. Der Inhaber trägt Ihren Anmeldenamen (${esc(wir.name)}) unter „Monteure“ ein.</p>` : ""}
     <div class="tabelle-rahmen"><div class="plantafel" style="grid-template-columns: 180px repeat(${p.tage}, minmax(150px, 1fr)); min-width: ${180 + p.tage * 150}px">
       <div class="pt-zelle pt-kopf">Monteur</div>${tage.map((d) => `<div class="pt-zelle pt-kopf">${esc(WOCHENTAG.format(d))}</div>`).join("")}
       ${p.ressourcen.map((r) => `<div class="pt-zelle"><strong>${esc(r.name.split(" (")[0])}</strong><br><small>${esc(r.qualifikationen.join(", "))}</small><br><small>${esc(r.arbeitsbeginn)}–${esc(r.arbeitsende)}</small></div>
@@ -313,6 +315,25 @@ async function plantafel(ziel) {
           <strong>${esc(UHRZEIT.format(new Date(t.beginn)))}–${esc(UHRZEIT.format(new Date(t.ende)))}</strong> ${esc(t.kunde)}<br>${esc(t.anliegen)}</div>`).join("")}</div>`).join("")}`).join("")}
     </div></div>`;
   ziel.querySelectorAll("[data-fall]").forEach((k) => k.addEventListener("click", () => fallDetail(k.dataset.fall)));
+  if (wir.rechte.includes("verwalten")) await monteureVerwalten(ziel);
+}
+
+// Inhaber: Anmeldename je Monteur, damit die Monteur-Rolle nur eigene Einsätze sieht
+async function monteureVerwalten(ziel) {
+  const liste = await api("/ressourcen");
+  const bereich = document.createElement("div");
+  bereich.innerHTML = `<h2 style="margin-top:24px">Monteure</h2>
+    <div class="karte"><div class="tabelle-rahmen"><table><thead><tr><th>Monteur</th><th>Qualifikationen</th><th>Anmeldename (Keycloak)</th><th></th></tr></thead><tbody>
+    ${liste.map((r) => `<tr><td>${esc(r.name)}${r.aktiv ? "" : ` ${tag("inaktiv", "neutral")}`}</td><td>${esc(r.qualifikationen.join(", "))}</td>
+      <td><input data-benutzer="${esc(r.id)}" value="${esc(r.benutzer || "")}" placeholder="z. B. m.arndt" autocomplete="off"></td>
+      <td><button class="leise" data-speichern="${esc(r.id)}">Speichern</button></td></tr>`).join("")}</tbody></table></div></div>`;
+  ziel.append(bereich);
+  bereich.querySelectorAll("[data-speichern]").forEach((b) => b.addEventListener("click", async () => {
+    const id = b.dataset.speichern, wert = bereich.querySelector(`[data-benutzer="${id}"]`).value.trim();
+    b.disabled = true;
+    try { await api(`/ressourcen/${id}`, { methode: "PATCH", daten: { benutzer: wert || null } }); b.textContent = "Gespeichert"; }
+    catch (e) { alert(e.message); } finally { b.disabled = false; }
+  }));
 }
 
 // --- Kunden und Anlagen ----------------------------------------------------------------------
@@ -400,6 +421,94 @@ async function ontologie(ziel) {
 }
 
 // --- Ereignisprotokoll -----------------------------------------------------------------------
+// --- Rechnungen ------------------------------------------------------------------------------
+const EURO = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
+const DATUM = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeZone: TZ });
+async function rechnungen(ziel) {
+  const [liste, wir] = await Promise.all([api("/rechnungen"), ich()]);
+  const darfStorno = wir.rechte.includes("bearbeiten");
+  const kopf = { Authorization: speicher("token") ? `Bearer ${speicher("token")}` : undefined, "X-API-Key": speicher("apiKey") || undefined, "X-Mandant": speicher("mandant") };
+  ziel.innerHTML = `<h1>Rechnungen</h1><p class="unterzeile">Fortlaufender Nummernkreis je Betrieb; Rechnung und Storno entstehen nur über eine Freigabe der Klasse C (Inhaber). Übermittlung an Buchhaltung und Kunde läuft über die Outbox.</p>
+    <div class="karte" style="margin-bottom:16px"><div class="zeile"><label>Belegpaket an die Kanzlei (Monat) <input id="r-zeitraum" type="month"></label><button id="r-belegpaket" class="leise" ${darfStorno ? "" : "disabled"}>Zur Freigabe vorlegen</button></div></div>
+    <div class="karte"><div class="tabelle-rahmen"><table><thead><tr><th>Nummer</th><th>Art</th><th>Datum</th><th>Kunde</th><th style="text-align:right">Netto</th><th style="text-align:right">Brutto</th><th>Status</th><th></th></tr></thead><tbody>
+    ${liste.map((r) => `<tr><td><strong>${esc(r.nummer)}</strong></td><td>${r.art === "storno" ? tag("Storno", "C", "Storno") : "Rechnung"}</td><td>${esc(DATUM.format(new Date(r.datum)))}</td>
+      <td>${esc(r.empfaenger.name || "")}</td><td style="text-align:right">${esc(EURO.format(r.netto))}</td><td style="text-align:right">${esc(EURO.format(r.brutto))}</td>
+      <td>${tag(r.status, r.status === "storniert" ? "abgelehnt" : "A", r.status)}</td>
+      <td><div class="aktionen"><button class="leise" data-pdf="${esc(r.id)}">PDF</button><button class="leise" data-xml="${esc(r.id)}">XRechnung</button>
+        ${darfStorno && r.art === "rechnung" && r.status !== "storniert" ? `<button class="gefahr" data-storno="${esc(r.id)}">Storno</button>` : ""}</div></td></tr>`).join("")
+      || `<tr><td colspan="8">Noch keine Rechnungen. Rechnungen entstehen aus der Freigabe-Inbox (Aktion „Rechnung erstellen“).</td></tr>`}
+    </tbody></table></div></div>`;
+  const oeffnen = async (pfad, name) => {
+    const r = await fetch(pfad, { headers: Object.fromEntries(Object.entries(kopf).filter(([, v]) => v)) });
+    if (!r.ok) return alert(`HTTP ${r.status}`);
+    const url = URL.createObjectURL(await r.blob()); const a = document.createElement("a"); a.href = url; a.download = name; a.target = "_blank"; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  };
+  ziel.querySelectorAll("[data-pdf]").forEach((b) => b.addEventListener("click", () => oeffnen(`/rechnungen/${b.dataset.pdf}/pdf`, `${b.dataset.pdf}.pdf`)));
+  ziel.querySelectorAll("[data-xml]").forEach((b) => b.addEventListener("click", () => oeffnen(`/rechnungen/${b.dataset.xml}/xrechnung`, `${b.dataset.xml}.xml`)));
+  ziel.querySelectorAll("[data-storno]").forEach((b) => b.addEventListener("click", async () => {
+    const grund = prompt("Grund des Stornos (erscheint im Protokoll):"); if (!grund) return;
+    try { await api(`/rechnungen/${b.dataset.storno}/storno`, { methode: "POST", daten: { grund } }); alert("Storno liegt in der Freigabe-Inbox (Klasse C)."); zeigen(); }
+    catch (e) { alert(e.message); }
+  }));
+  $("#r-belegpaket").addEventListener("click", async () => {
+    const z = $("#r-zeitraum").value; if (!z) return alert("Monat wählen");
+    try { await api("/kanzlei/belegpaket", { methode: "POST", daten: { zeitraum: z } }); alert("Belegpaket liegt in der Freigabe-Inbox (Klasse C)."); }
+    catch (e) { alert(e.message); }
+  });
+}
+
+// --- Einstellungen (Inhaber): Stammdaten und Anbindungen -------------------------------------
+const FELDER_STAMM = [["inhaber", "Inhaber/in"], ["strasse", "Straße"], ["plz", "PLZ"], ["ort", "Ort"], ["telefon", "Telefon"], ["email", "E-Mail"],
+  ["ust_id", "USt-IdNr."], ["steuernummer", "Steuernummer"], ["handwerksrolle", "Handwerksrolle"], ["iban", "IBAN"], ["bic", "BIC"], ["bank", "Bank"],
+  ["zahlungsziel_tage", "Zahlungsziel (Tage)"], ["rechnungsnummer_praefix", "Rechnungsnummer-Präfix"], ["rechnungshinweis", "Hinweis auf der Rechnung"],
+  ["kontenrahmen", "Kontenrahmen (SKR03/SKR04)"], ["datev_beraternummer", "DATEV Beraternummer"], ["datev_mandantennummer", "DATEV Mandantennummer"], ["kanzlei_email", "E-Mail der Kanzlei"]];
+const ANBINDUNGEN = {
+  fachsoftware: { titel: "Fachsoftware", hinweis: "Termine und Aufträge. Bis die Schreib-API der Fachsoftware geklärt ist: Webhook (z. B. n8n) oder CSV-Export.",
+    typen: { webhook: [["url", "Webhook-URL"], ["signatur_schluessel", "Signaturschlüssel (HMAC)", true], ["api_key", "Bearer-Token (optional)", true]], csv: [] } },
+  endkunde: { titel: "Kundenkommunikation", hinweis: "Terminbestätigung, Nachrichten, Rechnungen. Reihenfolge: E-Mail, dann SMS (nur mit Einwilligung).",
+    typen: { email: [["absender", "Absenderadresse"], ["host", "SMTP-Server"], ["port", "Port (587 STARTTLS / 465 SMTPS)"], ["benutzer", "SMTP-Benutzer"], ["passwort", "SMTP-Passwort", true], ["antwort_an", "Antwort an (optional)"]],
+      sms: [["api_key", "seven.io API-Key", true], ["absender", "Absenderkennung (max. 11 Zeichen)"]], csv: [] } },
+  finanz: { titel: "Buchhaltung", hinweis: "Rechnungen und Stornos als Entwurf in die Buchhaltungssoftware.",
+    typen: { lexware: [["api_key", "Lexware Office API-Key", true]], sevdesk: [["api_token", "sevDesk API-Token", true]], csv: [] } },
+  kanzlei: { titel: "Steuerkanzlei", hinweis: "Monatliches Belegpaket (PDF, XRechnung, DATEV-Buchungsstapel) per E-Mail oder als Datei.",
+    typen: { email: [["kanzlei_email", "E-Mail der Kanzlei"], ["absender", "Absenderadresse"], ["host", "SMTP-Server"], ["port", "Port"], ["benutzer", "SMTP-Benutzer"], ["passwort", "SMTP-Passwort", true]],
+      belegpaket: [["verzeichnis", "Ablageverzeichnis auf dem Server"]] } },
+};
+async function einstellungen(ziel) {
+  const [betrieb, integ] = await Promise.all([api("/betrieb"), api("/integrationen")]);
+  const st = betrieb.stammdaten || {};
+  ziel.innerHTML = `<h1>Einstellungen</h1><p class="unterzeile">${esc(betrieb.name)} · Stammdaten erscheinen auf Rechnungen und Schreiben; Zugangsdaten werden verschlüsselt gespeichert.</p>
+    <div class="karte" style="margin-bottom:16px"><h2>Betriebsstammdaten</h2><form id="e-stamm"><div class="raster">
+      ${FELDER_STAMM.map(([k, b]) => `<label>${esc(b)} <input name="${k}" value="${esc(st[k] ?? "")}"></label>`).join("")}
+      <label><span><input type="checkbox" name="kleinunternehmer" ${st.kleinunternehmer ? "checked" : ""}> Kleinunternehmer (§ 19 UStG, keine Umsatzsteuer)</span></label>
+    </div><div class="aktionen"><button type="submit">Speichern</button></div></form></div>
+    ${Object.entries(ANBINDUNGEN).map(([ziel, a]) => {
+      const e = integ.ziele[ziel] || {}; const kanaele = e.kanaele || [];
+      return `<div class="karte" style="margin-bottom:16px"><h2>${esc(a.titel)}</h2><p class="unterzeile">${esc(a.hinweis)}</p>
+        <form data-ziel="${ziel}">
+        ${Object.entries(a.typen).map(([typ, felder]) => `<div style="margin-bottom:10px"><label><span><input type="checkbox" name="kanal" value="${typ}" ${kanaele.includes(typ) ? "checked" : ""}> <strong>${esc(typ)}</strong></span></label>
+          ${felder.length ? `<div class="raster">${felder.map(([k, b, geheim]) => `<label>${esc(b)} <input name="${typ}.${k}" ${geheim ? 'type="password" autocomplete="new-password"' : ""} value="${esc((e[typ] || {})[k] ?? "")}"></label>`).join("")}</div>` : ""}</div>`).join("")}
+        <div class="aktionen"><span class="fehler" data-meldung hidden></span><button type="submit">Speichern</button></div></form></div>`;
+    }).join("")}`;
+  $("#e-stamm").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target); const daten = {};
+    for (const [k, v] of fd.entries()) if (k !== "kleinunternehmer" && v !== "") daten[k] = k === "zahlungsziel_tage" ? Number(v) : v;
+    daten.kleinunternehmer = fd.has("kleinunternehmer");
+    try { await api("/betrieb/stammdaten", { methode: "PUT", daten }); alert("Gespeichert"); } catch (e) { alert(e.message); }
+  });
+  ziel.querySelectorAll("form[data-ziel]").forEach((f) => f.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(f); const daten = { kanaele: fd.getAll("kanal") };
+    for (const [k, v] of fd.entries()) { if (!k.includes(".")) continue; const [typ, feld] = k.split("."); if (v !== "") (daten[typ] ||= {})[feld] = v; }
+    const meldung = f.querySelector("[data-meldung]"); meldung.hidden = true;
+    try { await api(`/integrationen/${f.dataset.ziel}`, { methode: "PUT", daten }); meldung.className = "hinweis"; meldung.textContent = "Gespeichert"; meldung.hidden = false; }
+    catch (e) { meldung.className = "fehler"; meldung.textContent = e.message; meldung.hidden = false; }
+  }));
+  await monteureVerwalten(ziel);
+}
+
 async function protokoll(ziel) {
   const [ereignisse, outbox, tot] = await Promise.all([api("/ereignisse?limit=200"), api("/outbox"), api("/outbox?status=tot")]);
   ziel.innerHTML = `<h1>Ereignisprotokoll</h1><p class="unterzeile">Append-only Event-Log (Audit, Replay) und Transactional Outbox an die Zielsysteme.</p>

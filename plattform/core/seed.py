@@ -57,10 +57,10 @@ VORGAENGE = [
     (7, "Legionellenprüfung Trinkwasser fällig", None, "abgerechnet", -6, time(8, 0), 0, True),
 ]
 
-MONTEURE = [
-    ("Monteur Arndt (Kundendienst Gas)", ["gas", "oel", "trinkwasser"], time(7, 30), time(16, 30)),
-    ("Monteur Bilgin (Kälte/Wärmepumpe)", ["kaeltetechnik", "elektro"], time(7, 0), time(15, 30)),
-    ("Monteur Cordes (Geselle)", ["gas", "trinkwasser"], time(8, 0), time(17, 0)),
+MONTEURE = [  # letztes Feld: Anmeldename in Keycloak (Attribut preferred_username)
+    ("Monteur Arndt (Kundendienst Gas)", ["gas", "oel", "trinkwasser"], time(7, 30), time(16, 30), "m.arndt"),
+    ("Monteur Bilgin (Kälte/Wärmepumpe)", ["kaeltetechnik", "elektro"], time(7, 0), time(15, 30), "m.bilgin"),
+    ("Monteur Cordes (Geselle)", ["gas", "trinkwasser"], time(8, 0), time(17, 0), "m.cordes"),
 ]
 
 
@@ -87,12 +87,15 @@ def demodaten_anlegen(s: Session, jetzt_: datetime | None = None) -> str:
         return vorhanden.id
     jetzt_ = jetzt_ or datetime.now(timezone.utc)
     heute = jetzt_.astimezone(ZEITZONE).date()
-    m = Mandant(name=DEMO_NAME, policies={})
+    m = Mandant(name=DEMO_NAME, policies={}, stammdaten={  # fiktive Betriebsstammdaten
+        "strasse": "Werkstattstraße 12", "plz": "50823", "ort": "Köln", "telefon": "0221 000000", "email": "buero@example.invalid",
+        "inhaber": "Max Muster", "ust_id": "DE000000000", "handwerksrolle": "HWK Köln, Nr. 000000", "iban": "DE02120300000000202051",
+        "bic": "BYLADEM1001", "bank": "Musterbank", "zahlungsziel_tage": 14, "kontenrahmen": "SKR03"})
     s.add(m)
     s.flush()
     monteure = []
-    for name, quali, von, bis in MONTEURE:
-        r = Ressource(mandant_id=m.id, name=name, qualifikationen=quali, arbeitsbeginn=von, arbeitsende=bis)
+    for name, quali, von, bis, benutzer in MONTEURE:
+        r = Ressource(mandant_id=m.id, name=name, qualifikationen=quali, arbeitsbeginn=von, arbeitsende=bis, benutzer=benutzer)
         s.add(r)
         monteure.append(r)
     kunden, anlagen_je_kunde = [], []

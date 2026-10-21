@@ -19,14 +19,18 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from core import domaene, management, twin
+from core import domaene, loeschung, management, twin
 from core.auth import Abgewiesen, Authentifizierung, Prinzipal
 from core.db import Datenbank, mandant_binden
 from core.disposition import freie_zeitfenster, kollidiert
-from core.modelle import (Anlage, Ereignis, Freigabe, Kommunikation, Kunde, Mandant, Objekt, OutboxEintrag,
+from core.adapter import ERLAUBT, ZIELE, konfiguration_pruefen
+from core.geheimnisse import GEHEIME_FELDER, konfiguration_maskieren, konfiguration_verschluesseln
+from core.modelle import (Anlage, Ereignis, Freigabe, Kommunikation, Kunde, Mandant, Objekt, OutboxEintrag, Rechnung,
                           Ressource, Servicefall, Termin)
 from core.ontologie import ANLAGENTYPEN, TBOX, anlagentyp, exportieren
 from core.regeln import dringlichkeit_bewerten, qualifikation_fuer, telefon_normalisieren
+from core.rechnung import pdf as rechnung_pdf
+from core.rechnung import xrechnung
 
 UI_VERZEICHNIS = Path(__file__).resolve().parent / "ui"
 
@@ -110,6 +114,17 @@ class RessourceNeu(_Schema):
     arbeitstage: list[int] = [0, 1, 2, 3, 4]
     arbeitsbeginn: str = "07:30"
     arbeitsende: str = "16:30"
+    benutzer: str | None = None
+
+
+class RessourceAenderung(_Schema):
+    name: str | None = None
+    qualifikationen: list[str] | None = None
+    arbeitstage: list[int] | None = None
+    arbeitsbeginn: str | None = None
+    arbeitsende: str | None = None
+    aktiv: bool | None = None
+    benutzer: str | None = None
 
 
 class RessourceAus(_Schema):
@@ -117,6 +132,8 @@ class RessourceAus(_Schema):
     name: str
     qualifikationen: list[str]
     arbeitstage: list[int]
+    benutzer: str | None = None
+    aktiv: bool = True
     aktiv: bool
 
 
@@ -221,6 +238,66 @@ class SparqlAbfrage(_Schema):
     abfrage: str = Field(..., max_length=5000)
 
 
+class Stammdaten(_Schema):
+    strasse: str | None = None
+    plz: str | None = None
+    ort: str | None = None
+    telefon: str | None = None
+    email: str | None = None
+    inhaber: str | None = None
+    ust_id: str | None = None
+    steuernummer: str | None = None
+    handwerksrolle: str | None = None
+    iban: str | None = None
+    bic: str | None = None
+    bank: str | None = None
+    zahlungsziel_tage: int = Field(14, ge=0, le=90)
+    kleinunternehmer: bool = False
+    rechnungsnummer_praefix: str = Field("RE", max_length=10)
+    rechnungshinweis: str | None = None
+    kontenrahmen: Literal["SKR03", "SKR04"] = "SKR03"
+    datev_beraternummer: str | None = None
+    datev_mandantennummer: str | None = None
+    kanzlei_email: str | None = None
+
+
+class Integration(_Schema):
+    """Anbindung eines Ziels: kanaele in Reihenfolge, je Typ ein Konfigurationsblock."""
+    kanaele: list[str] = Field(default_factory=list)
+    email: dict[str, Any] = {}
+    sms: dict[str, Any] = {}
+    webhook: dict[str, Any] = {}
+    lexware: dict[str, Any] = {}
+    sevdesk: dict[str, Any] = {}
+    belegpaket: dict[str, Any] = {}
+
+
+class RechnungAus(_Schema):
+    id: str
+    nummer: str
+    kunde_id: str
+    servicefall_id: str | None
+    art: str
+    storno_von_id: str | None
+    datum: date
+    leistungsdatum: date | None
+    faellig: date
+    positionen: list[dict[str, Any]]
+    netto: str
+    umsatzsteuer: str
+    brutto: str
+    status: str
+    empfaenger: dict[str, Any]
+
+
+class StornoAntrag(_Schema):
+    grund: str = Field(..., min_length=3)
+
+
+class BelegpaketAntrag(_Schema):
+    zeitraum: str = Field(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+
+
 class VoiceGespraechBeendet(_Schema):
     telefon: str | None = None
     servicefall_id: str | None = None
@@ -279,6 +356,17 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
             raise HTTPException(404, "Mandant unbekannt")
         return m
 
+    def eigene_ressourcen(p: Prinzipal, s: Session, m: Mandant) -> list[str] | None:
+        """None = alles sehen. Monteure ohne Büro-/Inhaberrolle sehen nur Einsätze ihrer Ressourcen."""
+        if p.art != "person" or p.darf("bearbeiten") or "monteur" not in p.rollen:
+            return None
+        return list(s.scalars(select(Ressource.id).where(Ressource.mandant_id == m.id, Ressource.benutzer == p.name)))
+
+    def eigener_fall(p: Prinzipal, s: Session, m: Mandant, f: Servicefall) -> None:
+        eigene = eigene_ressourcen(p, s, m)
+        if eigene is not None and not any(t.ressource_id in eigene for t in f.termine):
+            raise HTTPException(404, f"Servicefall {f.id} nicht gefunden")
+
     def wer(p: Prinzipal, angegeben: str | None) -> str:
         # bei Personen zählt der Name aus dem Token, nicht die Angabe im Request (Revisionssicherheit)
         return p.name if p.art == "person" else (angegeben or p.name)
@@ -313,8 +401,13 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         return auth.konfiguration()
 
     @app.get("/ich")
-    def ich(p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
-        return {"art": p.art, "name": p.name, "rollen": sorted(p.rollen), "mandant": p.mandant, "rechte": p.rechte}
+    def ich(p: Prinzipal = Depends(prinzipal), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        ressourcen = []
+        if p.art == "person":
+            mandant_binden(s, p.mandant)
+            ressourcen = list(s.scalars(select(Ressource.id).where(Ressource.mandant_id == p.mandant, Ressource.benutzer == p.name)))
+        return {"art": p.art, "name": p.name, "rollen": sorted(p.rollen), "mandant": p.mandant, "rechte": p.rechte,
+                "ressourcen": ressourcen, "eingeschraenkt": p.art == "person" and not p.darf("bearbeiten") and "monteur" in p.rollen}
 
     # --- Mandanten (mandantenübergreifend, deshalb über die System-Verbindung) ------------------
     @app.get("/mandanten", response_model=list[MandantAus])
@@ -378,6 +471,30 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         s.commit()
         return k
 
+    @app.get("/kunden/{kunde_id}/auskunft", dependencies=[Depends(recht("bearbeiten"))])
+    def kunde_auskunft(kunde_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                       p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        """Datenauskunft nach Art. 15 DSGVO; der Abruf wird protokolliert."""
+        k = holen(s, Kunde, kunde_id, m)
+        daten = loeschung.auskunft(s, k)
+        domaene.protokollieren(s, m.id, "kunde.auskunft", "kunde", k.id, "mensch", {}, p.name)
+        s.commit()
+        return daten
+
+    @app.post("/kunden/{kunde_id}/loeschen", dependencies=[Depends(recht("verwalten"))])
+    def kunde_loeschen(kunde_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                       p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        """Löschantrag nach Art. 17 DSGVO: vollständig oder, bei Aufbewahrungspflichten, Anonymisierung."""
+        k = holen(s, Kunde, kunde_id, m)
+        ergebnis = fachlich(lambda: loeschung.kunde_loeschen(s, k, app.state.uhr(), "mensch"))
+        s.commit()
+        return ergebnis
+
+    @app.post("/loeschlauf", dependencies=[Depends(recht("verwalten"))])
+    def loeschlauf(trocken: bool = True, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, int]:
+        """Löschlauf für diesen Mandanten; trocken=true zeigt nur, was gelöscht würde."""
+        return loeschung.loeschlauf(s, m, app.state.uhr(), trocken=trocken)
+
     @app.post("/kunden/{kunde_id}/objekte", response_model=ObjektAus, status_code=201, dependencies=[Depends(recht("bearbeiten"))])
     def objekt_anlegen(kunde_id: str, daten: ObjektNeu, m: Mandant = Depends(mandant_kontext),
                        s: Session = Depends(sitzung)):
@@ -418,6 +535,17 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     def ressourcen(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
         return s.scalars(select(Ressource).where(Ressource.mandant_id == m.id).order_by(Ressource.name)).all()
 
+    @app.patch("/ressourcen/{ressource_id}", response_model=RessourceAus, dependencies=[Depends(recht("verwalten"))])
+    def ressource_aendern(ressource_id: str, daten: RessourceAenderung, m: Mandant = Depends(mandant_kontext),
+                          s: Session = Depends(sitzung)):
+        r = holen(s, Ressource, ressource_id, m)
+        for feld, wert in daten.model_dump(exclude_unset=True).items():
+            if feld in ("arbeitsbeginn", "arbeitsende"):
+                wert = datetime.strptime(wert, "%H:%M").time()
+            setattr(r, feld, wert)
+        s.commit()
+        return r
+
     @app.get("/disposition/zeitfenster")
     def zeitfenster(dauer_minuten: int = 90, qualifikation: str | None = None, ab: datetime | None = None,
                     tage: int = Query(5, le=30), anzahl: int = Query(5, le=20),
@@ -427,8 +555,11 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
 
     @app.get("/termine", response_model=list[TerminAus])
     def termine(von: datetime | None = None, bis: datetime | None = None, ressource_id: str | None = None,
-                m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+                m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)):
         abfrage = select(Termin).where(Termin.mandant_id == m.id)
+        eigene = eigene_ressourcen(p, s, m)
+        if eigene is not None:
+            abfrage = abfrage.where(Termin.ressource_id.in_(eigene))
         if von:
             abfrage = abfrage.where(Termin.ende >= von)
         if bis:
@@ -463,8 +594,11 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
 
     @app.get("/servicefaelle", response_model=list[ServicefallAus])
     def servicefaelle(status: str | None = None, dringlichkeit: str | None = None, limit: int = Query(100, le=1000),
-                      m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+                      m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)):
         abfrage = select(Servicefall).where(Servicefall.mandant_id == m.id)
+        eigene = eigene_ressourcen(p, s, m)
+        if eigene is not None:
+            abfrage = abfrage.where(Servicefall.id.in_(select(Termin.servicefall_id).where(Termin.ressource_id.in_(eigene))))
         if status:
             abfrage = abfrage.where(Servicefall.status == status)
         if dringlichkeit:
@@ -472,8 +606,10 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         return s.scalars(abfrage.order_by(Servicefall.erstellt.desc()).limit(limit)).all()
 
     @app.get("/servicefaelle/{fall_id}")
-    def servicefall_lesen(fall_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+    def servicefall_lesen(fall_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                          p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
         f = holen(s, Servicefall, fall_id, m)
+        eigener_fall(p, s, m, f)
         ereignisse = s.scalars(select(Ereignis).where(Ereignis.entitaet_id == f.id).order_by(Ereignis.id)).all()
         return {"servicefall": ServicefallAus.model_validate(f),
                 "termine": [TerminAus.model_validate(t) for t in f.termine],
@@ -485,6 +621,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         if daten.ziel != "durchgefuehrt" and not p.darf("bearbeiten"):
             raise HTTPException(403, "Monteure melden nur „durchgeführt“; andere Statuswechsel macht das Büro")
         f = holen(s, Servicefall, fall_id, m)
+        eigener_fall(p, s, m, f)
         fachlich(lambda: domaene.uebergang(s, f, daten.ziel, "mensch", daten.grund, wer(p, daten.wer)))
         s.commit()
         return f
@@ -598,8 +735,89 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
 
     @app.get("/plantafel")
     def plantafel(tag: date | None = None, tage: int = Query(5, ge=1, le=14), m: Mandant = Depends(mandant_kontext),
-                  s: Session = Depends(sitzung)) -> dict[str, Any]:
-        return management.plantafel(s, m, tag or app.state.uhr().date(), tage)
+                  s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        return management.plantafel(s, m, tag or app.state.uhr().date(), tage, eigene_ressourcen(p, s, m))
+
+    # --- Betrieb: Stammdaten, Anbindungen, Rechnungen, Kanzlei ---------------------------------
+    @app.get("/betrieb")
+    def betrieb_lesen(m: Mandant = Depends(mandant_kontext)) -> dict[str, Any]:
+        return {"id": m.id, "name": m.name, "gewerk": m.gewerk, "policies": m.policies, "stammdaten": m.stammdaten,
+                "rechnungsnummer_zaehler": m.rechnungsnummer_zaehler}
+
+    @app.put("/betrieb/stammdaten", dependencies=[Depends(recht("verwalten"))])
+    def stammdaten_setzen(daten: Stammdaten, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        m.stammdaten = {**m.stammdaten, **daten.model_dump(exclude_none=True)}
+        s.commit()
+        return m.stammdaten
+
+    @app.get("/integrationen", dependencies=[Depends(recht("verwalten"))])
+    def integrationen(m: Mandant = Depends(mandant_kontext)) -> dict[str, Any]:
+        return {"ziele": {z: {"erlaubt": sorted(ERLAUBT[z]), **{k: (konfiguration_maskieren(v) if isinstance(v, dict) else v)
+                                                              for k, v in (m.integrationen.get(z) or {}).items()}} for z in ZIELE}}
+
+    @app.put("/integrationen/{ziel}", dependencies=[Depends(recht("verwalten"))])
+    def integration_setzen(ziel: str, daten: Integration, m: Mandant = Depends(mandant_kontext),
+                           s: Session = Depends(sitzung)) -> dict[str, Any]:
+        if ziel not in ZIELE:
+            raise HTTPException(404, "Unbekanntes Ziel")
+        bisher = m.integrationen.get(ziel) or {}
+        neu: dict[str, Any] = {"kanaele": daten.kanaele}
+        for typ in ("email", "sms", "webhook", "lexware", "sevdesk", "belegpaket"):
+            konfig = dict(getattr(daten, typ))
+            for feld in GEHEIME_FELDER:  # maskierte oder leere Geheimnisse behalten den gespeicherten Wert
+                if konfig.get(feld) in ("", "••••", None) and (bisher.get(typ) or {}).get(feld):
+                    konfig[feld] = bisher[typ][feld]
+            if konfig:
+                neu[typ] = konfiguration_verschluesseln(konfig)
+        if ziel == "kanzlei" and "email" in daten.kanaele and not neu.get("email", {}).get("kanzlei_email"):
+            neu.setdefault("email", {})["kanzlei_email"] = m.stammdaten.get("kanzlei_email", "")
+        fachlich(lambda: konfiguration_pruefen(ziel, neu))
+        m.integrationen = {**m.integrationen, ziel: neu}
+        s.commit()
+        return {"ziel": ziel, "kanaele": neu["kanaele"]}
+
+    @app.get("/rechnungen", response_model=list[RechnungAus], dependencies=[Depends(recht("finanzen"))])
+    def rechnungen(status: str | None = None, limit: int = Query(200, le=2000), m: Mandant = Depends(mandant_kontext),
+                   s: Session = Depends(sitzung)):
+        abfrage = select(Rechnung).where(Rechnung.mandant_id == m.id)
+        if status:
+            abfrage = abfrage.where(Rechnung.status == status)
+        return s.scalars(abfrage.order_by(Rechnung.datum.desc(), Rechnung.nummer.desc()).limit(limit)).all()
+
+    @app.get("/rechnungen/{rechnung_id}", response_model=RechnungAus, dependencies=[Depends(recht("finanzen"))])
+    def rechnung_lesen(rechnung_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        return holen(s, Rechnung, rechnung_id, m)
+
+    @app.get("/rechnungen/{rechnung_id}/pdf", dependencies=[Depends(recht("finanzen"))])
+    def rechnung_pdf_laden(rechnung_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> Response:
+        r = holen(s, Rechnung, rechnung_id, m)
+        return Response(rechnung_pdf(r, m), media_type="application/pdf",
+                        headers={"Content-Disposition": f'inline; filename="{r.nummer}.pdf"'})
+
+    @app.get("/rechnungen/{rechnung_id}/xrechnung", dependencies=[Depends(recht("finanzen"))])
+    def rechnung_xml(rechnung_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> Response:
+        r = holen(s, Rechnung, rechnung_id, m)
+        return Response(xrechnung(r, m), media_type="application/xml",
+                        headers={"Content-Disposition": f'attachment; filename="{r.nummer}.xml"'})
+
+    @app.post("/rechnungen/{rechnung_id}/storno", response_model=FreigabeAus, status_code=201)
+    def storno_beantragen(rechnung_id: str, daten: StornoAntrag, m: Mandant = Depends(mandant_kontext),
+                          s: Session = Depends(sitzung), p: Prinzipal = Depends(recht("bearbeiten"))):
+        r = holen(s, Rechnung, rechnung_id, m)
+        if r.art != "rechnung" or r.status == "storniert":
+            raise HTTPException(409, "Nur gestellte Rechnungen können storniert werden")
+        f = fachlich(lambda: domaene.aktion_beantragen(s, m, "storno", {"rechnung_id": r.id, "grund": daten.grund}, "mensch",
+                                                       r.servicefall_id, f"Storno {r.nummer}: {daten.grund}"))
+        s.commit()
+        return f
+
+    @app.post("/kanzlei/belegpaket", response_model=FreigabeAus, status_code=201)
+    def belegpaket_beantragen(daten: BelegpaketAntrag, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                              p: Prinzipal = Depends(recht("bearbeiten"))):
+        f = fachlich(lambda: domaene.aktion_beantragen(s, m, "belegversand_kanzlei", {"zeitraum": daten.zeitraum}, "mensch", None,
+                                                       f"Belegpaket {daten.zeitraum} an die Kanzlei"))
+        s.commit()
+        return f
 
     # --- Tool-API für den Voice-Agenten ------------------------------------------------------
     @app.post("/voice/kunde-suchen", dependencies=[Depends(recht("bearbeiten"))])

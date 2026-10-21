@@ -6,6 +6,8 @@
     python -m core demo                    Demo-Mandant anlegen und Referenzfluss einmal durchspielen
     python -m core worker [--intervall 5]  Outbox-Worker (Zustellung an Adapter, hier CSV-Degradierung)
     python -m core migrate [--ziel head]   Datenbankmigrationen (MIGRATION_DATABASE_URL, Eigentümerrolle)
+    python -m core schluessel              INTEGRATIONS_KEY für die Verschlüsselung von Zugangsdaten erzeugen
+    python -m core loeschlauf [--trocken]  Löschkonzept anwenden (Fristen je Mandant), täglich per cron
 
 Verbindungen in PostgreSQL: DATABASE_URL (shk_app, unterliegt Row-Level Security) für den Core,
 SYSTEM_DATABASE_URL (shk_system) für Worker, Seed und Mandantenverwaltung. Ohne
@@ -38,6 +40,9 @@ def main() -> None:
     worker = unter.add_parser("worker")
     worker.add_argument("--intervall", type=float, default=5.0)
     worker.add_argument("--csv-verzeichnis", type=Path, default=Path(os.environ.get("CSV_EXPORT", "export")))
+    unter.add_parser("schluessel")
+    lauf = unter.add_parser("loeschlauf")
+    lauf.add_argument("--trocken", action="store_true")
     migrate = unter.add_parser("migrate")
     migrate.add_argument("--ziel", default="head")
     args = parser.parse_args()
@@ -63,14 +68,28 @@ def main() -> None:
         print(json.dumps(referenzfluss(), indent=2, ensure_ascii=False, default=str))
     elif args.befehl == "migrate":
         migrieren(ziel=args.ziel)
-    elif args.befehl == "worker":
-        from core.zustellung import CsvAdapter, abarbeiten
+    elif args.befehl == "loeschlauf":
+        from sqlalchemy import select
+
+        from core.loeschung import loeschlauf
+        from core.modelle import Mandant
         db = system_datenbank()
         db.schema_anlegen()
-        adapter = {ziel: CsvAdapter(ziel, args.csv_verzeichnis) for ziel in ("fachsoftware", "endkunde", "finanz")}
+        with db.sitzungen() as s:
+            for m in s.scalars(select(Mandant)).all():
+                print(json.dumps({"mandant": m.name, **loeschlauf(s, m, trocken=args.trocken)}, ensure_ascii=False), flush=True)
+    elif args.befehl == "schluessel":
+        from core.geheimnisse import schluessel_erzeugen
+        print(schluessel_erzeugen())
+    elif args.befehl == "worker":
+        from core.adapter import Register
+        from core.zustellung import abarbeiten
+        db = system_datenbank()
+        db.schema_anlegen()
+        register = Register(args.csv_verzeichnis)
         while True:
             with db.sitzungen() as s:
-                ergebnis = abarbeiten(s, adapter)
+                ergebnis = abarbeiten(s, register)
             if any(ergebnis.values()):
                 print(json.dumps(ergebnis), flush=True)
             time.sleep(args.intervall)

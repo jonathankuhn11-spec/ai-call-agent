@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from core.modelle import Ereignis, Freigabe, Mandant, OutboxEintrag, Servicefall, Termin, jetzt
+from core.modelle import Ereignis, Freigabe, Mandant, OutboxEintrag, Rechnung, Servicefall, Termin, jetzt
 
 # Statusautomat des Servicefalls (Architektur: eingegangen → … → an Kanzlei übergeben)
 UEBERGAENGE: dict[str, set[str]] = {
@@ -149,6 +149,27 @@ def _ausfuehren(s: Session, f: Freigabe) -> None:
                          f"auftrag_anlegen:{p.get('servicefall_id', f.id)}")
     elif f.aktion == "nachricht_an_endkunde":
         outbox_schreiben(s, f.mandant_id, "endkunde", "nachricht", p, f"nachricht:{f.id}")
-    elif f.aktion in {"rechnung_erstellen", "storno", "belegversand_kanzlei"}:
-        outbox_schreiben(s, f.mandant_id, "finanz", f.aktion, p, f"{f.aktion}:{f.id}")
+    elif f.aktion == "rechnung_erstellen":
+        from core.rechnung import rechnung_erzeugen  # zyklischer Import vermieden
+
+        mandant = s.get(Mandant, f.mandant_id)
+        r = rechnung_erzeugen(s, mandant, p, jetzt().date())
+        protokollieren(s, f.mandant_id, "rechnung.gestellt", "rechnung", r.id, "system",
+                       {"nummer": r.nummer, "brutto": r.brutto, "freigabe_id": f.id})
+        outbox_schreiben(s, f.mandant_id, "finanz", "rechnung_uebermitteln", {"rechnung_id": r.id}, f"rechnung:{r.id}")
+        outbox_schreiben(s, f.mandant_id, "endkunde", "rechnung_zustellen", {"rechnung_id": r.id}, f"rechnung_zustellen:{r.id}")
+    elif f.aktion == "storno":
+        from core.rechnung import storno_erzeugen
+
+        mandant = s.get(Mandant, f.mandant_id)
+        original = s.get(Rechnung, p.get("rechnung_id", ""))
+        if original is None or original.mandant_id != f.mandant_id:
+            raise Domaenenfehler("Rechnung für Storno nicht gefunden")
+        st = storno_erzeugen(s, mandant, original, jetzt().date())
+        protokollieren(s, f.mandant_id, "rechnung.storniert", "rechnung", original.id, "system",
+                       {"storno": st.nummer, "grund": p.get("grund"), "freigabe_id": f.id})
+        outbox_schreiben(s, f.mandant_id, "finanz", "rechnung_uebermitteln", {"rechnung_id": st.id}, f"rechnung:{st.id}")
+        outbox_schreiben(s, f.mandant_id, "endkunde", "rechnung_zustellen", {"rechnung_id": st.id}, f"rechnung_zustellen:{st.id}")
+    elif f.aktion == "belegversand_kanzlei":
+        outbox_schreiben(s, f.mandant_id, "kanzlei", "belegpaket", p, f"belegpaket:{p.get('zeitraum', f.id)}")
     # Klasse A (kunde_anlegen, notiz_anlegen, termin_vorschlagen) wirkt bereits beim Anlegen

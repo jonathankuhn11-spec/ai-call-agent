@@ -24,8 +24,11 @@ from voice.werkzeuge import KernClient
 
 log = logging.getLogger("voice-agent")
 PROMPT = (Path(__file__).resolve().parent / "prompt.md").read_text(encoding="utf-8")
-BEGRUESSUNG = ("Guten Tag, hier ist der digitale Assistent von {betrieb}. Ich bin ein KI-System und helfe Ihnen, "
-               "einen Termin zu vereinbaren. Worum geht es?")
+# Erste Äußerung: KI-Offenlegung (Art. 50 KI-Verordnung) und Kurzinformation nach Art. 13 DSGVO,
+# Wortlaut abgestimmt mit recht/DATENSCHUTZHINWEIS-TELEFON.md.
+BEGRUESSUNG = ("Guten Tag, hier ist der digitale Assistent von {betrieb}, ein KI-System. Ich nehme Ihr Anliegen auf "
+               "und schlage Ihnen einen Termin vor. Ihre Angaben werden dafür in Text umgewandelt und gespeichert, "
+               "das Gespräch wird nicht aufgezeichnet. Wie kann ich helfen?")
 
 
 @dataclass

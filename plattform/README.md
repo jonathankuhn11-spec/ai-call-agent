@@ -82,7 +82,12 @@ Voice mit `--profile voice` (siehe [VOICE-AGENT.md](VOICE-AGENT.md)). Serverbetr
 | Status „durchgeführt“ melden | ✓ | ✓ | ✓ | |
 | Freigaben Klasse A/B | ✓ | ✓ | | |
 | Freigaben Klasse C (finanzwirksam) | ✓ | | | |
-| Monteure/Ressourcen verwalten | ✓ | | | |
+| Rechnungen lesen, PDF/XRechnung, Belegpaket | ✓ | ✓ | | ✓ |
+| Monteure/Ressourcen verwalten, Stammdaten, Anbindungen | ✓ | | | |
+
+Monteure mit Anmeldename (`Ressource.benutzer` = `preferred_username` aus Keycloak) sehen in Termine,
+Servicefälle und Plantafel nur die Einsätze ihrer eigenen Ressource; `GET /ich` meldet
+`eingeschraenkt: true` und die zugeordneten Ressourcen.
 
 Bei Personen stammt der Name im Event-Log aus dem Token; eine Angabe `wer` in der Anfrage wird
 ignoriert. In PostgreSQL erzwingt zusätzlich Row-Level Security die Mandantentrennung
@@ -104,7 +109,10 @@ Fachendpunkte verlangen einen Mandantenkontext: bei Maschinen `X-Mandant`, bei P
 | Betrieb | `GET /outbox?status=tot` (Dead-Letter), `GET /ereignisse` |
 | Digital Twin | `GET /twin/betrieb`, `GET /twin/anlagen/{id}` |
 | Ontologie | `GET /ontologie/tbox`, `GET /ontologie/export?mit_tbox=true` (text/turtle), `POST /ontologie/sparql` (nur SELECT/ASK) |
-| Management | `POST /wartung/planen`, `GET /kennzahlen`, `GET /plantafel`, `GET/POST /mandanten` |
+| Management | `POST /wartung/planen`, `GET /kennzahlen`, `GET /plantafel`, `GET/POST /mandanten`, `PATCH /ressourcen/{id}` |
+| Finanzen | `GET /rechnungen`, `GET /rechnungen/{id}` (+ `/pdf`, `/xrechnung`), `POST /rechnungen/{id}/storno`, `POST /kanzlei/belegpaket` (Rechnung und Storno entstehen über Freigaben Klasse C) |
+| Betrieb/Einstellungen | `GET /betrieb`, `PUT /betrieb/stammdaten`, `GET /integrationen` (maskiert), `PUT /integrationen/{ziel}` (Ziele `fachsoftware`, `endkunde`, `finanz`, `kanzlei`) |
+| Datenschutz | `GET /kunden/{id}/auskunft` (Art. 15), `POST /kunden/{id}/loeschen` (Art. 17, Sperrfristen), `POST /loeschlauf?trocken=true` |
 | Anmeldung | `GET /auth/konfiguration` (öffentlich), `GET /ich` (Name, Rollen, Rechte) |
 | Voice-Tools | `POST /voice/kunde-suchen`, `/voice/zeitfenster`, `/voice/servicefall`, `/voice/gespraech-beendet` |
 
@@ -134,10 +142,23 @@ arbeitet mandantenübergreifend. Manuell: Browser-Anmeldung gegen Keycloak 26.0.
 mitgelieferten Realm, Oberfläche hinter Caddy mit Produktions-CSP. In CI zusätzlich: Docker-Build,
 Import des Voice-Agenten, `docker compose config`, `caddy validate`.
 
-Nicht getestet bzw. offen:
-- echter Anruf über SIP (braucht Carrier-Trunk, Server mit öffentlicher IP, STT/TTS-Schlüssel)
-- Erstausrollung auf einem echten Server (cloud-init, Let's Encrypt, GHCR), Backup im Containerbetrieb
-- Fachsoftware-Adapter (openHandwerk, pds …): abhängig von der API-Klärung, bis dahin CSV-Degradierung
+Zusätzlich getestet: Rechnungsnummern, XRechnung 3.0 (UBL, Pflichtfelder), PDF, Storno, Adapter
+Lexware/sevDesk/E-Mail/SMS/Webhook mit Attrappen, DATEV-Buchungsstapel im Belegpaket, verschlüsselte
+Zugangsdaten, Löschlauf mit Fristen und Sperrfristen, Auskunft, Sichtbarkeit der Monteure.
+
+Zustellung und Anbindungen (`core/adapter/`): je Mandant und Ziel wählbar unter „Einstellungen“;
+ohne Konfiguration CSV-Degradierung (`fachsoftware`, `finanz`) bzw. Büro-Aufgabe „ohne Kanal“
+(`endkunde`). Zugangsdaten liegen mit `INTEGRATIONS_KEY` verschlüsselt in der Datenbank.
+Fachsoftware-Adapter für openHandwerk, pds u. a. folgen nach API-Klärung über denselben Mechanismus
+(`Webhook` als generischer Übergang).
+
+Rechtliche Unterlagen für den Pilot (Entwürfe, juristisch prüfen lassen): `recht/` mit AVV, TOM, VVT,
+Löschkonzept (deckungsgleich mit `core/loeschung.py`) und Datenschutzhinweis für das Telefon.
+
+Bereitgestellt, aber nur mit Konten des Betreibers ausführbar:
+- echter Anruf über SIP: TELEFONIE.md, `deploy/livekit/trunk-anlegen.sh`, `python -m voice.probe`
+- Erstausrollung: HOSTING.md, `deploy/server/einrichten.sh` (erzeugt `.env`, rollt aus, legt Mandant an)
+- eigenes Repository: `deploy/repo-abspalten.sh` (git subtree split, Workflows angepasst)
 - Finanzanbindung (Lexware Office, sevDesk, DATEV, XRechnung über Mustang Project)
 - Zuordnung Monteur zu Ressource (Monteure sehen derzeit alle Einsätze des Mandanten)
 - AVV, TOMs, Löschkonzept: rechtliche Unterlagen vor dem ersten Pilotkunden

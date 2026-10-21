@@ -35,6 +35,13 @@ class Mandant(Basis):
     # Fahrzeitpuffer vor und nach Terminen, Schrittweite der Zeitfenster
     puffer_minuten: Mapped[int] = mapped_column(Integer, default=30)
     raster_minuten: Mapped[int] = mapped_column(Integer, default=30)
+    # Betriebsstammdaten für Rechnungen und Schreiben: strasse, plz, ort, telefon, email, ust_id,
+    # steuernummer, iban, bic, bank, inhaber, zahlungsziel_tage, kleinunternehmer (§ 19 UStG)
+    stammdaten: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    # Anbindungen je Ziel (fachsoftware, endkunde, finanz, kanzlei): {"typ": "lexware", "api_key": "enc:…"}
+    # Geheimnisse liegen verschlüsselt (core.geheimnisse), nie im Klartext in der Datenbank
+    integrationen: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    rechnungsnummer_zaehler: Mapped[int] = mapped_column(Integer, default=0)
     erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
 
 
@@ -99,6 +106,8 @@ class Ressource(_Mandantenbezug, Basis):
     arbeitsbeginn: Mapped[time] = mapped_column(Time, default=time(7, 30))
     arbeitsende: Mapped[time] = mapped_column(Time, default=time(16, 30))
     aktiv: Mapped[bool] = mapped_column(default=True)
+    # Anmeldename (preferred_username) des Monteurs in Keycloak; damit sieht er nur seine eigenen Einsätze
+    benutzer: Mapped[str | None] = mapped_column(String(100), index=True)
 
 
 class Servicefall(_Mandantenbezug, Basis):
@@ -189,6 +198,32 @@ class OutboxEintrag(_Mandantenbezug, Basis):
     versuche: Mapped[int] = mapped_column(Integer, default=0)
     naechster_versuch: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
     letzter_fehler: Mapped[str | None] = mapped_column(Text)
+
+
+class Rechnung(_Mandantenbezug, Basis):
+    """Ausgangsrechnung oder Stornorechnung (GoBD: fortlaufende Nummer, unveränderlich nach Stellung)."""
+    __tablename__ = "rechnung"
+    __table_args__ = (UniqueConstraint("mandant_id", "nummer"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    nummer: Mapped[str] = mapped_column(String(40))
+    kunde_id: Mapped[str] = mapped_column(String(32), ForeignKey("kunde.id"), index=True)
+    servicefall_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("servicefall.id"))
+    art: Mapped[str] = mapped_column(String(20), default="rechnung")  # rechnung, storno
+    storno_von_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("rechnung.id"))
+    datum: Mapped[date] = mapped_column(Date)
+    leistungsdatum: Mapped[date | None] = mapped_column(Date)
+    faellig: Mapped[date] = mapped_column(Date)
+    # [{"bezeichnung", "menge", "einheit", "einzelpreis_netto", "ust_satz"}], Beträge als Zeichenkette (Decimal)
+    positionen: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    netto: Mapped[str] = mapped_column(String(20))
+    umsatzsteuer: Mapped[str] = mapped_column(String(20))
+    brutto: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20), default="gestellt")  # gestellt, storniert, bezahlt
+    empfaenger: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # Anschrift zum Rechnungszeitpunkt
+    leitweg_id: Mapped[str | None] = mapped_column(String(60))  # nur B2G (XRechnung Pflichtfeld)
+    erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
+
+    kunde: Mapped[Kunde] = relationship()
 
 
 class ExternalRef(_Mandantenbezug, Basis):

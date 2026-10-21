@@ -10,4 +10,8 @@ alembic==1.20.0
 PyJWT[crypto]==2.15.1
 # Ontologie: Validierung des Turtle-Exports in den Tests, optional für SPARQL-Abfragen
 rdflib==7.6.0
+# Rechnungen als PDF (core/rechnung.py)
+reportlab==5.0.1
+# Tests: XRechnung-Prüfung (XML)
+lxml==6.1.3
 pytest==9.1.1

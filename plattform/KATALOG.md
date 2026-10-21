@@ -74,6 +74,11 @@ vorbereitet · `Referenz` = geprüfte Alternative für eine spätere Entscheidun
 | --- | --- | --- | --- | --- |
 | Mustang Project | Apache-2.0 | ZUGFeRD/Factur-X erzeugen und prüfen | Referenz | Finanzanbindung Stufe 1 |
 | KoSIT-Validator + XRechnung-Konfiguration | Apache-2.0 | Validierung XRechnung | Referenz | Pflichtprüfung vor Versand |
+| reportlab | BSD-3 | Rechnungs-PDF (`core/rechnung.py`) | Bibliothek | genügt für den Pilot; ZUGFeRD-Einbettung später über Mustang |
+| Lexware Office Public API | kommerziell | Kunden und Rechnungen anlegen | `core/adapter/lexware.py` | Partner-API-Key des Betriebs; Rechnungen werden als Entwurf angelegt |
+| sevDesk API v1 | kommerziell | Kunden und Rechnungen anlegen | `core/adapter/sevdesk.py` | API-Token des Betriebs |
+| DATEV-Format EXTF (Buchungsstapel) | Spezifikation | Belegpaket für die Kanzlei | `core/adapter/belegpaket.py` | Textformat cp1252, ohne DATEV-Schnittstellenvertrag nutzbar (Import durch die Kanzlei) |
+| seven.io | kommerziell | SMS-Versand | `core/adapter/sms.py` | deutscher Anbieter, AVV; nur mit dokumentierter Einwilligung |
 
 ## Bezug zu bestehenden eigenen Repositories
 

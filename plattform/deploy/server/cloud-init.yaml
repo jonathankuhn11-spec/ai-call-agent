@@ -43,6 +43,7 @@ write_files:
     content: |
       SHELL=/bin/sh
       15 2 * * * shk /opt/shk/plattform/deploy/server/backup.sh >> /var/log/shk-backup.log 2>&1
+      45 2 * * * shk cd /opt/shk/plattform && docker compose -f docker-compose.yml -f deploy/server/docker-compose.prod.yml run --rm worker python -m core loeschlauf >> /var/log/shk-loeschlauf.log 2>&1
 
 runcmd:
   # Docker Engine aus dem offiziellen Repository
@@ -64,7 +65,7 @@ runcmd:
   - ufw allow 10000:20000/udp
   - ufw --force enable
   - install -d -o shk -g shk /opt/shk /var/backups/shk
-  - touch /var/log/shk-backup.log && chown shk /var/log/shk-backup.log
+  - touch /var/log/shk-backup.log /var/log/shk-loeschlauf.log && chown shk /var/log/shk-backup.log /var/log/shk-loeschlauf.log
   - git clone https://github.com/jonathankuhn11-spec/ai-call-agent.git /opt/shk && chown -R shk:shk /opt/shk
   - systemctl enable --now fail2ban
   - systemctl restart ssh

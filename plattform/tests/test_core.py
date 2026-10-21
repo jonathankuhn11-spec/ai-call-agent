@@ -112,7 +112,7 @@ def test_outbox_idempotent_und_dead_letter(umgebung):
     class Kaputt:
         name = "fachsoftware"
 
-        def zustellen(self, eintrag):
+        def zustellen(self, eintrag, s=None):
             raise ConnectionError("Zielsystem nicht erreichbar")
 
     with db.sitzungen() as s:

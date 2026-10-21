@@ -35,6 +35,7 @@ RECHTE: dict[str, frozenset[str]] = {
     "bearbeiten": frozenset({"inhaber", "buero"}),
     "freigeben": frozenset({"inhaber", "buero"}),
     "freigeben_c": frozenset({"inhaber"}),
+    "finanzen": frozenset({"inhaber", "buero", "steuerberater"}),
     "verwalten": frozenset({"inhaber"}),
     "plattform": frozenset(),  # nur Maschinen: Mandanten anlegen
 }

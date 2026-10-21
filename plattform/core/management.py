@@ -94,11 +94,14 @@ def kennzahlen(s: Session, mandant: Mandant, jetzt_: datetime, tage: int = 30) -
     }
 
 
-def plantafel(s: Session, mandant: Mandant, tag: date, tage: int = 5) -> dict[str, Any]:
+def plantafel(s: Session, mandant: Mandant, tag: date, tage: int = 5, nur_ressourcen: list[str] | None = None) -> dict[str, Any]:
     beginn = datetime.combine(tag, datetime.min.time(), ZEITZONE)
     ende = beginn + timedelta(days=tage)
     zeilen = []
-    for r in s.scalars(select(Ressource).where(Ressource.mandant_id == mandant.id, Ressource.aktiv).order_by(Ressource.name)):
+    abfrage = select(Ressource).where(Ressource.mandant_id == mandant.id, Ressource.aktiv).order_by(Ressource.name)
+    if nur_ressourcen is not None:
+        abfrage = abfrage.where(Ressource.id.in_(nur_ressourcen))
+    for r in s.scalars(abfrage):
         termine = s.scalars(select(Termin).where(Termin.ressource_id == r.id, Termin.status != "abgesagt",
                                                  Termin.beginn >= als_utc(beginn), Termin.beginn < als_utc(ende))
                             .order_by(Termin.beginn)).all()

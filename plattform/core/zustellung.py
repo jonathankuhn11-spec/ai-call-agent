@@ -12,7 +12,7 @@ import csv
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Protocol
+from typing import Callable, Protocol
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -27,7 +27,11 @@ BASIS_WARTEZEIT = timedelta(seconds=30)
 class Adapter(Protocol):
     name: str
 
-    def zustellen(self, eintrag: OutboxEintrag) -> str | None: ...
+    def zustellen(self, eintrag: OutboxEintrag, s: Session) -> str | None: ...
+
+
+# Entweder feste Zuordnung Ziel -> Adapter (Tests, Demo) oder Auflösung je Nachricht (core.adapter.Register)
+Zuordnung = dict[str, Adapter] | Callable[[Session, OutboxEintrag], Adapter]
 
 
 class ProtokollAdapter:
@@ -36,7 +40,7 @@ class ProtokollAdapter:
     def __init__(self, name: str):
         self.name, self.zugestellt = name, []
 
-    def zustellen(self, eintrag: OutboxEintrag) -> str | None:
+    def zustellen(self, eintrag: OutboxEintrag, s: Session | None = None) -> str | None:
         self.zugestellt.append((eintrag.aktion, eintrag.payload))
         return f"{self.name}-{eintrag.id}"
 
@@ -47,7 +51,7 @@ class CsvAdapter:
     def __init__(self, name: str, verzeichnis: Path):
         self.name, self.verzeichnis = name, verzeichnis
 
-    def zustellen(self, eintrag: OutboxEintrag) -> str | None:
+    def zustellen(self, eintrag: OutboxEintrag, s: Session | None = None) -> str | None:
         self.verzeichnis.mkdir(parents=True, exist_ok=True)
         datei = self.verzeichnis / f"{eintrag.mandant_id}_{eintrag.aktion}.csv"
         neu = not datei.exists()
@@ -59,20 +63,20 @@ class CsvAdapter:
         return None
 
 
-def abarbeiten(s: Session, adapter: dict[str, Adapter], zeitpunkt: datetime | None = None, limit: int = 100) -> dict[str, int]:
+def abarbeiten(s: Session, adapter: Zuordnung, zeitpunkt: datetime | None = None, limit: int = 100) -> dict[str, int]:
     zeitpunkt = zeitpunkt or jetzt()
-    zaehler = {"zugestellt": 0, "wiederholung": 0, "tot": 0, "ohne_adapter": 0}
+    zaehler = {"zugestellt": 0, "wiederholung": 0, "tot": 0, "ohne_adapter": 0, "ohne_kanal": 0}
     faellig = s.scalars(select(OutboxEintrag).where(OutboxEintrag.status == "ausstehend")
                         .order_by(OutboxEintrag.id).limit(limit)).all()
     for e in faellig:
         if als_utc(e.naechster_versuch) > als_utc(zeitpunkt):
             continue
-        a = adapter.get(e.ziel)
-        if a is None:
-            zaehler["ohne_adapter"] += 1
-            continue
         try:
-            externe_id = a.zustellen(e)
+            a = adapter.get(e.ziel) if isinstance(adapter, dict) else adapter(s, e)
+            if a is None:
+                zaehler["ohne_adapter"] += 1
+                continue
+            externe_id = a.zustellen(e, s)
         except Exception as fehler:  # noqa: BLE001  Adapterfehler jeder Art führen zur Wiederholung
             e.versuche += 1
             e.letzter_fehler = f"{type(fehler).__name__}: {fehler}"
@@ -85,8 +89,15 @@ def abarbeiten(s: Session, adapter: dict[str, Adapter], zeitpunkt: datetime | No
                 e.naechster_versuch = als_utc(zeitpunkt) + BASIS_WARTEZEIT * (2 ** (e.versuche - 1))
                 zaehler["wiederholung"] += 1
             continue
-        e.status = "zugestellt"
         e.versuche += 1
+        if externe_id is None and e.ziel == "endkunde":
+            # kein erreichbarer Kanal (keine E-Mail, keine SMS-Einwilligung): Büro-Aufgabe statt stiller Verlust
+            e.status = "ohne_kanal"
+            zaehler["ohne_kanal"] += 1
+            protokollieren(s, e.mandant_id, "outbox.ohne_kanal", "outbox", str(e.id), "system",
+                           {"aktion": e.aktion, "hinweis": "Kunde telefonisch oder per Post informieren"})
+            continue
+        e.status = "zugestellt"
         zaehler["zugestellt"] += 1
         if externe_id and "termin_id" in e.payload:
             _referenz_merken(s, e.mandant_id, "termin", e.payload["termin_id"], a.name, externe_id)
