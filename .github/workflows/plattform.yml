@@ -74,7 +74,7 @@ jobs:
         env:
           CORE_MANDANT: ci
         run: |
-          python -c "import voice.agent as a; names = sorted(t.info.name for t in a.Assistenz('CI').tools); print(names); assert names == ['kunde_suchen', 'rueckruf_vormerken', 'servicefall_anlegen', 'zeitfenster_abfragen']"
+          python -c "import voice.agent as a; names = sorted(t.info.name for t in a.Assistenz('CI').tools); print(names); assert names == ['kunde_suchen', 'notdienst_erfragen', 'rueckruf_vormerken', 'servicefall_anlegen', 'zeitfenster_abfragen']"
 
   docker:
     runs-on: ubuntu-latest
