@@ -34,6 +34,10 @@ und wird je Lauf im Ereignisprotokoll nachgewiesen (`loeschung.lauf`).
 | Server-Logs (Caddy, Anwendung) | Eintrag | 5 Dateien à 20 MB (Rotation), in der Regel unter 30 Tagen | Rotation | `docker-compose.prod.yml` |
 | Sicherungen | Erstellung | 14 Tage lokal; außer Haus 14 täglich / 8 wöchentlich / 12 monatlich | Ablauf | `backup.sh` |
 | Mandant nach Vertragsende | Übergabe des Exports | 6 Wochen, spätestens 3 Monate | vollständig inkl. Sicherungen (AVV Ziffer 9) | manuell, Protokoll |
+| Eingangsbelege (Rechnungen, Lieferscheine, Quittungen) mit Datei | Belegdatum | 10 Jahre (§ 147 AO, § 14b UStG) | vollständig inkl. Datei | `beleg_tage` |
+| Zeiteinträge ohne Vorgangsbezug | Beginn | 2 Jahre (§ 16 Abs. 2 ArbZG) | vollständig | `zeit_tage`; mit Vorgang: mit dem Vorgang |
+| Rapporte, Fotos, Unterschriften am Vorgang | Abschluss des Vorgangs | mit dem Vorgang (3 Jahre bzw. 10 Jahre mit Rechnung) | vollständig | `_vorgangsanhang_loeschen` |
+| Dokumente und Fotos am Kunden oder Objekt | Löschung des Kunden | mit dem Kundendatensatz | vollständig | `kunde_loeschen` |
 
 Hinweis zur Frist für Buchungsbelege: Das Vierte Bürokratieentlastungsgesetz verkürzt die Frist für
 Buchungsbelege ab 2025 auf 8 Jahre; Rechnungen nach § 14b UStG bleiben bei 10 Jahren. Die Plattform
@@ -64,6 +68,8 @@ Anfragen gehen an den Betrieb als Verantwortlichen; der Anbieter unterstützt (A
 ## 5 Offene Punkte
 
 - Oberfläche für Aufbewahrungsfristen und für Auskunft/Löschung im Kundendatensatz (derzeit API).
+- Unterschriften auf Rapporten sind biometrienah; sie werden als einfaches Bild ohne Druck- oder
+  Zeitdaten gespeichert und nur mit dem Rapport gelöscht. Hinweis im Datenschutzhinweis ergänzen.
 - Löschung in Sicherungen vor Fristablauf ist technisch nicht vorgesehen; der Betrieb wird im AVV
   darauf hingewiesen (üblich und zulässig bei kurzen Aufbewahrungsschemata).
 - Audioaufzeichnung ist nicht implementiert; falls sie je eingeführt wird, braucht es Einwilligung

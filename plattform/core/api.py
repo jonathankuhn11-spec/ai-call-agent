@@ -12,21 +12,23 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+import base64
+
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from core import domaene, loeschung, management, twin
+from core import belege, domaene, einsatz, loeschung, management, twin
 from core.auth import Abgewiesen, Authentifizierung, Prinzipal
 from core.db import Datenbank, mandant_binden
 from core.disposition import freie_zeitfenster, kollidiert
 from core.adapter import ERLAUBT, ZIELE, konfiguration_pruefen
 from core.geheimnisse import GEHEIME_FELDER, konfiguration_maskieren, konfiguration_verschluesseln
-from core.modelle import (Anlage, Ereignis, Freigabe, Kommunikation, Kunde, Mandant, Objekt, OutboxEintrag, Rechnung,
-                          Ressource, Servicefall, Termin)
+from core.modelle import (Anhang, Anlage, Beleg, Bereitschaft, Ereignis, Freigabe, Frist, Kommunikation, Kunde, Mandant,
+                          Objekt, OutboxEintrag, Rapport, Rechnung, Ressource, Servicefall, Termin, Zeiteintrag)
 from core.ontologie import ANLAGENTYPEN, TBOX, anlagentyp, exportieren
 from core.regeln import dringlichkeit_bewerten, qualifikation_fuer, telefon_normalisieren
 from core.rechnung import pdf as rechnung_pdf
@@ -259,6 +261,10 @@ class Stammdaten(_Schema):
     datev_beraternummer: str | None = None
     datev_mandantennummer: str | None = None
     kanzlei_email: str | None = None
+    # Nachkalkulation (core/einsatz.py): interne Kosten und Verrechnungssatz je Stunde, Aufschlag auf Materialnetto
+    stundensatz_kosten: float = Field(55, ge=0, le=500)
+    stundensatz_verrechnung: float = Field(69, ge=0, le=500)
+    materialaufschlag_prozent: float = Field(15, ge=0, le=200)
 
 
 class Integration(_Schema):
@@ -296,6 +302,148 @@ class StornoAntrag(_Schema):
 
 class BelegpaketAntrag(_Schema):
     zeitraum: str = Field(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+
+
+class AnhangAus(_Schema):
+    id: str
+    bezug_typ: str
+    bezug_id: str
+    art: str
+    name: str
+    mime: str
+    groesse: int
+    notiz: str | None
+    hochgeladen_von: str | None
+    hochgeladen: datetime
+
+
+class BelegAus(_Schema):
+    id: str
+    lieferant: str
+    nummer: str | None
+    datum: date
+    faellig: date | None
+    netto: str
+    umsatzsteuer: str
+    brutto: str
+    ust_satz: str
+    skonto_prozent: str | None
+    skonto_bis: date | None
+    positionen: list[dict[str, Any]]
+    kategorie: str
+    servicefall_id: str | None
+    anhang_id: str | None
+    quelle: str
+    erkennung: dict[str, Any]
+    status: str
+    notiz: str | None
+    geprueft_von: str | None
+    erstellt: datetime
+
+
+class BelegAenderung(_Schema):
+    lieferant: str | None = None
+    nummer: str | None = None
+    datum: date | None = None
+    faellig: date | None = None
+    netto: str | None = None
+    umsatzsteuer: str | None = None
+    brutto: str | None = None
+    ust_satz: Literal["19", "7", "0"] | None = None
+    skonto_prozent: str | None = None
+    skonto_bis: date | None = None
+    kategorie: Literal["material", "fremdleistung", "fahrzeug", "sonstiges"] | None = None
+    servicefall_id: str | None = None
+    status: Literal["erfasst", "geprueft", "bezahlt"] | None = None
+    notiz: str | None = None
+
+
+class ZeitStart(_Schema):
+    art: Literal["arbeit", "fahrt", "pause", "bereitschaft"] = "arbeit"
+    servicefall_id: str | None = None
+    ressource_id: str | None = None  # nur Büro; Monteure buchen auf ihre eigene Ressource
+    notiz: str | None = None
+
+
+class ZeitNeu(ZeitStart):
+    beginn: datetime
+    ende: datetime
+
+
+class ZeitAus(_Schema):
+    id: str
+    ressource_id: str
+    servicefall_id: str | None
+    art: str
+    beginn: datetime
+    ende: datetime | None
+    notiz: str | None
+    quelle: str
+    minuten: int = 0
+
+
+class RapportNeu(_Schema):
+    taetigkeiten: str = Field(..., min_length=3)
+    material: list[dict[str, Any]] = []
+    arbeitszeit_minuten: int = Field(0, ge=0, le=1440)
+    fahrzeit_minuten: int = Field(0, ge=0, le=1440)
+    ergebnis: Literal["erledigt", "nacharbeit", "ersatzteil", "abgebrochen"] = "erledigt"
+    hinweise_kunde: str | None = None
+    messwerte: dict[str, Any] = {}
+    termin_id: str | None = None
+    ressource_id: str | None = None  # nur Büro
+    unterschrift: str | None = Field(None, description="PNG als data:image/png;base64,…")
+    unterzeichnet_von: str | None = None
+
+
+class RapportAus(_Schema):
+    id: str
+    servicefall_id: str
+    termin_id: str | None
+    ressource_id: str
+    nummer: str
+    taetigkeiten: str
+    material: list[dict[str, Any]]
+    arbeitszeit_minuten: int
+    fahrzeit_minuten: int
+    ergebnis: str
+    hinweise_kunde: str | None
+    messwerte: dict[str, Any]
+    unterschrift_anhang_id: str | None
+    unterzeichnet_von: str | None
+    unterzeichnet_am: datetime | None
+    erstellt: datetime
+
+
+class BereitschaftNeu(_Schema):
+    ressource_id: str
+    von: datetime
+    bis: datetime
+    telefon: str
+    notiz: str | None = None
+
+
+class BereitschaftAus(BereitschaftNeu):
+    id: str
+
+
+class FristNeu(_Schema):
+    bezug_typ: Literal["betrieb", "ressource", "anlage", "fahrzeug"] = "betrieb"
+    bezug_id: str | None = None
+    art: Literal["pruefung", "unterweisung", "zertifikat", "garantie", "vertrag", "sonstiges"]
+    bezeichnung: str = Field(..., min_length=2)
+    faellig: date
+    intervall_monate: int | None = Field(None, ge=1, le=120)
+    hinweis: str | None = None
+
+
+class FristAus(FristNeu):
+    id: str
+    erledigt_am: date | None
+
+
+class FristErledigt(_Schema):
+    am: date | None = None
 
 
 class VoiceGespraechBeendet(_Schema):
@@ -819,6 +967,357 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         s.commit()
         return f
 
+    # --- Einsatz: Anhänge, Zeiten, Rapport, Kalkulation ---------------------------------------
+    def eigene_ressource(p: Prinzipal, s: Session, m: Mandant, angegeben: str | None) -> Ressource:
+        """Monteure arbeiten auf ihrer eigenen Ressource; Büro und Maschinen geben die Ressource an."""
+        eigene = eigene_ressourcen(p, s, m)
+        if eigene is not None:
+            if not eigene:
+                raise HTTPException(409, "Ihrem Konto ist keine Monteur-Ressource zugeordnet")
+            if angegeben and angegeben not in eigene:
+                raise HTTPException(403, "Monteure buchen nur auf die eigene Ressource")
+            return holen(s, Ressource, angegeben or eigene[0], m)
+        if not angegeben:
+            raise HTTPException(422, "ressource_id fehlt")
+        return holen(s, Ressource, angegeben, m)
+
+    BEZUEGE = {"servicefall": Servicefall, "kunde": Kunde, "objekt": Objekt, "anlage": Anlage, "beleg": Beleg, "rapport": Rapport}
+
+    def bezug_pruefen(s: Session, m: Mandant, p: Prinzipal, bezug_typ: str, bezug_id: str):
+        if bezug_typ == "betrieb":
+            if bezug_id != m.id:
+                raise HTTPException(404, "Betrieb nicht gefunden")
+            return
+        if bezug_typ not in BEZUEGE:
+            raise HTTPException(422, f"bezug_typ {bezug_typ!r} unbekannt")
+        obj = holen(s, BEZUEGE[bezug_typ], bezug_id, m)
+        if bezug_typ == "servicefall":
+            eigener_fall(p, s, m, obj)
+
+    @app.post("/anhaenge", response_model=AnhangAus, status_code=201)
+    async def anhang_hochladen(datei: UploadFile = File(...), bezug_typ: str = Form(...), bezug_id: str = Form(...),
+                               art: Literal["foto", "dokument", "beleg", "unterschrift"] = Form("dokument"),
+                               notiz: str | None = Form(None), m: Mandant = Depends(mandant_kontext),
+                               s: Session = Depends(sitzung), p: Prinzipal = Depends(recht("einsatz"))):
+        bezug_pruefen(s, m, p, bezug_typ, bezug_id)
+        inhalt = await datei.read()
+        a = fachlich(lambda: einsatz.anhang_anlegen(s, m, bezug_typ, bezug_id, art, datei.filename or "datei",
+                                                    datei.content_type or "application/octet-stream", inhalt, p.name, notiz))
+        s.commit()
+        return a
+
+    @app.get("/anhaenge", response_model=list[AnhangAus])
+    def anhaenge_listen(bezug_typ: str, bezug_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                        p: Prinzipal = Depends(prinzipal)):
+        bezug_pruefen(s, m, p, bezug_typ, bezug_id)
+        return einsatz.anhaenge(s, m, bezug_typ, bezug_id)
+
+    @app.get("/anhaenge/{anhang_id}/inhalt")
+    def anhang_inhalt(anhang_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                      p: Prinzipal = Depends(prinzipal)) -> Response:
+        a = holen(s, Anhang, anhang_id, m)
+        bezug_pruefen(s, m, p, a.bezug_typ, a.bezug_id)
+        return Response(a.inhalt, media_type=a.mime, headers={"Content-Disposition": f'inline; filename="{a.name}"',
+                                                             "Cache-Control": "private, max-age=3600"})
+
+    @app.delete("/anhaenge/{anhang_id}", status_code=204, dependencies=[Depends(recht("bearbeiten"))])
+    def anhang_loeschen(anhang_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        a = holen(s, Anhang, anhang_id, m)
+        if a.art == "unterschrift":
+            raise HTTPException(409, "Unterschriften sind Teil des Rapports und werden nicht einzeln gelöscht")
+        s.delete(a)
+        s.commit()
+        return Response(status_code=204)
+
+    def zeit_aus(z: Zeiteintrag) -> dict[str, Any]:
+        return {**ZeitAus.model_validate(z).model_dump(), "minuten": einsatz.minuten(z, app.state.uhr())}
+
+    @app.post("/zeiten/start", status_code=201)
+    def zeit_starten(daten: ZeitStart, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                     p: Prinzipal = Depends(recht("einsatz"))) -> dict[str, Any]:
+        r = eigene_ressource(p, s, m, daten.ressource_id)
+        if daten.servicefall_id:
+            eigener_fall(p, s, m, holen(s, Servicefall, daten.servicefall_id, m))
+        z = fachlich(lambda: einsatz.zeit_starten(s, m, r, daten.art, app.state.uhr(), daten.servicefall_id, daten.notiz, p.name))
+        s.commit()
+        return zeit_aus(z)
+
+    @app.post("/zeiten/{zeit_id}/stop")
+    def zeit_beenden(zeit_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                     p: Prinzipal = Depends(recht("einsatz"))) -> dict[str, Any]:
+        z = holen(s, Zeiteintrag, zeit_id, m)
+        eigene_ressource(p, s, m, z.ressource_id)
+        fachlich(lambda: einsatz.zeit_beenden(s, z, app.state.uhr()))
+        s.commit()
+        return zeit_aus(z)
+
+    @app.post("/zeiten", status_code=201)
+    def zeit_nachtragen(daten: ZeitNeu, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                        p: Prinzipal = Depends(recht("einsatz"))) -> dict[str, Any]:
+        r = eigene_ressource(p, s, m, daten.ressource_id)
+        if daten.ende <= daten.beginn:
+            raise HTTPException(422, "Ende liegt vor dem Beginn")
+        if daten.servicefall_id:
+            holen(s, Servicefall, daten.servicefall_id, m)
+        z = Zeiteintrag(mandant_id=m.id, ressource_id=r.id, servicefall_id=daten.servicefall_id, art=daten.art, beginn=daten.beginn,
+                        ende=daten.ende, notiz=daten.notiz, quelle="manuell")
+        s.add(z)
+        s.flush()
+        domaene.protokollieren(s, m.id, "zeit.nachgetragen", "zeiteintrag", z.id, "mensch", {"art": z.art, "ressource_id": r.id}, p.name)
+        s.commit()
+        return zeit_aus(z)
+
+    @app.get("/zeiten")
+    def zeiten(von: datetime | None = None, bis: datetime | None = None, ressource_id: str | None = None,
+               servicefall_id: str | None = None, laufend: bool = False, m: Mandant = Depends(mandant_kontext),
+               s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> list[dict[str, Any]]:
+        abfrage = select(Zeiteintrag).where(Zeiteintrag.mandant_id == m.id)
+        eigene = eigene_ressourcen(p, s, m)
+        if eigene is not None:
+            abfrage = abfrage.where(Zeiteintrag.ressource_id.in_(eigene))
+        if ressource_id:
+            abfrage = abfrage.where(Zeiteintrag.ressource_id == ressource_id)
+        if servicefall_id:
+            abfrage = abfrage.where(Zeiteintrag.servicefall_id == servicefall_id)
+        if laufend:
+            abfrage = abfrage.where(Zeiteintrag.ende.is_(None))
+        if von:
+            abfrage = abfrage.where(Zeiteintrag.beginn >= von)
+        if bis:
+            abfrage = abfrage.where(Zeiteintrag.beginn < bis)
+        return [zeit_aus(z) for z in s.scalars(abfrage.order_by(Zeiteintrag.beginn.desc()).limit(500))]
+
+    @app.get("/zeiten/lohnexport", dependencies=[Depends(recht("verwalten"))])
+    def lohnexport(monat: str = Query(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$"), m: Mandant = Depends(mandant_kontext),
+                   s: Session = Depends(sitzung)) -> Response:
+        jahr, mon = (int(x) for x in monat.split("-"))
+        return Response(einsatz.lohnexport(s, m, jahr, mon), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="lohnvorbereitung_{monat}.csv"'})
+
+    @app.get("/einsatz/heute")
+    def einsatz_heute(ressource_id: str | None = None, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                      p: Prinzipal = Depends(recht("einsatz"))) -> dict[str, Any]:
+        """Tagesansicht des Monteurs: Termine, laufende Zeit, Bereitschaft."""
+        eigene = eigene_ressourcen(p, s, m)
+        if eigene is not None and not eigene:
+            return {"ressource": None, "termine": [], "laufend": None, "bereitschaft": None}
+        r = eigene_ressource(p, s, m, ressource_id) if (ressource_id or eigene is not None) else None
+        laufend = einsatz.laufender_eintrag(s, r.id) if r else None
+        b = einsatz.bereitschaft_aktuell(s, m, app.state.uhr())
+        return {"ressource": RessourceAus.model_validate(r).model_dump() if r else None,
+                "termine": einsatz.einsatz_heute(s, m, r, app.state.uhr()) if r else [],
+                "laufend": zeit_aus(laufend) if laufend else None,
+                "bereitschaft": ({"name": b.ressource.name.split(" (")[0], "telefon": b.telefon, "bis": b.bis} if b else None)}
+
+    @app.post("/servicefaelle/{fall_id}/rapport", response_model=RapportAus, status_code=201)
+    def rapport_anlegen(fall_id: str, daten: RapportNeu, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                        p: Prinzipal = Depends(recht("einsatz"))):
+        f = holen(s, Servicefall, fall_id, m)
+        eigener_fall(p, s, m, f)
+        r = eigene_ressource(p, s, m, daten.ressource_id or (f.termine[-1].ressource_id if f.termine and eigene_ressourcen(p, s, m) is None else None))
+        if daten.termin_id:
+            holen(s, Termin, daten.termin_id, m)
+        unterschrift = None
+        if daten.unterschrift:
+            kopf, _, b64 = daten.unterschrift.partition(",")
+            if not kopf.startswith("data:image/png"):
+                raise HTTPException(422, "Unterschrift muss ein PNG (data:image/png;base64,…) sein")
+            try:
+                unterschrift = base64.b64decode(b64, validate=True)
+            except ValueError as e:
+                raise HTTPException(422, "Unterschrift ist kein gültiges Base64") from e
+            if len(unterschrift) > 500_000:
+                raise HTTPException(422, "Unterschrift zu groß")
+        rapport = fachlich(lambda: einsatz.rapport_erzeugen(s, m, f, r, daten.model_dump(exclude={"unterschrift", "ressource_id"}),
+                                                            app.state.uhr(), unterschrift, p.name))
+        s.commit()
+        return rapport
+
+    @app.get("/servicefaelle/{fall_id}/rapporte", response_model=list[RapportAus])
+    def rapporte(fall_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)):
+        f = holen(s, Servicefall, fall_id, m)
+        eigener_fall(p, s, m, f)
+        return s.scalars(select(Rapport).where(Rapport.servicefall_id == f.id).order_by(Rapport.erstellt)).all()
+
+    @app.get("/rapporte/{rapport_id}/pdf")
+    def rapport_pdf(rapport_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> Response:
+        r = holen(s, Rapport, rapport_id, m)
+        eigener_fall(p, s, m, r.servicefall)
+        return Response(einsatz.rapport_pdf(s, r, m), media_type="application/pdf",
+                        headers={"Content-Disposition": f'inline; filename="{r.nummer}.pdf"'})
+
+    @app.get("/servicefaelle/{fall_id}/kalkulation", dependencies=[Depends(recht("finanzen"))])
+    def fall_kalkulation(fall_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        return einsatz.kalkulation(s, m, holen(s, Servicefall, fall_id, m))
+
+    # --- Belegeingang -------------------------------------------------------------------------
+    @app.post("/belege", response_model=BelegAus, status_code=201)
+    async def beleg_erfassen(datei: UploadFile | None = File(None), lieferant: str | None = Form(None), nummer: str | None = Form(None),
+                             datum: date | None = Form(None), brutto: str | None = Form(None), netto: str | None = Form(None),
+                             ust_satz: str | None = Form(None), kategorie: str = Form("material"), servicefall_id: str | None = Form(None),
+                             notiz: str | None = Form(None), m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                             p: Prinzipal = Depends(recht("einsatz"))):
+        """Beleg aus Datei (XRechnung, ZUGFeRD-PDF, PDF, Foto) oder von Hand; Felder aus dem Formular überschreiben die Erkennung."""
+        heute = app.state.uhr().date()
+        felder: dict[str, Any]
+        anhang = None
+        if datei is not None:
+            inhalt = await datei.read()
+            erkennung = fachlich(lambda: belege.erkennen(inhalt, datei.filename or "beleg", datei.content_type or ""))
+            felder = belege.felder_fuer_beleg(erkennung, heute)
+        else:
+            if not lieferant or not (brutto or netto):
+                raise HTTPException(422, "Ohne Datei sind lieferant und brutto (oder netto) Pflicht")
+            felder = belege.felder_fuer_beleg(belege.Erkennung(quelle="manuell", konfidenz=1.0, hinweise=[]), heute)
+        from decimal import Decimal, InvalidOperation
+        try:
+            if lieferant:
+                felder["lieferant"] = lieferant[:200]
+            if nummer:
+                felder["nummer"] = nummer[:80]
+            if datum:
+                felder["datum"] = datum
+            if ust_satz:
+                felder["ust_satz"] = ust_satz
+            if brutto:
+                b = Decimal(brutto.replace(",", ".")).quantize(Decimal("0.01"))
+                n = Decimal(netto.replace(",", ".")).quantize(Decimal("0.01")) if netto else (b / (1 + Decimal(felder["ust_satz"]) / 100)).quantize(Decimal("0.01"))
+                felder.update(brutto=f"{b:.2f}", netto=f"{n:.2f}", umsatzsteuer=f"{b - n:.2f}")
+            elif netto:
+                n = Decimal(netto.replace(",", ".")).quantize(Decimal("0.01"))
+                b = (n * (1 + Decimal(felder["ust_satz"]) / 100)).quantize(Decimal("0.01"))
+                felder.update(brutto=f"{b:.2f}", netto=f"{n:.2f}", umsatzsteuer=f"{b - n:.2f}")
+        except InvalidOperation as e:
+            raise HTTPException(422, "Betrag ist keine Zahl") from e
+        if kategorie not in ("material", "fremdleistung", "fahrzeug", "sonstiges"):
+            raise HTTPException(422, "Kategorie unbekannt")
+        if servicefall_id:
+            eigener_fall(p, s, m, holen(s, Servicefall, servicefall_id, m))
+        b_ = Beleg(mandant_id=m.id, kategorie=kategorie, servicefall_id=servicefall_id, notiz=notiz, erstellt=app.state.uhr(), **felder)
+        s.add(b_)
+        s.flush()
+        if datei is not None:
+            anhang = fachlich(lambda: einsatz.anhang_anlegen(s, m, "beleg", b_.id, "beleg", datei.filename or "beleg",
+                                                             datei.content_type or "application/octet-stream", inhalt, p.name))
+            b_.anhang_id = anhang.id
+        domaene.protokollieren(s, m.id, "beleg.erfasst", "beleg", b_.id, "mensch",
+                               {"quelle": b_.quelle, "lieferant": b_.lieferant, "brutto": b_.brutto, "konfidenz": b_.erkennung.get("konfidenz")}, p.name)
+        s.commit()
+        return b_
+
+    @app.get("/belege", response_model=list[BelegAus], dependencies=[Depends(recht("finanzen"))])
+    def belege_listen(status: str | None = None, servicefall_id: str | None = None, monat: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
+                      limit: int = Query(200, le=2000), m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        abfrage = select(Beleg).where(Beleg.mandant_id == m.id)
+        if status:
+            abfrage = abfrage.where(Beleg.status == status)
+        if servicefall_id:
+            abfrage = abfrage.where(Beleg.servicefall_id == servicefall_id)
+        if monat:
+            jahr, mon = (int(x) for x in monat.split("-"))
+            abfrage = abfrage.where(Beleg.datum >= date(jahr, mon, 1), Beleg.datum < date(jahr + (mon == 12), mon % 12 + 1, 1))
+        return s.scalars(abfrage.order_by(Beleg.datum.desc(), Beleg.erstellt.desc()).limit(limit)).all()
+
+    @app.get("/belege/{beleg_id}", response_model=BelegAus, dependencies=[Depends(recht("finanzen"))])
+    def beleg_lesen(beleg_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        return holen(s, Beleg, beleg_id, m)
+
+    @app.patch("/belege/{beleg_id}", response_model=BelegAus)
+    def beleg_aendern(beleg_id: str, daten: BelegAenderung, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                      p: Prinzipal = Depends(recht("bearbeiten"))):
+        """Prüfen und korrigieren; Status geprueft bedeutet: geht ins nächste Belegpaket. Übergebene Belege sind unveränderlich."""
+        b = holen(s, Beleg, beleg_id, m)
+        if b.status == "uebergeben" and daten.status != "bezahlt":
+            raise HTTPException(409, "Beleg wurde bereits an die Kanzlei übergeben")
+        aenderung = daten.model_dump(exclude_unset=True)
+        if "servicefall_id" in aenderung and aenderung["servicefall_id"]:
+            holen(s, Servicefall, aenderung["servicefall_id"], m)
+        from decimal import Decimal, InvalidOperation
+        try:
+            for feld in ("netto", "umsatzsteuer", "brutto", "skonto_prozent"):
+                if aenderung.get(feld) is not None:
+                    aenderung[feld] = f"{Decimal(str(aenderung[feld]).replace(',', '.')):.2f}"
+        except InvalidOperation as e:
+            raise HTTPException(422, "Betrag ist keine Zahl") from e
+        for feld, wert in aenderung.items():
+            setattr(b, feld, wert)
+        if aenderung.get("status") == "geprueft":
+            b.geprueft_von = p.name
+        domaene.protokollieren(s, m.id, "beleg.geaendert", "beleg", b.id, "mensch", {"felder": sorted(aenderung)}, p.name)
+        s.commit()
+        return b
+
+    @app.delete("/belege/{beleg_id}", status_code=204, dependencies=[Depends(recht("bearbeiten"))])
+    def beleg_loeschen(beleg_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        b = holen(s, Beleg, beleg_id, m)
+        if b.status in ("uebergeben", "bezahlt"):
+            raise HTTPException(409, "Übergebene Belege unterliegen der Aufbewahrungspflicht")
+        if b.anhang_id:
+            s.execute(select(Anhang).where(Anhang.id == b.anhang_id))
+            a = s.get(Anhang, b.anhang_id)
+            b.anhang_id = None
+            s.flush()
+            if a:
+                s.delete(a)
+        s.delete(b)
+        s.commit()
+        return Response(status_code=204)
+
+    # --- Bereitschaft und Fristen -------------------------------------------------------------
+    @app.get("/bereitschaft", response_model=list[BereitschaftAus])
+    def bereitschaften(ab: datetime | None = None, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        ab = ab or app.state.uhr() - timedelta(days=7)
+        return s.scalars(select(Bereitschaft).where(Bereitschaft.mandant_id == m.id, Bereitschaft.bis >= ab).order_by(Bereitschaft.von)).all()
+
+    @app.get("/bereitschaft/aktuell")
+    def bereitschaft_aktuell(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any] | None:
+        b = einsatz.bereitschaft_aktuell(s, m, app.state.uhr())
+        return {"id": b.id, "ressource_id": b.ressource_id, "name": b.ressource.name.split(" (")[0], "telefon": b.telefon, "bis": b.bis} if b else None
+
+    @app.post("/bereitschaft", response_model=BereitschaftAus, status_code=201, dependencies=[Depends(recht("bearbeiten"))])
+    def bereitschaft_anlegen(daten: BereitschaftNeu, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        r = holen(s, Ressource, daten.ressource_id, m)
+        b = fachlich(lambda: einsatz.bereitschaft_anlegen(s, m, r, daten.von, daten.bis, telefon_normalisieren(daten.telefon) or daten.telefon, daten.notiz))
+        s.commit()
+        return b
+
+    @app.delete("/bereitschaft/{bereitschaft_id}", status_code=204, dependencies=[Depends(recht("bearbeiten"))])
+    def bereitschaft_loeschen(bereitschaft_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        s.delete(holen(s, Bereitschaft, bereitschaft_id, m))
+        s.commit()
+        return Response(status_code=204)
+
+    @app.get("/fristen", response_model=list[FristAus])
+    def fristen(offen: bool = True, vorlauf_tage: int = Query(365, ge=0, le=3650), m: Mandant = Depends(mandant_kontext),
+                s: Session = Depends(sitzung)):
+        if offen:
+            return einsatz.fristen_faellig(s, m, app.state.uhr().date(), vorlauf_tage)
+        return s.scalars(select(Frist).where(Frist.mandant_id == m.id).order_by(Frist.faellig.desc()).limit(500)).all()
+
+    @app.post("/fristen", response_model=FristAus, status_code=201, dependencies=[Depends(recht("bearbeiten"))])
+    def frist_anlegen(daten: FristNeu, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        if daten.bezug_typ in ("ressource", "anlage") and daten.bezug_id:
+            holen(s, Ressource if daten.bezug_typ == "ressource" else Anlage, daten.bezug_id, m)
+        f = Frist(mandant_id=m.id, **daten.model_dump())
+        s.add(f)
+        s.commit()
+        return f
+
+    @app.post("/fristen/{frist_id}/erledigt", dependencies=[Depends(recht("einsatz"))])
+    def frist_erledigen(frist_id: str, daten: FristErledigt, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                        p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        f = holen(s, Frist, frist_id, m)
+        folge = fachlich(lambda: einsatz.frist_erledigen(s, f, daten.am or app.state.uhr().date()))
+        domaene.protokollieren(s, m.id, "frist.erledigt", "frist", f.id, "mensch", {"bezeichnung": f.bezeichnung, "am": f.erledigt_am.isoformat()}, p.name)
+        s.commit()
+        return {"frist": FristAus.model_validate(f).model_dump(), "folgefrist": FristAus.model_validate(folge).model_dump() if folge else None}
+
+    @app.delete("/fristen/{frist_id}", status_code=204, dependencies=[Depends(recht("bearbeiten"))])
+    def frist_loeschen(frist_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        s.delete(holen(s, Frist, frist_id, m))
+        s.commit()
+        return Response(status_code=204)
+
     # --- Tool-API für den Voice-Agenten ------------------------------------------------------
     @app.post("/voice/kunde-suchen", dependencies=[Depends(recht("bearbeiten"))])
     def voice_kunde_suchen(daten: VoiceKundeSuchen, m: Mandant = Depends(mandant_kontext),
@@ -885,6 +1384,16 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
                                  else "Termin ist vorgemerkt; das Büro bestätigt ihn per SMS oder Rückruf."}
         s.commit()
         return antwort
+
+    @app.post("/voice/notdienst", dependencies=[Depends(recht("bearbeiten"))])
+    def voice_notdienst(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        """Bereitschaftsnummer für Notfälle außerhalb der Bürozeit; ohne eingetragene Bereitschaft nur die Büronummer."""
+        b = einsatz.bereitschaft_aktuell(s, m, app.state.uhr())
+        if b is None:
+            return {"bereitschaft": False, "telefon": m.stammdaten.get("telefon"),
+                    "hinweis": "Derzeit ist kein Bereitschaftsdienst eingetragen. Rückruf vormerken und auf das Büro verweisen."}
+        return {"bereitschaft": True, "name": b.ressource.name.split(" (")[0], "telefon": b.telefon, "bis": b.bis.isoformat(),
+                "hinweis": f"Bereitschaft hat {b.ressource.name.split(' (')[0]}, erreichbar unter {b.telefon}."}
 
     @app.post("/voice/gespraech-beendet", status_code=201, dependencies=[Depends(recht("bearbeiten"))])
     def voice_gespraech_beendet(daten: VoiceGespraechBeendet, m: Mandant = Depends(mandant_kontext),

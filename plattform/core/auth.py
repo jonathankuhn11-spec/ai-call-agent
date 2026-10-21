@@ -32,6 +32,7 @@ ROLLEN = ("inhaber", "buero", "monteur", "steuerberater")
 RECHTE: dict[str, frozenset[str]] = {
     "lesen": frozenset(ROLLEN),
     "status": frozenset({"inhaber", "buero", "monteur"}),
+    "einsatz": frozenset({"inhaber", "buero", "monteur"}),  # Zeiten, Rapport, Fotos, Belegfoto
     "bearbeiten": frozenset({"inhaber", "buero"}),
     "freigeben": frozenset({"inhaber", "buero"}),
     "freigeben_c": frozenset({"inhaber"}),

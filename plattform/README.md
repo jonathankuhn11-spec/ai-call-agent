@@ -62,6 +62,11 @@ Danach `http://localhost:8100/` öffnen (Oberfläche) bzw. `/docs` (OpenAPI). Oh
 | Wartungsplanung | fällige Anlagen aus dem Zwilling, Planung als Servicefälle plus Kundenerinnerung zur Freigabe |
 | Ontologie | vorbereitete SPARQL-Abfragen und freies Abfragefeld über TBox und Instanzdaten |
 | Ereignisprotokoll | Event-Log und Outbox inkl. Dead-Letter |
+| Mein Einsatz (mobil) | Tagesliste des Monteurs mit Anfahrt und Rufnummer, Stempeluhr (Arbeit/Fahrt/Pause), Rapport mit Fotos, Messwerten und Kundenunterschrift (Canvas, PDF), Belegfoto |
+| Belege | Eingangsrechnungen und Lieferscheine: XRechnung/ZUGFeRD strukturiert, PDF und Fotos per Texterkennung mit Konfidenz; Prüfen, Zuordnen zum Vorgang, Übergabe im Belegpaket |
+| Zeiten | Stempel- und Nachtragszeiten je Monteur und Monat, Lohnexport (CSV mit Nacht- und Sonntagsminuten) |
+| Bereitschaft & Fristen | Bereitschaftsplan (vom Sprachagenten bei Notfällen genannt), Prüf-, Unterweisungs-, Zertifikats- und Vertragsfristen mit Folgefrist |
+| Vorgang (Detail) | zusätzlich Rapporte, Fotos und Nachkalkulation (Deckungsbeitrag aus Zeiten, Belegen und Rechnungen); Kunde: Dokumentenablage |
 
 Mit Docker: `cp .env.example .env`, Werte setzen, `docker compose up -d` (PostgreSQL, Migration,
 Core, Worker). Anmeldung über Keycloak mit `--profile auth` und `OIDC_ISSUER=http://localhost:8180/realms/shk`,
@@ -114,7 +119,10 @@ Fachendpunkte verlangen einen Mandantenkontext: bei Maschinen `X-Mandant`, bei P
 | Betrieb/Einstellungen | `GET /betrieb`, `PUT /betrieb/stammdaten`, `GET /integrationen` (maskiert), `PUT /integrationen/{ziel}` (Ziele `fachsoftware`, `endkunde`, `finanz`, `kanzlei`) |
 | Datenschutz | `GET /kunden/{id}/auskunft` (Art. 15), `POST /kunden/{id}/loeschen` (Art. 17, Sperrfristen), `POST /loeschlauf?trocken=true` |
 | Anmeldung | `GET /auth/konfiguration` (öffentlich), `GET /ich` (Name, Rollen, Rechte) |
-| Voice-Tools | `POST /voice/kunde-suchen`, `/voice/zeitfenster`, `/voice/servicefall`, `/voice/gespraech-beendet` |
+| Einsatz | `GET /einsatz/heute`, `POST /zeiten/start`, `POST /zeiten/{id}/stop`, `POST/GET /zeiten`, `GET /zeiten/lohnexport?monat=`, `POST /servicefaelle/{id}/rapport`, `GET /servicefaelle/{id}/rapporte`, `GET /rapporte/{id}/pdf`, `GET /servicefaelle/{id}/kalkulation` |
+| Belege und Anhänge | `POST /belege` (Multipart: Datei und/oder Felder), `GET /belege`, `GET/PATCH/DELETE /belege/{id}`, `POST /anhaenge` (Multipart), `GET /anhaenge?bezug_typ=&bezug_id=`, `GET /anhaenge/{id}/inhalt`, `DELETE /anhaenge/{id}` |
+| Bereitschaft, Fristen | `GET/POST /bereitschaft`, `GET /bereitschaft/aktuell`, `DELETE /bereitschaft/{id}`, `GET/POST /fristen`, `POST /fristen/{id}/erledigt`, `DELETE /fristen/{id}` |
+| Voice-Tools | `POST /voice/kunde-suchen`, `/voice/zeitfenster`, `/voice/servicefall`, `/voice/notdienst`, `/voice/gespraech-beendet` |
 
 Ontologie in Fuseki laden (Profil `ontologie`):
 `curl -X POST -H "X-Mandant: …" localhost:8100/ontologie/export?mit_tbox=true -o daten.ttl` und
@@ -146,6 +154,16 @@ Zusätzlich getestet: Rechnungsnummern, XRechnung 3.0 (UBL, Pflichtfelder), PDF,
 Lexware/sevDesk/E-Mail/SMS/Webhook mit Attrappen, DATEV-Buchungsstapel im Belegpaket, verschlüsselte
 Zugangsdaten, Löschlauf mit Fristen und Sperrfristen, Auskunft, Sichtbarkeit der Monteure.
 
+Betriebsmodule (`core/einsatz.py`, `core/belege.py`, Migration 0005): Zeitstempel mit automatischem
+Wechsel, Rapport mit Unterschrift (PNG) und PDF samt Statuswechsel auf „durchgeführt“,
+Nachkalkulation (Sätze aus den Stammdaten), Bereitschaft mit Überschneidungsprüfung und
+Sprachagenten-Werkzeug, Fristen mit Folgefrist, Anhänge (Fotos auf 1600 px verkleinert, 10 MB),
+Lohnexport, Belegeingang aus XRechnung (eigener Export als Testfall), ZUGFeRD (PDF mit eingebettetem
+XML), Text-Heuristik mit Konfidenz, manuell, Schutz übergebener Belege, Eingangsbelege und
+ER-Buchungen im DATEV-Stapel, Löschfristen für Belege (10 Jahre) und Zeiten (2 Jahre), Rollen des
+Monteurs (nur eigene Ressource und Einsätze). Texterkennung für Fotos braucht Tesseract
+(`docker build --build-arg MIT_OCR=1`); ohne OCR bleibt der Beleg mit Hinweis zur Nacherfassung.
+
 Zustellung und Anbindungen (`core/adapter/`): je Mandant und Ziel wählbar unter „Einstellungen“;
 ohne Konfiguration CSV-Degradierung (`fachsoftware`, `finanz`) bzw. Büro-Aufgabe „ohne Kanal“
 (`endkunde`). Zugangsdaten liegen mit `INTEGRATIONS_KEY` verschlüsselt in der Datenbank.
@@ -160,6 +178,5 @@ Bereitgestellt, aber nur mit Konten des Betreibers ausführbar:
 - Erstausrollung: HOSTING.md, `deploy/server/einrichten.sh` (erzeugt `.env`, rollt aus, legt Mandant an)
 - eigenes Repository: `deploy/repo-abspalten.sh` (git subtree split, Workflows angepasst)
 - Finanzanbindung (Lexware Office, sevDesk, DATEV, XRechnung über Mustang Project)
-- Zuordnung Monteur zu Ressource (Monteure sehen derzeit alle Einsätze des Mandanten)
 - AVV, TOMs, Löschkonzept: rechtliche Unterlagen vor dem ersten Pilotkunden
 - Namespace der Ontologie (`https://w3id.org/shk-backoffice/ont#`) ist ein Platzhalter

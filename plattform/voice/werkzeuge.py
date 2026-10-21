@@ -45,5 +45,9 @@ class KernClient:
                                                              "zusammenfassung": zusammenfassung,
                                                              "extraktion": extraktion or {}})
 
+    async def notdienst(self) -> dict[str, Any]:
+        """Aktuelle Bereitschaft (Rufnummer und Name) für Notfälle außerhalb der Bürozeit."""
+        return await self._post("/voice/notdienst", {})
+
     async def schliessen(self) -> None:
         await self._http.aclose()

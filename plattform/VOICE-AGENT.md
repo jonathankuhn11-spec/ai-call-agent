@@ -51,6 +51,7 @@ Prinzipien:
 | `zeitfenster_abfragen` | `POST /voice/zeitfenster` | Dringlichkeit, Sicherheitsfall, freie Termine mit passender Qualifikation |
 | `servicefall_anlegen` | `POST /voice/servicefall` | Kunde/Anlage anlegen falls neu, Servicefall, Terminvormerkung |
 | `rueckruf_vormerken` | `POST /voice/servicefall` | Rückrufwunsch als Vorgang |
+| `notdienst_erfragen` | `POST /voice/notdienst` | Rufnummer der aktuellen Bereitschaft bei Notfällen außerhalb der Bürozeit (Gasgeruch bleibt Sicherheitsfall) |
 | (automatisch) | `POST /voice/gespraech-beendet` | Transkript und Notizen an den Vorgang |
 
 ## Inbetriebnahme

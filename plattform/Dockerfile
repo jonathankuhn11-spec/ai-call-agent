@@ -1,6 +1,10 @@
 FROM python:3.12-slim
 ARG MIT_VOICE=0
+# MIT_OCR=1 installiert Tesseract (deutsch) für fotografierte Belege; ohne OCR werden nur XRechnung, ZUGFeRD und Text-PDF gelesen
+ARG MIT_OCR=0
 WORKDIR /app
+RUN if [ "$MIT_OCR" = "1" ]; then apt-get update && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-deu \
+ && rm -rf /var/lib/apt/lists/*; fi
 COPY requirements.txt requirements-voice.txt ./
 RUN pip install --no-cache-dir -r requirements.txt \
  && if [ "$MIT_VOICE" = "1" ]; then pip install --no-cache-dir -r requirements-voice.txt; fi

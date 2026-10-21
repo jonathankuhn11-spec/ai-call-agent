@@ -19,13 +19,15 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from core.modelle import Mandant, OutboxEintrag, Rechnung
+from core.modelle import Anhang, Beleg, Mandant, OutboxEintrag, Rechnung
 from core.rechnung import pdf, xrechnung
 
 # SKR03 (Standard im Handwerk) und SKR04; Konten per stammdaten["konten"] überschreibbar
 KONTEN = {
-    "SKR03": {"debitoren": "1400", "erloes_19": "8400", "erloes_7": "8300", "erloes_0": "8195"},
-    "SKR04": {"debitoren": "1200", "erloes_19": "4400", "erloes_7": "4300", "erloes_0": "4185"},
+    "SKR03": {"debitoren": "1400", "erloes_19": "8400", "erloes_7": "8300", "erloes_0": "8195",
+              "kreditoren": "1600", "aufwand_19": "3400", "aufwand_7": "3300", "aufwand_0": "3200"},
+    "SKR04": {"debitoren": "1200", "erloes_19": "4400", "erloes_7": "4300", "erloes_0": "4185",
+              "kreditoren": "3300", "aufwand_19": "5400", "aufwand_7": "5300", "aufwand_0": "5200"},
 }
 
 EXTF_SPALTEN = [
@@ -56,11 +58,18 @@ def zeitraum(p: dict[str, Any], heute: date) -> tuple[date, date, str]:
     return von, bis, f"{jahr}-{monat:02d}"
 
 
+def _dateiname(text: str) -> str:
+    return "".join(c if c.isalnum() else "_" for c in text)[:30].strip("_") or "beleg"
+
+
 def _betrag(d: Decimal) -> str:
     return f"{abs(d):.2f}".replace(".", ",")
 
 
-def extf_buchungsstapel(m: Mandant, rechnungen: list[Rechnung], von: date, bis: date, erzeugt: datetime) -> bytes:
+def extf_buchungsstapel(m: Mandant, rechnungen: list[Rechnung], von: date, bis: date, erzeugt: datetime,
+                       belege: list[Beleg] | None = None) -> bytes:
+    """Ausgangsrechnungen (Debitor im Soll gegen Erlös) und Eingangsbelege (Aufwand im Soll gegen Kreditor) in
+    einem Stapel; Konten sind Vorschläge je Steuersatz, Festschreibung 0."""
     st = m.stammdaten
     konten = {**KONTEN.get(st.get("kontenrahmen", "SKR03"), KONTEN["SKR03"]), **st.get("konten", {})}
     wj_beginn = date(von.year, int(st.get("wirtschaftsjahr_beginn_monat", 1)), 1)
@@ -93,6 +102,20 @@ def extf_buchungsstapel(m: Mandant, rechnungen: list[Rechnung], von: date, bis: 
             zeile[EXTF_SPALTEN.index("Leistungsdatum")] = (r.leistungsdatum or r.datum).strftime("%d%m%Y")
             zeile[EXTF_SPALTEN.index("Fälligkeit")] = r.faellig.strftime("%d%m%Y")
             w.writerow(zeile)
+    for b in belege or []:
+        zeile = [""] * len(EXTF_SPALTEN)
+        zeile[0] = _betrag(Decimal(b.brutto))
+        zeile[1] = "S"  # Aufwand im Soll, Gegenkonto Kreditoren-Sammelkonto
+        zeile[2] = "EUR"
+        zeile[6] = konten.get(f"aufwand_{b.ust_satz}", konten["aufwand_0"])
+        zeile[7] = konten["kreditoren"]
+        zeile[9] = b.datum.strftime("%d%m")
+        zeile[10] = (b.nummer or b.id[:12])[:36]
+        zeile[13] = f"ER {b.lieferant}"[:60]
+        zeile[EXTF_SPALTEN.index("Festschreibung")] = "0"
+        if b.faellig:
+            zeile[EXTF_SPALTEN.index("Fälligkeit")] = b.faellig.strftime("%d%m%Y")
+        w.writerow(zeile)
     return puffer.getvalue().encode("cp1252", errors="replace")
 
 
@@ -101,6 +124,8 @@ def paket_erzeugen(s: Session, m: Mandant, p: dict[str, Any], heute: date | None
     von, bis, kennung = zeitraum(p, heute)
     rechnungen = s.scalars(select(Rechnung).where(Rechnung.mandant_id == m.id, Rechnung.datum >= von, Rechnung.datum < bis)
                            .order_by(Rechnung.nummer)).all()
+    belege = s.scalars(select(Beleg).where(Beleg.mandant_id == m.id, Beleg.datum >= von, Beleg.datum < bis,
+                                           Beleg.status != "erfasst").order_by(Beleg.datum, Beleg.lieferant)).all()
     erzeugt = datetime.now(timezone.utc)
     puffer = io.BytesIO()
     with zipfile.ZipFile(puffer, "w", zipfile.ZIP_DEFLATED) as z:
@@ -114,13 +139,30 @@ def paket_erzeugen(s: Session, m: Mandant, p: dict[str, Any], heute: date | None
             z.writestr(f"rechnungen/{r.nummer}.pdf", pdf(r, m))
             z.writestr(f"rechnungen/{r.nummer}.xml", xrechnung(r, m))
         z.writestr("uebersicht.csv", uebersicht.getvalue().encode("utf-8-sig"))
-        z.writestr(f"EXTF_Buchungsstapel_{kennung}.csv", extf_buchungsstapel(m, rechnungen, von, bis, erzeugt))
+        eingang = io.StringIO()
+        w = csv.writer(eingang, delimiter=";", lineterminator="\r\n")
+        w.writerow(["Lieferant", "Nummer", "Datum", "Fällig", "Netto", "USt", "Brutto", "USt-Satz", "Kategorie", "Auftrag", "Datei", "Status"])
+        for b in belege:
+            datei = ""
+            if b.anhang_id and (a := s.get(Anhang, b.anhang_id)):
+                endung = a.name.rsplit(".", 1)[-1].lower() if "." in a.name else "bin"
+                datei = f"eingangsbelege/{b.datum.isoformat()}_{_dateiname(b.lieferant)}_{(b.nummer or b.id[:8])}.{endung}"
+                z.writestr(datei, a.inhalt)
+            w.writerow([b.lieferant, b.nummer or "", b.datum.isoformat(), b.faellig.isoformat() if b.faellig else "",
+                        b.netto.replace(".", ","), b.umsatzsteuer.replace(".", ","), b.brutto.replace(".", ","), b.ust_satz,
+                        b.kategorie, b.servicefall_id or "", datei, b.status])
+            b.status = "uebergeben" if b.status in ("geprueft",) else b.status
+        z.writestr("eingangsbelege.csv", eingang.getvalue().encode("utf-8-sig"))
+        z.writestr(f"EXTF_Buchungsstapel_{kennung}.csv", extf_buchungsstapel(m, rechnungen, von, bis, erzeugt, belege))
         z.writestr("LIESMICH.txt", (f"Belegpaket {m.name}, Zeitraum {kennung}, erzeugt {erzeugt.strftime('%d.%m.%Y %H:%M')} UTC.\n"
-                                    f"{len(rechnungen)} Belege. EXTF-Datei: Buchungsstapel im DATEV-Format, Festschreibung 0, "
-                                    "Konten als Vorschlag (keine Kontierung im Sinne des StBerG), bitte vor dem Import prüfen.\n"))
+                                    f"{len(rechnungen)} Ausgangsrechnungen, {len(belege)} Eingangsbelege (nur geprüfte). "
+                                    "EXTF-Datei: Buchungsstapel im DATEV-Format, Festschreibung 0, Konten als Vorschlag "
+                                    "(keine Kontierung im Sinne des StBerG), bitte vor dem Import prüfen.\n"))
     summe = sum((Decimal(r.brutto) for r in rechnungen), Decimal("0"))
+    summe_eingang = sum((Decimal(b.brutto) for b in belege), Decimal("0"))
     text = (f"Guten Tag,\n\nanbei das Belegpaket {kennung} mit {len(rechnungen)} Ausgangsbelegen "
-            f"(Summe brutto {summe:.2f} €). Enthalten: PDF und XRechnung je Beleg, Übersicht als CSV und ein "
+            f"(Summe brutto {summe:.2f} €) und {len(belege)} Eingangsbelegen (Summe brutto {summe_eingang:.2f} €). "
+            "Enthalten: PDF und XRechnung je Ausgangsrechnung, Eingangsbelege als Datei, Übersichten als CSV und ein "
             "Buchungsstapel im DATEV-Format mit Kontenvorschlag ohne Festschreibung.")
     return f"belege_{kennung}.zip", puffer.getvalue(), text
 

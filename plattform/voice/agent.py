@@ -140,6 +140,13 @@ class Assistenz(Agent):
         g.servicefall_id = ergebnis["servicefall_id"]
         return {"vorgemerkt": True}
 
+    @function_tool()
+    async def notdienst_erfragen(self, context: RunContext[Gespraech]) -> dict:
+        """Liefert die Rufnummer der aktuellen Bereitschaft. Nur bei echten Notfällen außerhalb der
+        Bürozeit aufrufen (Wasserrohrbruch, Heizungsausfall im Winter, Gasgeruch wird NICHT hierüber
+        gelöst, sondern über den Sicherheitsfall)."""
+        return await context.userdata.kern.notdienst()
+
 
 async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()

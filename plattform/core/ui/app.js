@@ -26,12 +26,19 @@ function speicher(schluessel, wert) {
   try { if (wert === undefined) return sessionStorage.getItem(schluessel); sessionStorage.setItem(schluessel, wert); } catch { return null; }
 }
 
-async function api(pfad, { methode = "GET", daten, mitMandant = true } = {}, erneut = true) {
-  const kopf = { "Content-Type": "application/json" };
+function authKopf(mitMandant = true) {
+  const kopf = {};
   const token = speicher("token"), key = speicher("apiKey");
   if (token) kopf.Authorization = `Bearer ${token}`; else if (key) kopf["X-API-Key"] = key;
   if (mitMandant) kopf["X-Mandant"] = speicher("mandant") || "";
-  const r = await fetch(pfad, { method: methode, headers: kopf, body: daten === undefined ? undefined : JSON.stringify(daten) });
+  return kopf;
+}
+async function api(pfad, { methode = "GET", daten, mitMandant = true } = {}, erneut = true) {
+  const kopf = authKopf(mitMandant);
+  const formular = daten instanceof FormData;  // Multipart (Datei-Upload): Content-Type setzt der Browser mit Boundary
+  if (!formular) kopf["Content-Type"] = "application/json";
+  const token = speicher("token");
+  const r = await fetch(pfad, { method: methode, headers: kopf, body: daten === undefined ? undefined : formular ? daten : JSON.stringify(daten) });
   if (r.status === 401 && token && erneut && await tokenErneuern()) return api(pfad, { methode, daten, mitMandant }, false);
   if (r.status === 401 || (mitMandant && r.status === 404 && (await r.clone().text()).includes("Mandant unbekannt"))) {
     anmelden(); throw new Error("Anmeldung erforderlich");
@@ -125,11 +132,16 @@ $("#anmeldeformular").addEventListener("submit", () => {
 $("#abmelden").addEventListener("click", () => abmelden());
 
 // --- Routing ---------------------------------------------------------------------------------
-const ANSICHTEN = { cockpit, anruf, freigaben, vorgaenge, plantafel, kunden, wartung, ontologie, rechnungen, protokoll, einstellungen };
+const ANSICHTEN = { cockpit, anruf, freigaben, vorgaenge, plantafel, kunden, wartung, ontologie, rechnungen, protokoll, einstellungen,
+  einsatz: einsatzAnsicht, belege: belegeAnsicht, zeiten: zeitenAnsicht, betrieb: betriebAnsicht };
 async function zeigen() {
   if (!speicher("mandant")) return anmelden();
   $("#mandant-name").textContent = speicher("mandantName") || "";
-  try { $("#nav-einstellungen").hidden = !(await ich()).rechte.includes("verwalten"); } catch { /* Anmeldung läuft */ }
+  try {
+    const wir = await ich();
+    $("#nav-einstellungen").hidden = !wir.rechte.includes("verwalten");
+    document.querySelectorAll(".seitenleiste a[data-recht]").forEach((a) => { a.hidden = !wir.rechte.includes(a.dataset.recht); });
+  } catch { /* Anmeldung läuft */ }
   const name = (location.hash.slice(1) || "cockpit").split("/")[0];
   document.querySelectorAll(".seitenleiste a").forEach((a) => a.classList.toggle("aktiv", a.dataset.ansicht === name));
   const ziel = $("#inhalt");
@@ -139,6 +151,17 @@ async function zeigen() {
 window.addEventListener("hashchange", zeigen);
 async function freigabenZaehlen() {
   try { const n = (await api("/freigaben")).length; $("#zaehler-freigaben").innerHTML = n ? tag(n, "offen", n) : ""; } catch { /* Anmeldung läuft */ }
+  try { if (ICH?.rechte.includes("finanzen")) { const n = (await api("/belege?status=erfasst")).length; $("#zaehler-belege").innerHTML = n ? tag(n, "offen", n) : ""; } } catch { /* Anmeldung läuft */ }
+}
+async function dateiLaden(pfad, name) {
+  const r = await fetch(pfad, { headers: authKopf() });
+  if (!r.ok) return alert(`HTTP ${r.status}`);
+  const url = URL.createObjectURL(await r.blob()); const a = document.createElement("a"); a.href = url; a.download = name; a.target = "_blank"; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+async function bildUrl(anhangId) {  // Anhänge liegen hinter der Authentifizierung, daher als Blob-URL laden
+  const r = await fetch(`/anhaenge/${anhangId}/inhalt`, { headers: authKopf() });
+  return r.ok ? URL.createObjectURL(await r.blob()) : "";
 }
 let ICH = null;  // Prinzipal der Sitzung (Name, Rollen, Rechte), nach jedem Anmelden neu geladen
 async function ich() { return ICH || (ICH = await api("/ich", { mitMandant: false })); }
@@ -284,6 +307,7 @@ async function fallDetail(id) {
       ${["eingegangen", "qualifiziert"].includes(f.status) ? `<button id="termin-suchen">Termin vorschlagen</button>` : ""}</div>
     <div id="terminwahl"></div>
     <h3>Ereignisse</h3><ul class="verlauf">${d.ereignisse.map((e) => `<li>${tag(e.akteur, "neutral")} <code>${esc(e.typ)}</code> · ${zeit(e.zeit)}${e.payload?.grund ? ` · ${esc(e.payload.grund)}` : ""}</li>`).join("")}</ul>`);
+  fallErgaenzungen(wurzel, id);
   wurzel.querySelectorAll("[data-ziel]").forEach((b) => b.addEventListener("click", async () => {
     try { await api(`/servicefaelle/${id}/status`, { methode: "POST", daten: { ziel: b.dataset.ziel, wer: "buero" } }); await fallDetail(id); zeigen(); }
     catch (e) { alert(e.message); }
@@ -363,6 +387,7 @@ async function kundeDetail(id) {
     </tbody></table>
     <h3 style="margin-top:16px">Vorgänge</h3><table><tbody>${d.servicefaelle.map((f) => `<tr class="klickbar" data-fall="${esc(f.id)}"><td>${esc(f.anliegen)}</td><td>${tag(f.dringlichkeit)}</td><td>${esc(STATUS_TEXT[f.status])}</td><td>${zeit(f.erstellt)}</td></tr>`).join("") || "<tr><td>Keine.</td></tr>"}</tbody></table>`);
   wurzel.querySelectorAll("[data-fall]").forEach((z) => z.addEventListener("click", () => fallDetail(z.dataset.fall)));
+  kundeDokumente(wurzel, id);
 }
 
 // --- Wartungsplanung -------------------------------------------------------------------------
@@ -427,7 +452,6 @@ const DATUM = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeZone: 
 async function rechnungen(ziel) {
   const [liste, wir] = await Promise.all([api("/rechnungen"), ich()]);
   const darfStorno = wir.rechte.includes("bearbeiten");
-  const kopf = { Authorization: speicher("token") ? `Bearer ${speicher("token")}` : undefined, "X-API-Key": speicher("apiKey") || undefined, "X-Mandant": speicher("mandant") };
   ziel.innerHTML = `<h1>Rechnungen</h1><p class="unterzeile">Fortlaufender Nummernkreis je Betrieb; Rechnung und Storno entstehen nur über eine Freigabe der Klasse C (Inhaber). Übermittlung an Buchhaltung und Kunde läuft über die Outbox.</p>
     <div class="karte" style="margin-bottom:16px"><div class="zeile"><label>Belegpaket an die Kanzlei (Monat) <input id="r-zeitraum" type="month"></label><button id="r-belegpaket" class="leise" ${darfStorno ? "" : "disabled"}>Zur Freigabe vorlegen</button></div></div>
     <div class="karte"><div class="tabelle-rahmen"><table><thead><tr><th>Nummer</th><th>Art</th><th>Datum</th><th>Kunde</th><th style="text-align:right">Netto</th><th style="text-align:right">Brutto</th><th>Status</th><th></th></tr></thead><tbody>
@@ -438,14 +462,8 @@ async function rechnungen(ziel) {
         ${darfStorno && r.art === "rechnung" && r.status !== "storniert" ? `<button class="gefahr" data-storno="${esc(r.id)}">Storno</button>` : ""}</div></td></tr>`).join("")
       || `<tr><td colspan="8">Noch keine Rechnungen. Rechnungen entstehen aus der Freigabe-Inbox (Aktion „Rechnung erstellen“).</td></tr>`}
     </tbody></table></div></div>`;
-  const oeffnen = async (pfad, name) => {
-    const r = await fetch(pfad, { headers: Object.fromEntries(Object.entries(kopf).filter(([, v]) => v)) });
-    if (!r.ok) return alert(`HTTP ${r.status}`);
-    const url = URL.createObjectURL(await r.blob()); const a = document.createElement("a"); a.href = url; a.download = name; a.target = "_blank"; a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
-  };
-  ziel.querySelectorAll("[data-pdf]").forEach((b) => b.addEventListener("click", () => oeffnen(`/rechnungen/${b.dataset.pdf}/pdf`, `${b.dataset.pdf}.pdf`)));
-  ziel.querySelectorAll("[data-xml]").forEach((b) => b.addEventListener("click", () => oeffnen(`/rechnungen/${b.dataset.xml}/xrechnung`, `${b.dataset.xml}.xml`)));
+  ziel.querySelectorAll("[data-pdf]").forEach((b) => b.addEventListener("click", () => dateiLaden(`/rechnungen/${b.dataset.pdf}/pdf`, `${b.dataset.pdf}.pdf`)));
+  ziel.querySelectorAll("[data-xml]").forEach((b) => b.addEventListener("click", () => dateiLaden(`/rechnungen/${b.dataset.xml}/xrechnung`, `${b.dataset.xml}.xml`)));
   ziel.querySelectorAll("[data-storno]").forEach((b) => b.addEventListener("click", async () => {
     const grund = prompt("Grund des Stornos (erscheint im Protokoll):"); if (!grund) return;
     try { await api(`/rechnungen/${b.dataset.storno}/storno`, { methode: "POST", daten: { grund } }); alert("Storno liegt in der Freigabe-Inbox (Klasse C)."); zeigen(); }
@@ -462,7 +480,8 @@ async function rechnungen(ziel) {
 const FELDER_STAMM = [["inhaber", "Inhaber/in"], ["strasse", "Straße"], ["plz", "PLZ"], ["ort", "Ort"], ["telefon", "Telefon"], ["email", "E-Mail"],
   ["ust_id", "USt-IdNr."], ["steuernummer", "Steuernummer"], ["handwerksrolle", "Handwerksrolle"], ["iban", "IBAN"], ["bic", "BIC"], ["bank", "Bank"],
   ["zahlungsziel_tage", "Zahlungsziel (Tage)"], ["rechnungsnummer_praefix", "Rechnungsnummer-Präfix"], ["rechnungshinweis", "Hinweis auf der Rechnung"],
-  ["kontenrahmen", "Kontenrahmen (SKR03/SKR04)"], ["datev_beraternummer", "DATEV Beraternummer"], ["datev_mandantennummer", "DATEV Mandantennummer"], ["kanzlei_email", "E-Mail der Kanzlei"]];
+  ["kontenrahmen", "Kontenrahmen (SKR03/SKR04)"], ["datev_beraternummer", "DATEV Beraternummer"], ["datev_mandantennummer", "DATEV Mandantennummer"], ["kanzlei_email", "E-Mail der Kanzlei"],
+  ["stundensatz_kosten", "Stundensatz intern (€/h, Nachkalkulation)"], ["stundensatz_verrechnung", "Stundensatz Verrechnung (€/h)"], ["materialaufschlag_prozent", "Materialaufschlag (%)"]];
 const ANBINDUNGEN = {
   fachsoftware: { titel: "Fachsoftware", hinweis: "Termine und Aufträge. Bis die Schreib-API der Fachsoftware geklärt ist: Webhook (z. B. n8n) oder CSV-Export.",
     typen: { webhook: [["url", "Webhook-URL"], ["signatur_schluessel", "Signaturschlüssel (HMAC)", true], ["api_key", "Bearer-Token (optional)", true]], csv: [] } },
@@ -519,3 +538,291 @@ async function protokoll(ziel) {
 }
 
 oidcRueckkehr().then(zeigen, (e) => anmelden(e.message));
+
+// --- Mein Einsatz (Monteur, mobil): Tagesliste, Zeitstempel, Rapport mit Foto und Unterschrift ---
+const ZEITART_TEXT = { arbeit: "Arbeit", fahrt: "Fahrt", pause: "Pause", bereitschaft: "Bereitschaft" };
+const ERGEBNIS_TEXT = { erledigt: "Erledigt", nacharbeit: "Nacharbeit nötig", ersatzteil: "Ersatzteil bestellen", abgebrochen: "Abgebrochen" };
+const dauerText = (min) => `${Math.floor(min / 60)}:${String(min % 60).padStart(2, "0")} h`;
+const lokalIso = (d = new Date()) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+
+async function einsatzAnsicht(ziel) {
+  const [wir, ressourcen] = await Promise.all([ich(), api("/ressourcen").catch(() => [])]);
+  const buero = !wir.eingeschraenkt;
+  const gewaehlt = speicher("einsatzRessource") || ressourcen[0]?.id || "";
+  const q = buero && gewaehlt ? `?ressource_id=${encodeURIComponent(gewaehlt)}` : "";
+  const h = await api(`/einsatz/heute${q}`);
+  const laufend = h.laufend;
+  ziel.innerHTML = `<h1>Mein Einsatz</h1><p class="unterzeile">${esc(DATUM.format(new Date()))}${h.ressource ? ` · ${esc(h.ressource.name.split(" (")[0])}` : ""}${h.bereitschaft ? ` · Bereitschaft: ${esc(h.bereitschaft.name)} ${esc(h.bereitschaft.telefon)}` : ""}</p>
+    ${buero ? `<div class="karte" style="margin-bottom:16px"><label>Monteur <select id="e-ressource">${ressourcen.map((r) => `<option value="${esc(r.id)}" ${r.id === gewaehlt ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select></label></div>` : ""}
+    ${!h.ressource ? `<p class="hinweis">Ihrem Konto ist noch kein Monteur zugeordnet. Der Inhaber trägt Ihren Anmeldenamen (${esc(wir.name)}) unter „Plantafel → Monteure“ ein.</p>` : `
+    <div class="karte stempeluhr"><div>
+      <strong>${laufend ? `${esc(ZEITART_TEXT[laufend.art])} läuft seit ${esc(UHRZEIT.format(new Date(laufend.beginn)))}` : "Keine laufende Zeit"}</strong>
+      ${laufend ? `<br><small>${esc(dauerText(laufend.minuten))}${laufend.notiz ? ` · ${esc(laufend.notiz)}` : ""}</small>` : ""}</div>
+      <div class="aktionen">${laufend ? `<button class="gefahr" id="e-stop">Stopp</button>` : ""}
+        ${["arbeit", "fahrt", "pause"].map((a) => `<button class="leise" data-start="${a}">${ZEITART_TEXT[a]} starten</button>`).join("")}</div></div>
+    <h2 style="margin-top:20px">Heutige Termine</h2>
+    ${h.termine.length ? h.termine.map((t) => `<div class="karte termin ${esc(t.dringlichkeit)}" style="margin-bottom:12px">
+      <div class="zeile" style="justify-content:space-between"><strong>${esc(UHRZEIT.format(new Date(t.beginn)))}–${esc(UHRZEIT.format(new Date(t.ende)))}</strong>${tag(t.dringlichkeit)} ${tag(t.status)}</div>
+      <p style="margin:6px 0"><strong>${esc(t.kunde.name)}</strong><br>${esc(t.kunde.strasse || "")}, ${esc(t.kunde.plz || "")} ${esc(t.kunde.ort || "")}
+        ${t.kunde.telefon ? `<br><a href="tel:${esc(t.kunde.telefon)}">${esc(t.kunde.telefon)}</a>` : ""}
+        <br><a target="_blank" rel="noopener" href="https://www.openstreetmap.org/search?query=${encodeURIComponent(`${t.kunde.strasse || ""} ${t.kunde.plz || ""} ${t.kunde.ort || ""}`)}">Karte</a></p>
+      <p style="margin:6px 0">${esc(t.anliegen)}${t.symptom ? `<br><small>${esc(t.symptom)}</small>` : ""}${t.anlage ? `<br><small>Anlage: ${esc(t.anlage.typ)} ${esc(t.anlage.hersteller || "")} ${esc(t.anlage.baujahr || "")}</small>` : ""}</p>
+      <div class="aktionen">${t.rapport ? `<span class="marke-tag t-A">Rapport ${esc(t.rapport.nummer)}${t.rapport.unterschrieben ? " · unterschrieben" : ""}</span>` : ""}
+        <button class="leise" data-fall="${esc(t.servicefall_id)}">Details</button>
+        <button class="leise" data-arbeit="${esc(t.servicefall_id)}">Arbeit starten</button>
+        <button data-rapport="${esc(t.servicefall_id)}" data-termin="${esc(t.termin_id)}">Rapport</button></div></div>`).join("")
+      : `<p class="karte">Heute keine Termine eingeplant.</p>`}
+    <h2 style="margin-top:20px">Beleg fotografieren</h2>
+    <div class="karte"><p class="unterzeile">Lieferschein oder Rechnung vom Großhandel: Foto reicht, das Büro prüft die erkannten Felder.</p>
+      <div class="zeile"><label>Datei oder Foto <input id="e-beleg" type="file" accept="image/*,application/pdf,.xml" capture="environment"></label>
+      <label>Vorgang <select id="e-beleg-fall"><option value="">– ohne –</option>${h.termine.map((t) => `<option value="${esc(t.servicefall_id)}">${esc(t.kunde.name)} · ${esc(t.anliegen)}</option>`).join("")}</select></label>
+      <button id="e-beleg-senden" class="leise">Hochladen</button></div><p id="e-beleg-status"></p></div>`}`;
+  $("#e-ressource")?.addEventListener("change", (ev) => { speicher("einsatzRessource", ev.target.value); zeigen(); });
+  const rid = buero ? gewaehlt : undefined;
+  const starten = async (art, fall) => { try { await api("/zeiten/start", { methode: "POST", daten: { art, servicefall_id: fall, ressource_id: rid } }); zeigen(); } catch (e) { alert(e.message); } };
+  ziel.querySelectorAll("[data-start]").forEach((b) => b.addEventListener("click", () => starten(b.dataset.start)));
+  ziel.querySelectorAll("[data-arbeit]").forEach((b) => b.addEventListener("click", () => starten("arbeit", b.dataset.arbeit)));
+  $("#e-stop")?.addEventListener("click", async () => { try { await api(`/zeiten/${laufend.id}/stop`, { methode: "POST" }); zeigen(); } catch (e) { alert(e.message); } });
+  ziel.querySelectorAll("[data-fall]").forEach((b) => b.addEventListener("click", () => fallDetail(b.dataset.fall)));
+  ziel.querySelectorAll("[data-rapport]").forEach((b) => b.addEventListener("click", () => rapportFormular(b.dataset.rapport, b.dataset.termin, rid)));
+  $("#e-beleg-senden")?.addEventListener("click", async () => {
+    const datei = $("#e-beleg").files[0]; if (!datei) return alert("Bitte Datei oder Foto wählen");
+    const fd = new FormData(); fd.append("datei", datei); if ($("#e-beleg-fall").value) fd.append("servicefall_id", $("#e-beleg-fall").value);
+    $("#e-beleg-status").textContent = "Wird hochgeladen …";
+    try { const b = await api("/belege", { methode: "POST", daten: fd }); $("#e-beleg-status").innerHTML = `Erfasst: ${esc(b.lieferant)} · ${esc(EURO.format(b.brutto))} ${tag(`Konfidenz ${Math.round((b.erkennung.konfidenz || 0) * 100)} %`, "neutral")}`; $("#e-beleg").value = ""; }
+    catch (e) { $("#e-beleg-status").innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
+}
+
+// Unterschrift auf Canvas (Maus und Touch), Ergebnis als PNG-Data-URL
+function unterschriftFeld(canvas) {
+  const ctx = canvas.getContext("2d"); let zeichnet = false, leer = true;
+  ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.strokeStyle = "#18212b";
+  const punkt = (ev) => { const r = canvas.getBoundingClientRect(); return [(ev.clientX - r.left) * canvas.width / r.width, (ev.clientY - r.top) * canvas.height / r.height]; };
+  canvas.addEventListener("pointerdown", (ev) => { zeichnet = true; leer = false; ctx.beginPath(); ctx.moveTo(...punkt(ev)); canvas.setPointerCapture(ev.pointerId); });
+  canvas.addEventListener("pointermove", (ev) => { if (zeichnet) { ctx.lineTo(...punkt(ev)); ctx.stroke(); } });
+  canvas.addEventListener("pointerup", () => { zeichnet = false; });
+  canvas.addEventListener("pointercancel", () => { zeichnet = false; });
+  return { leeren() { ctx.clearRect(0, 0, canvas.width, canvas.height); leer = true; }, wert() { return leer ? null : canvas.toDataURL("image/png"); } };
+}
+
+async function rapportFormular(fallId, terminId, ressourceId) {
+  const d = await api(`/servicefaelle/${fallId}`);
+  const zeiten = await api(`/zeiten?servicefall_id=${fallId}`);
+  const summe = (art) => zeiten.filter((z) => z.art === art).reduce((a, z) => a + z.minuten, 0);
+  const wurzel = detail(`<h2>Rapport · ${esc(d.servicefall.anliegen)}</h2>
+    <label>Ausgeführte Arbeiten <textarea id="rp-taetigkeiten" style="font-family:inherit" placeholder="Was wurde gemacht, welche Ursache, welche Teile?"></textarea></label>
+    <div class="zeile"><label>Arbeitszeit (min) <input id="rp-arbeit" type="number" min="0" value="${summe("arbeit")}"></label>
+      <label>Fahrzeit (min) <input id="rp-fahrt" type="number" min="0" value="${summe("fahrt")}"></label>
+      <label>Ergebnis <select id="rp-ergebnis">${Object.entries(ERGEBNIS_TEXT).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></label></div>
+    <label>Material (eine Zeile je Position: Menge; Bezeichnung) <textarea id="rp-material" style="font-family:inherit" placeholder="1; Umwälzpumpe Grundfos UPM3&#10;2; Dichtung 3/4&quot;"></textarea></label>
+    <label>Hinweise an den Kunden <input id="rp-hinweise" placeholder="z. B. Wartung in 12 Monaten, Druck beobachten"></label>
+    <div class="zeile"><label>Abgasverlust (%) <input id="rp-abgas" inputmode="decimal"></label><label>CO (ppm) <input id="rp-co" inputmode="decimal"></label><label>Anlagendruck (bar) <input id="rp-druck" inputmode="decimal"></label></div>
+    <label>Fotos (vorher/nachher, Typenschild) <input id="rp-fotos" type="file" accept="image/*" capture="environment" multiple></label>
+    <label>Unterschrift Kunde (Name) <input id="rp-name" placeholder="Name der unterzeichnenden Person"></label>
+    <div class="unterschrift"><canvas id="rp-canvas" width="600" height="200"></canvas><button class="leise" type="button" id="rp-leeren">Löschen</button></div>
+    <p id="rp-status"></p>
+    <div class="aktionen"><button id="rp-speichern">Rapport abschließen</button></div>`);
+  const u = unterschriftFeld($("#rp-canvas", wurzel));
+  $("#rp-leeren", wurzel).addEventListener("click", u.leeren);
+  $("#rp-speichern", wurzel).addEventListener("click", async () => {
+    const knopf = $("#rp-speichern", wurzel); knopf.disabled = true; $("#rp-status", wurzel).textContent = "Wird gespeichert …";
+    try {
+      const fotos = [...$("#rp-fotos", wurzel).files];
+      for (const foto of fotos) {
+        const fd = new FormData(); fd.append("datei", foto); fd.append("bezug_typ", "servicefall"); fd.append("bezug_id", fallId); fd.append("art", "foto");
+        await api("/anhaenge", { methode: "POST", daten: fd });
+      }
+      const material = $("#rp-material", wurzel).value.split("\n").map((z) => z.trim()).filter(Boolean).map((z) => { const [menge, ...rest] = z.split(";"); return rest.length ? { menge: menge.trim(), bezeichnung: rest.join(";").trim() } : { menge: "1", bezeichnung: z }; });
+      const messwerte = {}; for (const [id, k] of [["rp-abgas", "abgasverlust_prozent"], ["rp-co", "co_ppm"], ["rp-druck", "druck_bar"]]) { const v = $(`#${id}`, wurzel).value.trim(); if (v) messwerte[k] = v; }
+      const r = await api(`/servicefaelle/${fallId}/rapport`, { methode: "POST", daten: {
+        taetigkeiten: $("#rp-taetigkeiten", wurzel).value, arbeitszeit_minuten: Number($("#rp-arbeit", wurzel).value || 0), fahrzeit_minuten: Number($("#rp-fahrt", wurzel).value || 0),
+        ergebnis: $("#rp-ergebnis", wurzel).value, material, hinweise_kunde: $("#rp-hinweise", wurzel).value || null, messwerte, termin_id: terminId || null,
+        ressource_id: ressourceId || null, unterschrift: u.wert(), unterzeichnet_von: $("#rp-name", wurzel).value || null } });
+      $("#rp-status", wurzel).innerHTML = `Rapport <strong>${esc(r.nummer)}</strong> gespeichert${fotos.length ? `, ${fotos.length} Foto(s) abgelegt` : ""}. <button class="leise" id="rp-pdf">PDF</button>`;
+      $("#rp-pdf", wurzel).addEventListener("click", () => dateiLaden(`/rapporte/${r.id}/pdf`, `${r.nummer}.pdf`));
+      zeigen();
+    } catch (e) { $("#rp-status", wurzel).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; knopf.disabled = false; }
+  });
+}
+
+// Ergänzungen der Vorgangsdetails: Rapporte, Fotos, Nachkalkulation (Inhaber)
+async function fallErgaenzungen(wurzel, id) {
+  const wir = await ich();
+  const [rapporte, fotos] = await Promise.all([api(`/servicefaelle/${id}/rapporte`).catch(() => []), api(`/anhaenge?bezug_typ=servicefall&bezug_id=${id}`).catch(() => [])]);
+  const teil = document.createElement("div");
+  teil.innerHTML = `<h3 style="margin-top:16px">Rapporte</h3>${rapporte.length ? `<ul class="verlauf">${rapporte.map((r) => `<li><strong>${esc(r.nummer)}</strong> · ${esc(ERGEBNIS_TEXT[r.ergebnis] || r.ergebnis)} · ${esc(dauerText(r.arbeitszeit_minuten))} Arbeit${r.unterzeichnet_am ? ` · unterschrieben von ${esc(r.unterzeichnet_von || "Kunde")}` : " · ohne Unterschrift"} <button class="leise" data-rpdf="${esc(r.id)}" data-nr="${esc(r.nummer)}">PDF</button></li>`).join("")}</ul>` : "<p>Noch kein Rapport.</p>"}
+    ${fotos.filter((a) => a.art === "foto").length ? `<h3 style="margin-top:16px">Fotos</h3><div class="galerie">${fotos.filter((a) => a.art === "foto").map((a) => `<figure><img data-bild="${esc(a.id)}" alt="${esc(a.name)}"><figcaption>${esc(a.name)}</figcaption></figure>`).join("")}</div>` : ""}
+    ${wir.rechte.includes("einsatz") ? `<div class="aktionen" style="margin-top:8px"><button class="leise" data-rapport-neu="${esc(id)}">Rapport erfassen</button></div>` : ""}
+    ${wir.rechte.includes("finanzen") ? `<h3 style="margin-top:16px">Nachkalkulation</h3><div id="kalk">Wird geladen …</div>` : ""}`;
+  wurzel.append(teil);
+  teil.querySelectorAll("[data-rpdf]").forEach((b) => b.addEventListener("click", () => dateiLaden(`/rapporte/${b.dataset.rpdf}/pdf`, `${b.dataset.nr}.pdf`)));
+  teil.querySelectorAll("[data-bild]").forEach(async (img) => { img.src = await bildUrl(img.dataset.bild); });
+  teil.querySelector("[data-rapport-neu]")?.addEventListener("click", () => rapportFormular(id, null, null));
+  if (wir.rechte.includes("finanzen")) {
+    try {
+      const k = await api(`/servicefaelle/${id}/kalkulation`);
+      const db = Number(k.deckungsbeitrag);
+      $("#kalk", teil).innerHTML = `<table><tbody>
+        <tr><td>Arbeitszeit</td><td style="text-align:right">${esc(k.stunden)} h</td><td style="text-align:right">Lohnkosten ${esc(EURO.format(k.lohnkosten))}</td></tr>
+        <tr><td>Material (${k.belege} Belege)</td><td></td><td style="text-align:right">${esc(EURO.format(k.material))}</td></tr>
+        <tr><td>Fremdleistung</td><td></td><td style="text-align:right">${esc(EURO.format(k.fremdleistung))}</td></tr>
+        <tr><td>Umsatz netto (${k.rechnungen} Rechnungen)</td><td style="text-align:right"><small>Soll ${esc(EURO.format(k.soll_umsatz))}</small></td><td style="text-align:right"><strong>${esc(EURO.format(k.umsatz_netto))}</strong></td></tr>
+        <tr><td>Deckungsbeitrag</td><td style="text-align:right">${k.deckungsbeitrag_quote != null ? `${esc(k.deckungsbeitrag_quote)} %` : "–"}</td><td style="text-align:right"><strong class="${db < 0 ? "fehler" : ""}">${esc(EURO.format(k.deckungsbeitrag))}</strong></td></tr></tbody></table>
+        <p class="unterzeile" style="margin:8px 0 0">Sätze: ${esc(k.saetze.stundensatz_kosten)} €/h Kosten, ${esc(k.saetze.stundensatz_verrechnung)} €/h Verrechnung, ${esc(k.saetze.materialaufschlag_prozent)} % Materialaufschlag (Einstellungen → Stammdaten). ${k.vorschlag_positionen.length ? `Rechnungsvorschlag: ${k.vorschlag_positionen.length} Positionen.` : ""}</p>`;
+    } catch (e) { $("#kalk", teil).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  }
+}
+
+// --- Belegeingang (Büro/Inhaber): Prüfen, Zuordnen, Übergabe im Belegpaket -----------------------
+const KATEGORIE_TEXT = { material: "Material", fremdleistung: "Fremdleistung", fahrzeug: "Fahrzeug", sonstiges: "Sonstiges" };
+const BELEGSTATUS_TEXT = { erfasst: "Zu prüfen", geprueft: "Geprüft", uebergeben: "An Kanzlei übergeben", bezahlt: "Bezahlt" };
+async function belegeAnsicht(ziel) {
+  const [wir, liste] = await Promise.all([ich(), api("/belege")]);
+  const darf = wir.rechte.includes("bearbeiten");
+  const offen = liste.filter((b) => b.status === "erfasst").length;
+  ziel.innerHTML = `<h1>Belege</h1><p class="unterzeile">Eingangsrechnungen und Lieferscheine: XRechnung und ZUGFeRD werden strukturiert gelesen, PDF und Fotos per Texterkennung. Geprüfte Belege gehen mit dem nächsten Belegpaket an die Kanzlei; die Kontierung bleibt dort.</p>
+    <div class="kacheln"><div class="karte kachel"><div class="wert">${offen}</div><div class="bez">zu prüfen</div></div>
+      <div class="karte kachel"><div class="wert">${liste.filter((b) => b.status === "geprueft").length}</div><div class="bez">bereit für Belegpaket</div></div>
+      <div class="karte kachel"><div class="wert">${esc(EURO.format(liste.filter((b) => b.status !== "bezahlt" && b.status !== "uebergeben").reduce((a, b) => a + Number(b.brutto), 0)))}</div><div class="bez">offen (brutto)</div></div></div>
+    <div class="karte" style="margin-bottom:16px"><h2>Beleg hochladen</h2><div class="zeile">
+      <label>Datei (XRechnung-XML, ZUGFeRD/PDF, Foto) <input id="b-datei" type="file" accept="image/*,application/pdf,.xml,text/xml"></label>
+      <label>Kategorie <select id="b-kategorie">${Object.entries(KATEGORIE_TEXT).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></label>
+      <button id="b-hochladen">Erkennen und erfassen</button></div>
+      <details><summary>Ohne Datei von Hand erfassen</summary><div class="zeile" style="margin-top:8px"><label>Lieferant <input id="b-lieferant"></label><label>Nummer <input id="b-nummer"></label><label>Datum <input id="b-datum" type="date"></label><label>Brutto <input id="b-brutto" inputmode="decimal"></label><label>USt <select id="b-ust"><option>19</option><option>7</option><option>0</option></select></label><button id="b-manuell" class="leise">Erfassen</button></div></details>
+      <p id="b-status"></p></div>
+    <div class="karte"><div class="tabelle-rahmen"><table><thead><tr><th>Datum</th><th>Lieferant</th><th>Nummer</th><th style="text-align:right">Netto</th><th style="text-align:right">Brutto</th><th>Kategorie</th><th>Erkennung</th><th>Status</th></tr></thead><tbody>
+      ${liste.map((b) => `<tr class="klickbar" data-beleg="${esc(b.id)}"><td>${esc(DATUM.format(new Date(b.datum)))}</td><td>${esc(b.lieferant)}</td><td>${esc(b.nummer || "–")}</td><td style="text-align:right">${esc(EURO.format(b.netto))}</td><td style="text-align:right">${esc(EURO.format(b.brutto))}</td>
+        <td>${esc(KATEGORIE_TEXT[b.kategorie])}</td><td>${tag(b.quelle, "neutral")} ${b.erkennung.konfidenz != null && b.quelle !== "manuell" ? tag(`${Math.round(b.erkennung.konfidenz * 100)} %`, b.erkennung.konfidenz >= 0.75 ? "A" : "B") : ""}</td>
+        <td>${tag(BELEGSTATUS_TEXT[b.status], b.status === "erfasst" ? "offen" : b.status === "bezahlt" ? "neutral" : "A")}</td></tr>`).join("") || `<tr><td colspan="8">Noch keine Belege.</td></tr>`}</tbody></table></div></div>`;
+  const senden = async (fd) => {
+    $("#b-status").textContent = "Wird verarbeitet …";
+    try { const b = await api("/belege", { methode: "POST", daten: fd }); $("#b-status").textContent = `Erfasst: ${b.lieferant}, ${EURO.format(b.brutto)}.`; zeigen(); belegDetail(b.id); }
+    catch (e) { $("#b-status").innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  };
+  $("#b-hochladen").addEventListener("click", () => {
+    const datei = $("#b-datei").files[0]; if (!datei) return alert("Datei wählen");
+    const fd = new FormData(); fd.append("datei", datei); fd.append("kategorie", $("#b-kategorie").value); senden(fd);
+  });
+  $("#b-manuell").addEventListener("click", () => {
+    const fd = new FormData(); for (const [id, feld] of [["b-lieferant", "lieferant"], ["b-nummer", "nummer"], ["b-datum", "datum"], ["b-brutto", "brutto"], ["b-ust", "ust_satz"]]) { const v = $(`#${id}`).value.trim(); if (v) fd.append(feld, v); }
+    fd.append("kategorie", $("#b-kategorie").value); senden(fd);
+  });
+  ziel.querySelectorAll("[data-beleg]").forEach((z) => z.addEventListener("click", () => belegDetail(z.dataset.beleg, darf)));
+}
+async function belegDetail(id, darf = true) {
+  const [b, faelle] = await Promise.all([api(`/belege/${id}`), api("/servicefaelle?limit=300")]);
+  const fest = b.status === "uebergeben" || b.status === "bezahlt";
+  const feld = (name, bez, typ = "text", wert = b[name]) => `<label>${bez} <input data-feld="${name}" type="${typ}" value="${esc(wert ?? "")}" ${fest ? "disabled" : ""}></label>`;
+  const wurzel = detail(`<h2>${esc(b.lieferant)} ${b.nummer ? `· ${esc(b.nummer)}` : ""}</h2>
+    <p>${tag(BELEGSTATUS_TEXT[b.status], b.status === "erfasst" ? "offen" : "A")} ${tag(b.quelle, "neutral")}${b.erkennung.hinweise?.length ? `<br><small>Hinweise der Erkennung: ${esc(b.erkennung.hinweise.join("; "))}</small>` : ""}${b.erkennung.kommission ? `<br><small>Kommission laut Beleg: ${esc(b.erkennung.kommission)}</small>` : ""}</p>
+    <div class="belegansicht">${b.anhang_id ? `<div id="b-vorschau" class="vorschau">Wird geladen …</div>` : ""}<div>
+    <div class="zeile">${feld("lieferant", "Lieferant")}${feld("nummer", "Belegnummer")}</div>
+    <div class="zeile">${feld("datum", "Belegdatum", "date")}${feld("faellig", "Fällig", "date")}</div>
+    <div class="zeile">${feld("netto", "Netto")}${feld("umsatzsteuer", "USt")}${feld("brutto", "Brutto")}<label>Satz <select data-feld="ust_satz" ${fest ? "disabled" : ""}>${["19", "7", "0"].map((s) => `<option ${s === b.ust_satz ? "selected" : ""}>${s}</option>`).join("")}</select></label></div>
+    <div class="zeile">${feld("skonto_prozent", "Skonto %")}${feld("skonto_bis", "Skonto bis", "date")}</div>
+    <div class="zeile"><label>Kategorie <select data-feld="kategorie" ${fest ? "disabled" : ""}>${Object.entries(KATEGORIE_TEXT).map(([k, v]) => `<option value="${k}" ${k === b.kategorie ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+      <label>Vorgang (Nachkalkulation) <select data-feld="servicefall_id" ${fest ? "disabled" : ""}><option value="">– keiner –</option>${faelle.map((f) => `<option value="${esc(f.id)}" ${f.id === b.servicefall_id ? "selected" : ""}>${esc(f.anliegen)} (${esc(STATUS_TEXT[f.status])})</option>`).join("")}</select></label></div>
+    <label>Notiz <input data-feld="notiz" value="${esc(b.notiz || "")}"></label>
+    ${b.positionen.length ? `<details><summary>${b.positionen.length} Positionen</summary><table><tbody>${b.positionen.map((p) => `<tr><td>${esc(p.bezeichnung || "")}</td><td style="text-align:right">${esc(p.menge || "")}</td><td style="text-align:right">${p.netto != null ? esc(EURO.format(p.netto)) : ""}</td></tr>`).join("")}</tbody></table></details>` : ""}
+    <p id="b-meldung"></p>
+    <div class="aktionen">${b.anhang_id ? `<button class="leise" id="b-datei-laden">Original</button>` : ""}${darf && !fest ? `<button class="gefahr" id="b-loeschen">Löschen</button><button class="leise" id="b-speichern">Speichern</button><button id="b-pruefen">Geprüft, ins Belegpaket</button>` : ""}${darf && b.status === "uebergeben" ? `<button class="leise" id="b-bezahlt">Als bezahlt markieren</button>` : ""}</div></div></div>`);
+  if (b.anhang_id) {
+    const url = await bildUrl(b.anhang_id);
+    const a = (await api(`/anhaenge?bezug_typ=beleg&bezug_id=${id}`))[0];
+    $("#b-vorschau", wurzel).innerHTML = a?.mime?.startsWith("image/") ? `<img src="${url}" alt="Beleg">` : a?.mime === "application/pdf" ? `<iframe src="${url}" title="Beleg"></iframe>` : `<p>${esc(a?.name || "Datei")} (${esc(a?.mime || "")})</p>`;
+    $("#b-datei-laden", wurzel)?.addEventListener("click", () => dateiLaden(`/anhaenge/${b.anhang_id}/inhalt`, a?.name || "beleg"));
+  }
+  const werte = () => { const d = {}; wurzel.querySelectorAll("[data-feld]").forEach((e) => { d[e.dataset.feld] = e.value === "" ? null : e.value; }); return d; };
+  const speichern = async (extra = {}) => {
+    try { await api(`/belege/${id}`, { methode: "PATCH", daten: { ...werte(), ...extra } }); $("#b-meldung", wurzel).textContent = "Gespeichert."; zeigen(); if (extra.status) $("#detail").close(); }
+    catch (e) { $("#b-meldung", wurzel).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  };
+  $("#b-speichern", wurzel)?.addEventListener("click", () => speichern());
+  $("#b-pruefen", wurzel)?.addEventListener("click", () => speichern({ status: "geprueft" }));
+  $("#b-bezahlt", wurzel)?.addEventListener("click", async () => { try { await api(`/belege/${id}`, { methode: "PATCH", daten: { status: "bezahlt" } }); $("#detail").close(); zeigen(); } catch (e) { alert(e.message); } });
+  $("#b-loeschen", wurzel)?.addEventListener("click", async () => { if (!confirm("Beleg und Datei löschen?")) return; try { await api(`/belege/${id}`, { methode: "DELETE" }); $("#detail").close(); zeigen(); } catch (e) { alert(e.message); } });
+}
+
+// --- Zeiten: Liste, Nachtrag, Lohnexport ------------------------------------------------------
+async function zeitenAnsicht(ziel) {
+  const [wir, ressourcen] = await Promise.all([ich(), api("/ressourcen").catch(() => [])]);
+  const monat = speicher("zeitenMonat") || TAGESSCHLUESSEL.format(new Date()).slice(0, 7);
+  const [j, mo] = monat.split("-").map(Number);
+  const von = new Date(Date.UTC(j, mo - 1, 1)).toISOString(), bis = new Date(Date.UTC(j, mo, 1)).toISOString();
+  const liste = await api(`/zeiten?von=${von}&bis=${bis}`);
+  const name = (id) => ressourcen.find((r) => r.id === id)?.name.split(" (")[0] || id.slice(0, 8);
+  const summen = {}; liste.forEach((z) => { summen[z.ressource_id] = summen[z.ressource_id] || { arbeit: 0, fahrt: 0, pause: 0, bereitschaft: 0 }; summen[z.ressource_id][z.art] += z.minuten; });
+  ziel.innerHTML = `<h1>Zeiten</h1><p class="unterzeile">Stempelzeiten der Monteure je Vorgang; Grundlage für Nachkalkulation und Lohnvorbereitung (§ 16 ArbZG Aufzeichnung, Nacht- und Sonntagszuschläge ausgewiesen).</p>
+    <div class="karte" style="margin-bottom:16px"><div class="zeile"><label>Monat <input id="z-monat" type="month" value="${esc(monat)}"></label>
+      ${wir.rechte.includes("verwalten") ? `<button id="z-export" class="leise">Lohnexport (CSV)</button>` : ""}</div></div>
+    <div class="kacheln">${Object.entries(summen).map(([rid, s]) => `<div class="karte kachel"><div class="wert">${esc(dauerText(s.arbeit + s.fahrt))}</div><div class="bez">${esc(name(rid))} · ${esc(dauerText(s.arbeit))} Arbeit, ${esc(dauerText(s.fahrt))} Fahrt</div></div>`).join("") || ""}</div>
+    <div class="karte" style="margin-bottom:16px"><h2>Nachtragen</h2><div class="zeile">
+      ${!wir.eingeschraenkt ? `<label>Monteur <select id="z-ressource">${ressourcen.map((r) => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join("")}</select></label>` : ""}
+      <label>Art <select id="z-art">${Object.entries(ZEITART_TEXT).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></label>
+      <label>Beginn <input id="z-beginn" type="datetime-local" value="${esc(lokalIso())}"></label><label>Ende <input id="z-ende" type="datetime-local" value="${esc(lokalIso())}"></label>
+      <label>Notiz <input id="z-notiz"></label><button id="z-anlegen" class="leise">Eintragen</button></div><p id="z-status"></p></div>
+    <div class="karte"><div class="tabelle-rahmen"><table><thead><tr><th>Beginn</th><th>Ende</th><th>Dauer</th><th>Monteur</th><th>Art</th><th>Quelle</th><th>Notiz</th></tr></thead><tbody>
+      ${liste.map((z) => `<tr><td>${esc(zeit(z.beginn))}</td><td>${z.ende ? esc(UHRZEIT.format(new Date(z.ende))) : tag("läuft", "offen")}</td><td>${esc(dauerText(z.minuten))}</td><td>${esc(name(z.ressource_id))}</td><td>${esc(ZEITART_TEXT[z.art])}</td><td>${tag(z.quelle, "neutral")}</td><td>${esc(z.notiz || "")}</td></tr>`).join("") || `<tr><td colspan="7">Keine Zeiten in diesem Monat.</td></tr>`}</tbody></table></div></div>`;
+  $("#z-monat").addEventListener("change", (ev) => { speicher("zeitenMonat", ev.target.value); zeigen(); });
+  $("#z-export")?.addEventListener("click", () => dateiLaden(`/zeiten/lohnexport?monat=${monat}`, `lohnvorbereitung_${monat}.csv`));
+  $("#z-anlegen").addEventListener("click", async () => {
+    try {
+      await api("/zeiten", { methode: "POST", daten: { art: $("#z-art").value, beginn: new Date($("#z-beginn").value).toISOString(), ende: new Date($("#z-ende").value).toISOString(),
+        notiz: $("#z-notiz").value || null, ressource_id: $("#z-ressource")?.value || null } });
+      zeigen();
+    } catch (e) { $("#z-status").innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
+}
+
+// --- Bereitschaft und Fristen ------------------------------------------------------------------
+const FRISTART_TEXT = { pruefung: "Prüfung", unterweisung: "Unterweisung", zertifikat: "Zertifikat", garantie: "Garantie", vertrag: "Vertrag", sonstiges: "Sonstiges" };
+async function betriebAnsicht(ziel) {
+  const [wir, ressourcen, bereitschaften, fristen] = await Promise.all([ich(), api("/ressourcen").catch(() => []), api("/bereitschaft"), api("/fristen?vorlauf_tage=365")]);
+  const darf = wir.rechte.includes("bearbeiten");
+  const name = (id) => ressourcen.find((r) => r.id === id)?.name.split(" (")[0] || "–";
+  const heute = TAGESSCHLUESSEL.format(new Date());
+  const tage = (d) => Math.round((Date.parse(d) - Date.parse(heute)) / 86400000);
+  const naechsteWoche = new Date(); naechsteWoche.setDate(naechsteWoche.getDate() + ((5 - naechsteWoche.getDay() + 7) % 7 || 7)); naechsteWoche.setHours(16, 0, 0, 0);
+  const ende = new Date(naechsteWoche); ende.setDate(ende.getDate() + 3); ende.setHours(7, 0, 0, 0);
+  ziel.innerHTML = `<h1>Bereitschaft &amp; Fristen</h1><p class="unterzeile">Der Sprachagent nennt Anrufern bei Notfällen außerhalb der Bürozeit die eingetragene Bereitschaftsnummer. Fristen erinnern an Prüfungen (Gasgeräte, Leitern, Fahrzeuge), Unterweisungen und Zertifikate.</p>
+    <div class="raster"><div class="karte"><h2>Bereitschaft</h2>
+      <table><thead><tr><th>Von</th><th>Bis</th><th>Monteur</th><th>Telefon</th><th></th></tr></thead><tbody>${bereitschaften.map((b) => `<tr><td>${esc(zeit(b.von))}</td><td>${esc(zeit(b.bis))}</td><td>${esc(name(b.ressource_id))}</td><td>${esc(b.telefon)}</td><td>${darf ? `<button class="gefahr" data-bl="${esc(b.id)}">×</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="5">Keine Bereitschaft eingetragen.</td></tr>`}</tbody></table>
+      ${darf ? `<div class="zeile" style="margin-top:12px"><label>Monteur <select id="bs-ressource">${ressourcen.map((r) => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join("")}</select></label>
+        <label>Von <input id="bs-von" type="datetime-local" value="${esc(lokalIso(naechsteWoche))}"></label><label>Bis <input id="bs-bis" type="datetime-local" value="${esc(lokalIso(ende))}"></label>
+        <label>Telefon <input id="bs-telefon" placeholder="+49 …"></label><button id="bs-anlegen" class="leise">Eintragen</button></div><p id="bs-status"></p>` : ""}</div>
+    <div class="karte"><h2>Fristen (nächste 12 Monate)</h2>
+      <table><thead><tr><th>Fällig</th><th>Art</th><th>Bezeichnung</th><th>Bezug</th><th></th></tr></thead><tbody>${fristen.map((f) => { const t = tage(f.faellig); return `<tr><td>${esc(DATUM.format(new Date(f.faellig)))}<br>${tag(t < 0 ? `${-t} Tage überfällig` : t <= 30 ? `in ${t} Tagen` : `in ${Math.round(t / 30)} Monaten`, t < 0 ? "ueberfaellig" : t <= 30 ? "bald_faellig" : "aktuell")}</td><td>${esc(FRISTART_TEXT[f.art])}</td><td>${esc(f.bezeichnung)}${f.hinweis ? `<br><small>${esc(f.hinweis)}</small>` : ""}${f.intervall_monate ? `<br><small>alle ${f.intervall_monate} Monate</small>` : ""}</td><td>${esc(f.bezug_typ === "ressource" ? name(f.bezug_id) : f.bezug_typ)}</td><td><div class="aktionen"><button class="leise" data-fe="${esc(f.id)}">Erledigt</button>${darf ? `<button class="gefahr" data-fl="${esc(f.id)}">×</button>` : ""}</div></td></tr>`; }).join("") || `<tr><td colspan="5">Keine offenen Fristen.</td></tr>`}</tbody></table>
+      ${darf ? `<div class="zeile" style="margin-top:12px"><label>Art <select id="fr-art">${Object.entries(FRISTART_TEXT).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></label>
+        <label>Bezeichnung <input id="fr-bez" placeholder="z. B. UVV-Prüfung Transporter"></label><label>Fällig <input id="fr-faellig" type="date"></label><label>Intervall (Monate) <input id="fr-intervall" type="number" min="1" max="120"></label>
+        <label>Bezug <select id="fr-bezug"><option value="betrieb">Betrieb</option><option value="fahrzeug">Fahrzeug</option>${ressourcen.map((r) => `<option value="ressource:${esc(r.id)}">${esc(r.name)}</option>`).join("")}</select></label>
+        <button id="fr-anlegen" class="leise">Anlegen</button></div><p id="fr-status"></p>` : ""}</div></div>`;
+  $("#bs-anlegen")?.addEventListener("click", async () => {
+    try { await api("/bereitschaft", { methode: "POST", daten: { ressource_id: $("#bs-ressource").value, von: new Date($("#bs-von").value).toISOString(), bis: new Date($("#bs-bis").value).toISOString(), telefon: $("#bs-telefon").value } }); zeigen(); }
+    catch (e) { $("#bs-status").innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
+  ziel.querySelectorAll("[data-bl]").forEach((b) => b.addEventListener("click", async () => { try { await api(`/bereitschaft/${b.dataset.bl}`, { methode: "DELETE" }); zeigen(); } catch (e) { alert(e.message); } }));
+  $("#fr-anlegen")?.addEventListener("click", async () => {
+    const [typ, id] = $("#fr-bezug").value.split(":");
+    try { await api("/fristen", { methode: "POST", daten: { art: $("#fr-art").value, bezeichnung: $("#fr-bez").value, faellig: $("#fr-faellig").value, intervall_monate: Number($("#fr-intervall").value) || null, bezug_typ: typ, bezug_id: id || null } }); zeigen(); }
+    catch (e) { $("#fr-status").innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
+  ziel.querySelectorAll("[data-fe]").forEach((b) => b.addEventListener("click", async () => { try { const r = await api(`/fristen/${b.dataset.fe}/erledigt`, { methode: "POST", daten: {} }); if (r.folgefrist) alert(`Folgefrist angelegt: fällig ${DATUM.format(new Date(r.folgefrist.faellig))}`); zeigen(); } catch (e) { alert(e.message); } }));
+  ziel.querySelectorAll("[data-fl]").forEach((b) => b.addEventListener("click", async () => { try { await api(`/fristen/${b.dataset.fl}`, { methode: "DELETE" }); zeigen(); } catch (e) { alert(e.message); } }));
+}
+
+// Dokumente am Kunden (Angebote, Wartungsverträge, Pläne)
+async function kundeDokumente(wurzel, id) {
+  const wir = await ich();
+  const liste = await api(`/anhaenge?bezug_typ=kunde&bezug_id=${id}`).catch(() => []);
+  const teil = document.createElement("div");
+  teil.innerHTML = `<h3 style="margin-top:16px">Dokumente</h3>${liste.length ? `<ul class="verlauf">${liste.map((a) => `<li>${tag(a.art, "neutral")} <a href="#" data-dok="${esc(a.id)}" data-name="${esc(a.name)}">${esc(a.name)}</a> · ${esc(Math.round(a.groesse / 1024))} KB · ${esc(zeit(a.hochgeladen))}${a.notiz ? ` · ${esc(a.notiz)}` : ""}</li>`).join("")}</ul>` : "<p>Keine Dokumente abgelegt.</p>"}
+    ${wir.rechte.includes("einsatz") ? `<div class="zeile"><label>Datei <input id="kd-datei" type="file"></label><label>Notiz <input id="kd-notiz" placeholder="z. B. Angebot Wärmepumpe"></label><button class="leise" id="kd-hochladen">Ablegen</button></div><p id="kd-status"></p>` : ""}`;
+  wurzel.append(teil);
+  teil.querySelectorAll("[data-dok]").forEach((a) => a.addEventListener("click", (ev) => { ev.preventDefault(); dateiLaden(`/anhaenge/${a.dataset.dok}/inhalt`, a.dataset.name); }));
+  $("#kd-hochladen", teil)?.addEventListener("click", async () => {
+    const datei = $("#kd-datei", teil).files[0]; if (!datei) return alert("Datei wählen");
+    const fd = new FormData(); fd.append("datei", datei); fd.append("bezug_typ", "kunde"); fd.append("bezug_id", id); fd.append("art", datei.type.startsWith("image/") ? "foto" : "dokument"); if ($("#kd-notiz", teil).value) fd.append("notiz", $("#kd-notiz", teil).value);
+    try { await api("/anhaenge", { methode: "POST", daten: fd }); kundeDetail(id); } catch (e) { $("#kd-status", teil).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
+}

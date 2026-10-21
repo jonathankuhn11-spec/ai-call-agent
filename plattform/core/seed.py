@@ -13,9 +13,9 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from core import domaene
+from core import domaene, einsatz
 from core.disposition import ZEITZONE
-from core.modelle import Anlage, Ereignis, Kommunikation, Kunde, Mandant, Objekt, Ressource, Servicefall, Termin
+from core.modelle import Anlage, Beleg, Ereignis, Frist, Kommunikation, Kunde, Mandant, Objekt, Ressource, Servicefall, Termin
 from core.regeln import dringlichkeit_bewerten, qualifikation_fuer
 
 DEMO_NAME = "Demo Haustechnik Köln (fiktiv)"
@@ -119,6 +119,7 @@ def demodaten_anlegen(s: Session, jetzt_: datetime | None = None) -> str:
         domaene.protokollieren(s, m.id, "kunde.angelegt", "kunde", k.id, "mensch", {"quelle": "import"})
     s.flush()
 
+    faelle: list[tuple[Servicefall, int]] = []
     for i, (ki, anliegen, symptom, status, versatz, uhrzeit, mi, bestaetigt) in enumerate(VORGAENGE):
         k = kunden[ki]
         anlage = anlagen_je_kunde[ki][0] if anlagen_je_kunde[ki] else None
@@ -129,6 +130,7 @@ def demodaten_anlegen(s: Session, jetzt_: datetime | None = None) -> str:
                         erstellt=jetzt_ - timedelta(hours=2 + i * 5))
         s.add(f)
         s.flush()
+        faelle.append((f, mi))
         eingang = domaene.protokollieren(s, m.id, "servicefall.eingegangen", "servicefall", f.id,
                                          "ki" if f.quelle == "telefon" else "system",
                                          {"quelle": f.quelle, "dringlichkeit": f.dringlichkeit, "regel": bewertung.grund})
@@ -161,8 +163,56 @@ def demodaten_anlegen(s: Session, jetzt_: datetime | None = None) -> str:
         for n, e in enumerate(s.scalars(select(Ereignis).where(Ereignis.mandant_id == m.id, Ereignis.id > eingang.id)
                                         .order_by(Ereignis.id))):
             e.zeit = f.erstellt + timedelta(minutes=25 + 15 * n)
+    _betriebsdaten(s, m, monteure, faelle, jetzt_, heute)
     s.commit()
     return m.id
+
+
+def _betriebsdaten(s: Session, m: Mandant, monteure: list[Ressource], faelle: list[tuple[Servicefall, int]],
+                   jetzt_: datetime, heute: date) -> None:
+    """Zeiten, Rapport, Eingangsbelege, Bereitschaft und Fristen für die Betriebsmodule."""
+    erledigt = [(f, mi) for f, mi in faelle if f.status in ("durchgefuehrt", "abgerechnet")]
+    for n, (f, mi) in enumerate(erledigt[:2]):
+        r = monteure[mi]
+        tag = datetime.combine(heute - timedelta(days=2 + n), time(8, 0), ZEITZONE)
+        einsatz.zeit_starten(s, m, r, "fahrt", tag, f.id, akteur_name="seed")
+        einsatz.zeit_starten(s, m, r, "arbeit", tag + timedelta(minutes=35), f.id, akteur_name="seed")
+        laufend = einsatz.laufender_eintrag(s, r.id)
+        einsatz.zeit_beenden(s, laufend, tag + timedelta(minutes=35 + 95 + 20 * n))
+        einsatz.rapport_erzeugen(s, m, f, r, {
+            "taetigkeiten": "Störung eingegrenzt, Bauteil getauscht, Anlage in Betrieb genommen und Funktion geprüft.",
+            "material": [{"menge": "1", "bezeichnung": "Ersatzteil laut Beleg"}], "arbeitszeit_minuten": 95 + 20 * n,
+            "fahrzeit_minuten": 35, "ergebnis": "erledigt", "hinweise_kunde": "Wartung in 12 Monaten empfohlen.",
+            "messwerte": {"abgasverlust_prozent": "6.5", "co_ppm": "12", "druck_bar": "1.6"}, "termin_id": None},
+            tag + timedelta(minutes=140), akteur_name="seed")
+    # Eingangsbelege: zwei Großhandelsrechnungen (eine dem ersten Vorgang zugeordnet), eine Tankquittung
+    belege = [
+        ("Sanitärgroßhandel Rheinland (fiktiv)", "RE-2026-18811", 3, "186.50", "material", erledigt[0][0].id if erledigt else None, "geprueft"),
+        ("Heizungsgroßhandel West (fiktiv)", "LS-77120", 1, "412.90", "material", erledigt[1][0].id if len(erledigt) > 1 else None, "erfasst"),
+        ("Tankstelle Ehrenfeld (fiktiv)", None, 0, "84.20", "fahrzeug", None, "erfasst"),
+    ]
+    for lieferant, nummer, tage, brutto, kategorie, fall_id, status in belege:
+        b = float(brutto)
+        netto = round(b / 1.19, 2)
+        s.add(Beleg(mandant_id=m.id, lieferant=lieferant, nummer=nummer, datum=heute - timedelta(days=tage),
+                    faellig=heute - timedelta(days=tage) + timedelta(days=30), netto=f"{netto:.2f}",
+                    umsatzsteuer=f"{b - netto:.2f}", brutto=f"{b:.2f}", ust_satz="19", positionen=[], kategorie=kategorie,
+                    servicefall_id=fall_id, quelle="manuell", erkennung={"konfidenz": 1.0, "hinweise": []}, status=status,
+                    geprueft_von="buero" if status == "geprueft" else None, erstellt=jetzt_ - timedelta(days=tage)))
+    # Bereitschaft: aktuelle Woche (ab gestern bis in acht Tagen), damit der Sprachagent sie findet
+    einsatz.bereitschaft_anlegen(s, m, monteure[0], jetzt_ - timedelta(days=1), jetzt_ + timedelta(days=8),
+                                 "+49221000001", "Demo-Bereitschaft")
+    fristen = [
+        ("betrieb", None, "pruefung", "UVV-Prüfung Transporter K-DH 123", 12, 12, "Prüfplakette im Fahrzeug"),
+        ("betrieb", None, "pruefung", "Prüfung Leitern und Tritte (DGUV 208-016)", 45, 12, None),
+        ("betrieb", None, "unterweisung", "Erste-Hilfe-Auffrischung (DGUV Vorschrift 1)", -9, 24, "Kurs beim DRK buchen"),
+        ("ressource", monteure[1].id, "zertifikat", "Sachkundenachweis Kältemittel (Kat. I)", 150, None, None),
+        ("betrieb", None, "vertrag", "Kfz-Versicherung Flotte: Kündigungsfrist", 300, 12, None),
+    ]
+    for bezug_typ, bezug_id, art, bez, tage, intervall, hinweis in fristen:
+        s.add(Frist(mandant_id=m.id, bezug_typ=bezug_typ, bezug_id=bezug_id, art=art, bezeichnung=bez,
+                    faellig=heute + timedelta(days=tage), intervall_monate=intervall, hinweis=hinweis))
+    s.flush()
 
 
 def monteures_name(r: Ressource) -> str:

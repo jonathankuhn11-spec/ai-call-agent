@@ -74,7 +74,10 @@ vorbereitet · `Referenz` = geprüfte Alternative für eine spätere Entscheidun
 | --- | --- | --- | --- | --- |
 | Mustang Project | Apache-2.0 | ZUGFeRD/Factur-X erzeugen und prüfen | Referenz | Finanzanbindung Stufe 1 |
 | KoSIT-Validator + XRechnung-Konfiguration | Apache-2.0 | Validierung XRechnung | Referenz | Pflichtprüfung vor Versand |
-| reportlab | BSD-3 | Rechnungs-PDF (`core/rechnung.py`) | Bibliothek | genügt für den Pilot; ZUGFeRD-Einbettung später über Mustang |
+| reportlab | BSD-3 | Rechnungs- und Rapport-PDF (`core/rechnung.py`, `core/einsatz.py`) | Bibliothek | genügt für den Pilot; ZUGFeRD-Einbettung später über Mustang |
+| pypdf | BSD-3 | eingebettetes ZUGFeRD-XML und Text aus PDF-Belegen (`core/belege.py`) | Bibliothek | reine Python-Bibliothek, keine Systemabhängigkeit |
+| Tesseract OCR | Apache-2.0 | Texterkennung fotografierter Belege | optional (`MIT_OCR=1` im Dockerfile, Aufruf per CLI) | Trefferquote bei Fotos begrenzt; Büro prüft die Felder; Alternative: Dokumenten-KI eines Anbieters nur mit AVV |
+| Pillow | MIT-CMU | Fotos vor Ablage verkleinern | Bibliothek | — |
 | Lexware Office Public API | kommerziell | Kunden und Rechnungen anlegen | `core/adapter/lexware.py` | Partner-API-Key des Betriebs; Rechnungen werden als Entwurf angelegt |
 | sevDesk API v1 | kommerziell | Kunden und Rechnungen anlegen | `core/adapter/sevdesk.py` | API-Token des Betriebs |
 | DATEV-Format EXTF (Buchungsstapel) | Spezifikation | Belegpaket für die Kanzlei | `core/adapter/belegpaket.py` | Textformat cp1252, ohne DATEV-Schnittstellenvertrag nutzbar (Import durch die Kanzlei) |

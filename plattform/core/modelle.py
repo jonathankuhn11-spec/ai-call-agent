@@ -11,7 +11,7 @@ import uuid
 from datetime import date, datetime, time, timezone
 from typing import Any
 
-from sqlalchemy import JSON, Date, ForeignKey, Index, Integer, String, Text, Time, UniqueConstraint
+from sqlalchemy import JSON, Date, ForeignKey, Index, Integer, LargeBinary, String, Text, Time, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.db import Basis, UtcZeit
@@ -235,3 +235,124 @@ class ExternalRef(_Mandantenbezug, Basis):
     zielsystem: Mapped[str] = mapped_column(String(50))
     externe_id: Mapped[str] = mapped_column(String(120))
     letzter_sync: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
+
+
+# --- Betriebsmodule: Dokumente, Belegeingang, Zeiten, Rapport, Bereitschaft, Fristen -----------
+class Anhang(_Mandantenbezug, Basis):
+    """Datei am Fachobjekt (Foto vom Einsatz, Unterschrift, Belegbild, Vertrag). Der Inhalt liegt in der
+    Datenbank: damit greifen RLS, Sicherung und Löschkonzept ohne zweiten Speicherpfad; Bilder werden
+    beim Hochladen verkleinert (core.einsatz.bild_verkleinern), Obergrenze 10 MB je Datei."""
+    __tablename__ = "anhang"
+    __table_args__ = (Index("ix_anhang_bezug", "bezug_typ", "bezug_id"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    bezug_typ: Mapped[str] = mapped_column(String(20))   # servicefall, kunde, objekt, anlage, beleg, rapport, betrieb
+    bezug_id: Mapped[str] = mapped_column(String(32))
+    art: Mapped[str] = mapped_column(String(20), default="dokument")  # foto, unterschrift, beleg, dokument
+    name: Mapped[str] = mapped_column(String(200))
+    mime: Mapped[str] = mapped_column(String(100))
+    groesse: Mapped[int] = mapped_column(Integer)
+    inhalt: Mapped[bytes] = mapped_column(LargeBinary)
+    notiz: Mapped[str | None] = mapped_column(String(300))
+    hochgeladen_von: Mapped[str | None] = mapped_column(String(100))
+    hochgeladen: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
+
+
+class Beleg(_Mandantenbezug, Basis):
+    """Eingangsbeleg (Lieferantenrechnung, Quittung). Beträge als Zeichenkette (Decimal); Konten vergibt die
+    Kanzlei, die Plattform ordnet nur dem Auftrag zu (Nachkalkulation) und reicht weiter (Belegpaket)."""
+    __tablename__ = "beleg"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    lieferant: Mapped[str] = mapped_column(String(200))
+    nummer: Mapped[str | None] = mapped_column(String(80))
+    datum: Mapped[date] = mapped_column(Date)
+    faellig: Mapped[date | None] = mapped_column(Date)
+    netto: Mapped[str] = mapped_column(String(20))
+    umsatzsteuer: Mapped[str] = mapped_column(String(20))
+    brutto: Mapped[str] = mapped_column(String(20))
+    ust_satz: Mapped[str] = mapped_column(String(6), default="19")
+    skonto_prozent: Mapped[str | None] = mapped_column(String(6))
+    skonto_bis: Mapped[date | None] = mapped_column(Date)
+    positionen: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    kategorie: Mapped[str] = mapped_column(String(30), default="material")  # material, fremdleistung, fahrzeug, sonstiges
+    servicefall_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("servicefall.id"), index=True)
+    anhang_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("anhang.id"))
+    quelle: Mapped[str] = mapped_column(String(20), default="manuell")  # xrechnung, zugferd, ocr, manuell, email
+    erkennung: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # Rohdaten der Extraktion, Konfidenz, Hinweise
+    status: Mapped[str] = mapped_column(String(20), default="erfasst")  # erfasst, geprueft, uebergeben, bezahlt
+    notiz: Mapped[str | None] = mapped_column(Text)
+    geprueft_von: Mapped[str | None] = mapped_column(String(100))
+    erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
+
+
+class Zeiteintrag(_Mandantenbezug, Basis):
+    """Zeiterfassung je Monteur (BAG-Urteil 2022, § 3 ArbSchG): Arbeit, Fahrt, Pause, Bereitschaft.
+    ende leer = läuft noch. Grundlage für Nachkalkulation und Lohnvorbereitung."""
+    __tablename__ = "zeiteintrag"
+    __table_args__ = (Index("ix_zeit_ressource_beginn", "ressource_id", "beginn"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    ressource_id: Mapped[str] = mapped_column(String(32), ForeignKey("ressource.id"))
+    servicefall_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("servicefall.id"), index=True)
+    art: Mapped[str] = mapped_column(String(15), default="arbeit")  # arbeit, fahrt, pause, bereitschaft
+    beginn: Mapped[datetime] = mapped_column(UtcZeit)
+    ende: Mapped[datetime | None] = mapped_column(UtcZeit)
+    notiz: Mapped[str | None] = mapped_column(String(300))
+    quelle: Mapped[str] = mapped_column(String(10), default="app")  # app, manuell, rapport
+    erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
+
+    ressource: Mapped[Ressource] = relationship()
+
+
+class Rapport(_Mandantenbezug, Basis):
+    """Arbeitsbericht zum Einsatz mit Material, Zeiten, Fotos und Kundenunterschrift (Beweiskraft bei
+    Streit über Stunden und Material, § 632 BGB). Nach Unterschrift unveränderlich."""
+    __tablename__ = "rapport"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    servicefall_id: Mapped[str] = mapped_column(String(32), ForeignKey("servicefall.id"), index=True)
+    termin_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("termin.id"))
+    ressource_id: Mapped[str] = mapped_column(String(32), ForeignKey("ressource.id"))
+    nummer: Mapped[str] = mapped_column(String(40))
+    taetigkeiten: Mapped[str] = mapped_column(Text)
+    material: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)  # [{"bezeichnung","menge","einheit"}]
+    arbeitszeit_minuten: Mapped[int] = mapped_column(Integer, default=0)
+    fahrzeit_minuten: Mapped[int] = mapped_column(Integer, default=0)
+    ergebnis: Mapped[str] = mapped_column(String(20), default="erledigt")  # erledigt, nacharbeit, ersatzteil, abgebrochen
+    hinweise_kunde: Mapped[str | None] = mapped_column(Text)
+    messwerte: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # z. B. Abgaswerte, Druck; frei je Gewerk
+    unterschrift_anhang_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("anhang.id"))
+    unterzeichnet_von: Mapped[str | None] = mapped_column(String(200))
+    unterzeichnet_am: Mapped[datetime | None] = mapped_column(UtcZeit)
+    erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
+
+    ressource: Mapped[Ressource] = relationship()
+    servicefall: Mapped[Servicefall] = relationship()
+
+
+class Bereitschaft(_Mandantenbezug, Basis):
+    """Not- und Bereitschaftsdienst: wer ist wann erreichbar; der Sprachassistent nennt bzw. verbindet."""
+    __tablename__ = "bereitschaft"
+    __table_args__ = (Index("ix_bereitschaft_zeit", "von", "bis"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    ressource_id: Mapped[str] = mapped_column(String(32), ForeignKey("ressource.id"))
+    von: Mapped[datetime] = mapped_column(UtcZeit)
+    bis: Mapped[datetime] = mapped_column(UtcZeit)
+    telefon: Mapped[str] = mapped_column(String(32))
+    notiz: Mapped[str | None] = mapped_column(String(200))
+
+    ressource: Mapped[Ressource] = relationship()
+
+
+class Frist(_Mandantenbezug, Basis):
+    """Wiederkehrende Pflichten und Termine außerhalb der Anlagenwartung: DGUV-Prüfungen von Leitern,
+    Werkzeugen und Fahrzeugen, Unterweisungen, Zertifikate (Kälteschein), Herstellergarantien, Verträge."""
+    __tablename__ = "frist"
+    __table_args__ = (Index("ix_frist_faellig", "faellig"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    bezug_typ: Mapped[str] = mapped_column(String(20), default="betrieb")  # betrieb, ressource, anlage, fahrzeug
+    bezug_id: Mapped[str | None] = mapped_column(String(32))
+    art: Mapped[str] = mapped_column(String(20))  # pruefung, unterweisung, zertifikat, garantie, vertrag, sonstiges
+    bezeichnung: Mapped[str] = mapped_column(String(200))
+    faellig: Mapped[date] = mapped_column(Date)
+    intervall_monate: Mapped[int | None] = mapped_column(Integer)
+    erledigt_am: Mapped[date | None] = mapped_column(Date)
+    hinweis: Mapped[str | None] = mapped_column(String(300))
+    erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)

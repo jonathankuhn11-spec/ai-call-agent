@@ -14,6 +14,8 @@ Fristen in Tagen, je Mandant überschreibbar über Mandant.policies["aufbewahrun
                                deshalb Standard 3 Jahre nach Abschluss, für Bauwerke 1825 setzen)
   kunde_inaktiv_tage     1095  Kunden ohne Vorgang, Vertrag und Rechnung seit dieser Frist werden anonymisiert
   rechnung_tage          3650  Rechnungen bleiben; der Kunde kann anonymisiert werden, die Rechnung trägt den Empfänger als Momentaufnahme
+  beleg_tage             3650  Eingangsbelege mit Datei (§ 147 AO); Rapporte, Fotos und Zeiten folgen dem Vorgang (vorgang_tage),
+                               Zeiteinträge außerhalb von Vorgängen zwei Jahre (§ 16 Abs. 2 ArbZG)
 """
 from __future__ import annotations
 
@@ -24,11 +26,12 @@ from sqlalchemy import delete, exists, select
 from sqlalchemy.orm import Session
 
 from core.domaene import protokollieren
-from core.modelle import (Anlage, Ereignis, Kommunikation, Kunde, Mandant, Objekt, OutboxEintrag, Rechnung,
-                          Servicefall, Termin)
+from core.modelle import (Anhang, Anlage, Beleg, Ereignis, Kommunikation, Kunde, Mandant, Objekt, OutboxEintrag,
+                          Rapport, Rechnung, Servicefall, Termin, Zeiteintrag)
 
 STANDARD_FRISTEN = {"transkript_tage": 90, "kommunikation_lose_tage": 30, "outbox_tage": 90, "outbox_tot_tage": 365,
-                    "ereignis_tage": 1095, "vorgang_tage": 1095, "kunde_inaktiv_tage": 1095, "rechnung_tage": 3650}
+                    "ereignis_tage": 1095, "vorgang_tage": 1095, "kunde_inaktiv_tage": 1095, "rechnung_tage": 3650,
+                    "beleg_tage": 3650, "zeit_tage": 730}
 ABGESCHLOSSEN = ("uebergeben", "storniert", "abgerechnet")
 DAUERHAFT = ("rechnung.", "freigabe.", "loeschung.", "kunde.geloescht")
 ANONYM = "Gelöschte Person"
@@ -66,6 +69,21 @@ def anonymisieren(s: Session, kunde: Kunde, akteur: str, grund: str) -> dict[str
     return {"kunde_id": kunde.id, "art": "anonymisiert", "grund": grund}
 
 
+def _vorgangsanhang_loeschen(s: Session, fall_ids: list[str]) -> None:
+    """Rapporte, Zeiten, Fotos und Unterschriften der Vorgänge entfernen; Eingangsbelege bleiben (§ 147 AO) und
+    verlieren nur die Zuordnung."""
+    if not fall_ids:
+        return
+    rapporte = list(s.scalars(select(Rapport.id).where(Rapport.servicefall_id.in_(fall_ids))))
+    s.execute(delete(Anhang).where((Anhang.bezug_typ == "servicefall") & Anhang.bezug_id.in_(fall_ids)))
+    if rapporte:
+        s.execute(delete(Anhang).where((Anhang.bezug_typ == "rapport") & Anhang.bezug_id.in_(rapporte)))
+        s.execute(delete(Rapport).where(Rapport.id.in_(rapporte)))
+    s.execute(delete(Zeiteintrag).where(Zeiteintrag.servicefall_id.in_(fall_ids)))
+    for b in s.scalars(select(Beleg).where(Beleg.servicefall_id.in_(fall_ids))):
+        b.servicefall_id = None
+
+
 def kunde_loeschen(s: Session, kunde: Kunde, jetzt: datetime, akteur: str = "mensch", erzwingen: bool = False) -> dict[str, Any]:
     """Löschantrag nach Art. 17: vollständig, wenn keine Sperrfrist; sonst Anonymisierung oder Ablehnung."""
     f = fristen(s.get(Mandant, kunde.mandant_id))
@@ -75,10 +93,13 @@ def kunde_loeschen(s: Session, kunde: Kunde, jetzt: datetime, akteur: str = "men
     if sperre and sperre.startswith("Rechnung"):
         return anonymisieren(s, kunde, akteur, f"Löschantrag; {sperre}")
     ids = list(s.scalars(select(Servicefall.id).where(Servicefall.kunde_id == kunde.id)))
+    _vorgangsanhang_loeschen(s, ids)
     s.execute(delete(Termin).where(Termin.servicefall_id.in_(ids)))
     s.execute(delete(Kommunikation).where((Kommunikation.kunde_id == kunde.id) | (Kommunikation.servicefall_id.in_(ids))))
     s.execute(delete(Servicefall).where(Servicefall.id.in_(ids)))
     objekte = list(s.scalars(select(Objekt.id).where(Objekt.kunde_id == kunde.id)))
+    s.execute(delete(Anhang).where(((Anhang.bezug_typ == "kunde") & (Anhang.bezug_id == kunde.id))
+                                   | ((Anhang.bezug_typ == "objekt") & Anhang.bezug_id.in_(objekte))))
     s.execute(delete(Anlage).where(Anlage.objekt_id.in_(objekte)))
     s.execute(delete(Objekt).where(Objekt.id.in_(objekte)))
     s.execute(delete(Ereignis).where(Ereignis.mandant_id == kunde.mandant_id, Ereignis.entitaet_id.in_([kunde.id, *ids, *objekte])))
@@ -100,7 +121,11 @@ def auskunft(s: Session, kunde: Kunde) -> dict[str, Any]:
                      "baujahr": a.baujahr, "letzte_wartung": a.letzte_wartung.isoformat() if a.letzte_wartung else None}
                                                                               for a in o.anlagen]} for o in kunde.objekte],
         "vorgaenge": [{"anliegen": f.anliegen, "status": f.status, "dringlichkeit": f.dringlichkeit, "erstellt": f.erstellt.isoformat(),
-                       "termine": [{"beginn": t.beginn.isoformat(), "status": t.status} for t in f.termine]} for f in faelle],
+                       "termine": [{"beginn": t.beginn.isoformat(), "status": t.status} for t in f.termine],
+                       "rapporte": [{"nummer": r.nummer, "taetigkeiten": r.taetigkeiten, "unterzeichnet_von": r.unterzeichnet_von}
+                                    for r in s.scalars(select(Rapport).where(Rapport.servicefall_id == f.id))],
+                       "fotos": [a.name for a in s.scalars(select(Anhang).where(Anhang.bezug_typ == "servicefall", Anhang.bezug_id == f.id))]}
+                      for f in faelle],
         "kommunikation": [{"kanal": k.kanal, "zeit": k.zeit.isoformat(), "zusammenfassung": k.zusammenfassung,
                            "transkript_vorhanden": bool(k.transkript)}
                           for k in s.scalars(select(Kommunikation).where(Kommunikation.kunde_id == kunde.id))],
@@ -146,12 +171,25 @@ def loeschlauf(s: Session, m: Mandant, jetzt: datetime | None = None, trocken: b
                                                  Servicefall.geaendert < vor(f["vorgang_tage"]),
                                                  ~exists().where(Rechnung.servicefall_id == Servicefall.id))).all()
     z["vorgaenge_geloescht"] = len(faelle)
+    _vorgangsanhang_loeschen(s, [fall.id for fall in faelle])
     for fall in faelle:
         s.execute(delete(Termin).where(Termin.servicefall_id == fall.id))
         s.execute(delete(Kommunikation).where(Kommunikation.servicefall_id == fall.id))
         s.execute(delete(Ereignis).where(Ereignis.entitaet_id == fall.id))
         s.delete(fall)
     s.flush()
+
+    alte_zeiten = select(Zeiteintrag.id).where(Zeiteintrag.mandant_id == mid, Zeiteintrag.servicefall_id.is_(None),
+                                               Zeiteintrag.beginn < vor(f["zeit_tage"]))
+    z["zeiten_geloescht"] = len(list(s.scalars(alte_zeiten)))
+    s.execute(delete(Zeiteintrag).where(Zeiteintrag.id.in_(alte_zeiten)))
+
+    alte_belege = s.scalars(select(Beleg).where(Beleg.mandant_id == mid, Beleg.datum < vor(f["beleg_tage"]).date())).all()
+    z["belege_geloescht"] = len(alte_belege)
+    for b in alte_belege:
+        if b.anhang_id:
+            s.execute(delete(Anhang).where(Anhang.id == b.anhang_id))
+        s.delete(b)
 
     z["kunden_anonymisiert"] = 0
     for kunde in s.scalars(select(Kunde).where(Kunde.mandant_id == mid, Kunde.name != ANONYM, Kunde.vertragsstatus != "wartungsvertrag",
