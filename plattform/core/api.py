@@ -1,19 +1,18 @@
 """REST-API des Core-Service: CRM, Vorgänge, Disposition, Freigabe-Inbox, Digital Twin,
 Ontologie-Export und die Tool-API für den Voice-Agenten.
 
-Authentifizierung: `X-API-Key` (Umgebungsvariable CORE_API_KEY; ohne Variable nur für lokale
-Entwicklung offen). Mandantenkontext: `X-Mandant`. Für Büro-Nutzer ist OIDC über Keycloak
-vorgesehen (Profil „auth“ im docker-compose); der API-Key bleibt für Maschinen (Voice-Agent, n8n).
+Authentifizierung und Rollen: core/auth.py. Maschinen (Voice-Agent, n8n) mit `X-API-Key` und
+`X-Mandant`, Personen mit OIDC-Bearer-Token (Keycloak), aus dem Mandant und Rollen stammen.
+Jeder Endpunkt verlangt ein Recht (lesen, status, bearbeiten, freigeben, verwalten, plattform).
 """
 from __future__ import annotations
 
 import os
-import secrets
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
@@ -21,7 +20,8 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from core import domaene, management, twin
-from core.db import Datenbank
+from core.auth import Abgewiesen, Authentifizierung, Prinzipal
+from core.db import Datenbank, mandant_binden
 from core.disposition import freie_zeitfenster, kollidiert
 from core.modelle import (Anlage, Ereignis, Freigabe, Kommunikation, Kunde, Mandant, Objekt, OutboxEintrag,
                           Ressource, Servicefall, Termin)
@@ -180,7 +180,7 @@ class FreigabeAus(_Schema):
 
 class Entscheidung(_Schema):
     freigeben: bool
-    wer: str
+    wer: str | None = None  # nur für Maschinen; bei Personen gilt der Name aus dem Token
 
 
 class AktionNeu(_Schema):
@@ -231,25 +231,57 @@ class VoiceGespraechBeendet(_Schema):
 
 
 # --- App --------------------------------------------------------------------------------------
-def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.utc)) -> FastAPI:
+def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.utc),
+                 system_db: Datenbank | None = None, auth: Authentifizierung | None = None) -> FastAPI:
+    """db: Verbindung des Core (in PostgreSQL Rolle shk_app, unterliegt RLS).
+    system_db: mandantenübergreifende Verwaltung (Rolle shk_system); ohne Angabe SYSTEM_DATABASE_URL bzw. db."""
     db = db or Datenbank()
     db.schema_anlegen()
-    app = FastAPI(title="SHK-Backoffice Core-Service", version="0.1.0")
-    app.state.db, app.state.uhr = db, uhr
-    api_key = os.environ.get("CORE_API_KEY")
+    if system_db is None:
+        system_db = Datenbank(os.environ["SYSTEM_DATABASE_URL"]) if os.environ.get("SYSTEM_DATABASE_URL") else db
+    auth = auth or Authentifizierung.aus_umgebung()
+    app = FastAPI(title="SHK-Backoffice Core-Service", version="0.2.0")
+    app.state.db, app.state.system_db, app.state.uhr, app.state.auth = db, system_db, uhr, auth
 
     def sitzung():
         yield from db.sitzung()
 
-    def pruefen(x_api_key: str | None = Header(None)) -> None:
-        if api_key and not (x_api_key and secrets.compare_digest(x_api_key, api_key)):
-            raise HTTPException(401, "X-API-Key fehlt oder ist falsch")
+    def system_sitzung():
+        yield from system_db.sitzung()
 
-    def mandant_kontext(x_mandant: str = Header(...), s: Session = Depends(sitzung), _=Depends(pruefen)) -> Mandant:
+    def prinzipal(request: Request, authorization: str | None = Header(None),
+                  x_api_key: str | None = Header(None)) -> Prinzipal:
+        try:
+            p = auth.prinzipal(authorization, x_api_key)
+        except Abgewiesen as e:
+            raise HTTPException(e.status, e.grund) from e
+        request.state.prinzipal = p
+        return p
+
+    def recht(name: str):
+        def pruefen(p: Prinzipal = Depends(prinzipal)) -> Prinzipal:
+            if not p.darf(name):
+                raise HTTPException(403, f"Recht {name!r} fehlt (Rollen: {', '.join(sorted(p.rollen)) or 'keine'})")
+            return p
+        return pruefen
+
+    def mandant_kontext(x_mandant: str | None = Header(None), s: Session = Depends(sitzung),
+                        p: Prinzipal = Depends(recht("lesen"))) -> Mandant:
+        if p.art == "person":
+            if x_mandant and x_mandant != p.mandant:
+                raise HTTPException(403, "X-Mandant weicht vom Mandanten des Tokens ab")
+            x_mandant = p.mandant
+        if not x_mandant:
+            raise HTTPException(422, "X-Mandant fehlt")
+        mandant_binden(s, x_mandant)
         m = s.get(Mandant, x_mandant)
         if m is None:
             raise HTTPException(404, "Mandant unbekannt")
         return m
+
+    def wer(p: Prinzipal, angegeben: str | None) -> str:
+        # bei Personen zählt der Name aus dem Token, nicht die Angabe im Request (Revisionssicherheit)
+        return p.name if p.art == "person" else (angegeben or p.name)
 
     def holen(s: Session, modell, id_: str, m: Mandant):
         obj = s.get(modell, id_)
@@ -276,20 +308,31 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     def startseite() -> RedirectResponse:
         return RedirectResponse("/app/")
 
-    @app.get("/mandanten", response_model=list[MandantAus], dependencies=[Depends(pruefen)])
-    def mandanten(s: Session = Depends(sitzung)):
-        return s.scalars(select(Mandant).order_by(Mandant.name)).all()
+    @app.get("/auth/konfiguration")
+    def auth_konfiguration() -> dict[str, Any]:
+        return auth.konfiguration()
 
-    # --- Mandanten ---------------------------------------------------------------------------
-    @app.post("/mandanten", response_model=MandantAus, status_code=201, dependencies=[Depends(pruefen)])
-    def mandant_anlegen(daten: MandantNeu, s: Session = Depends(sitzung)):
+    @app.get("/ich")
+    def ich(p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        return {"art": p.art, "name": p.name, "rollen": sorted(p.rollen), "mandant": p.mandant, "rechte": p.rechte}
+
+    # --- Mandanten (mandantenübergreifend, deshalb über die System-Verbindung) ------------------
+    @app.get("/mandanten", response_model=list[MandantAus])
+    def mandanten(p: Prinzipal = Depends(prinzipal), s: Session = Depends(system_sitzung)):
+        abfrage = select(Mandant).order_by(Mandant.name)
+        if p.art == "person":
+            abfrage = abfrage.where(Mandant.id == p.mandant)
+        return s.scalars(abfrage).all()
+
+    @app.post("/mandanten", response_model=MandantAus, status_code=201, dependencies=[Depends(recht("plattform"))])
+    def mandant_anlegen(daten: MandantNeu, s: Session = Depends(system_sitzung)):
         m = Mandant(**daten.model_dump())
         s.add(m)
         s.commit()
         return m
 
     # --- CRM ---------------------------------------------------------------------------------
-    @app.post("/kunden", response_model=KundeAus, status_code=201)
+    @app.post("/kunden", response_model=KundeAus, status_code=201, dependencies=[Depends(recht("bearbeiten"))])
     def kunde_anlegen(daten: KundeNeu, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
         werte = daten.model_dump()
         werte["telefon"] = telefon_normalisieren(daten.telefon)
@@ -322,7 +365,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
                              "anlagen": [AnlageAus.model_validate(a) for a in o.anlagen]} for o in k.objekte],
                 "servicefaelle": [ServicefallAus.model_validate(f) for f in faelle]}
 
-    @app.patch("/kunden/{kunde_id}", response_model=KundeAus)
+    @app.patch("/kunden/{kunde_id}", response_model=KundeAus, dependencies=[Depends(recht("bearbeiten"))])
     def kunde_aendern(kunde_id: str, daten: KundeAenderung, m: Mandant = Depends(mandant_kontext),
                       s: Session = Depends(sitzung)):
         k = holen(s, Kunde, kunde_id, m)
@@ -335,7 +378,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         s.commit()
         return k
 
-    @app.post("/kunden/{kunde_id}/objekte", response_model=ObjektAus, status_code=201)
+    @app.post("/kunden/{kunde_id}/objekte", response_model=ObjektAus, status_code=201, dependencies=[Depends(recht("bearbeiten"))])
     def objekt_anlegen(kunde_id: str, daten: ObjektNeu, m: Mandant = Depends(mandant_kontext),
                        s: Session = Depends(sitzung)):
         k = holen(s, Kunde, kunde_id, m)
@@ -344,7 +387,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         s.commit()
         return o
 
-    @app.post("/objekte/{objekt_id}/anlagen", response_model=AnlageAus, status_code=201)
+    @app.post("/objekte/{objekt_id}/anlagen", response_model=AnlageAus, status_code=201, dependencies=[Depends(recht("bearbeiten"))])
     def anlage_anlegen(objekt_id: str, daten: AnlageNeu, m: Mandant = Depends(mandant_kontext),
                        s: Session = Depends(sitzung)):
         o = holen(s, Objekt, objekt_id, m)
@@ -361,7 +404,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         return {k: vars(v) for k, v in ANLAGENTYPEN.items()}
 
     # --- Ressourcen und Disposition ----------------------------------------------------------
-    @app.post("/ressourcen", response_model=RessourceAus, status_code=201)
+    @app.post("/ressourcen", response_model=RessourceAus, status_code=201, dependencies=[Depends(recht("verwalten"))])
     def ressource_anlegen(daten: RessourceNeu, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
         werte = daten.model_dump()
         werte["arbeitsbeginn"] = datetime.strptime(daten.arbeitsbeginn, "%H:%M").time()
@@ -412,7 +455,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
                                {"quelle": f.quelle, "dringlichkeit": f.dringlichkeit, "regel": bewertung.grund})
         return f
 
-    @app.post("/servicefaelle", response_model=ServicefallAus, status_code=201)
+    @app.post("/servicefaelle", response_model=ServicefallAus, status_code=201, dependencies=[Depends(recht("bearbeiten"))])
     def servicefall_anlegen(daten: ServicefallNeu, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
         f = servicefall_erzeugen(s, m, daten, "mensch")
         s.commit()
@@ -438,9 +481,11 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
 
     @app.post("/servicefaelle/{fall_id}/status", response_model=ServicefallAus)
     def status_wechseln(fall_id: str, daten: StatusWechsel, m: Mandant = Depends(mandant_kontext),
-                        s: Session = Depends(sitzung)):
+                        s: Session = Depends(sitzung), p: Prinzipal = Depends(recht("status"))):
+        if daten.ziel != "durchgefuehrt" and not p.darf("bearbeiten"):
+            raise HTTPException(403, "Monteure melden nur „durchgeführt“; andere Statuswechsel macht das Büro")
         f = holen(s, Servicefall, fall_id, m)
-        fachlich(lambda: domaene.uebergang(s, f, daten.ziel, "mensch", daten.grund, daten.wer))
+        fachlich(lambda: domaene.uebergang(s, f, daten.ziel, "mensch", daten.grund, wer(p, daten.wer)))
         s.commit()
         return f
 
@@ -461,7 +506,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
                                              f"{r.name}, {daten.beginn.isoformat()}")
         return t, freigabe
 
-    @app.post("/servicefaelle/{fall_id}/termine", status_code=201)
+    @app.post("/servicefaelle/{fall_id}/termine", status_code=201, dependencies=[Depends(recht("bearbeiten"))])
     def termin_anlegen(fall_id: str, daten: TerminNeu, m: Mandant = Depends(mandant_kontext),
                        s: Session = Depends(sitzung)) -> dict[str, Any]:
         f = holen(s, Servicefall, fall_id, m)
@@ -475,7 +520,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         return s.scalars(select(Freigabe).where(Freigabe.mandant_id == m.id, Freigabe.status == status)
                          .order_by(Freigabe.erstellt)).all()
 
-    @app.post("/freigaben", response_model=FreigabeAus, status_code=201)
+    @app.post("/freigaben", response_model=FreigabeAus, status_code=201, dependencies=[Depends(recht("bearbeiten"))])
     def aktion_beantragen(daten: AktionNeu, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
         f = fachlich(lambda: domaene.aktion_beantragen(s, m, daten.aktion, daten.payload, "mensch",
                                                        daten.servicefall_id, daten.begruendung))
@@ -484,9 +529,11 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
 
     @app.post("/freigaben/{freigabe_id}/entscheidung", response_model=FreigabeAus)
     def entscheiden(freigabe_id: str, daten: Entscheidung, m: Mandant = Depends(mandant_kontext),
-                    s: Session = Depends(sitzung)):
+                    s: Session = Depends(sitzung), p: Prinzipal = Depends(recht("freigeben"))):
         f = holen(s, Freigabe, freigabe_id, m)
-        fachlich(lambda: domaene.entscheiden(s, f, daten.freigeben, daten.wer))
+        if f.risikoklasse == "C" and not p.darf("freigeben_c"):
+            raise HTTPException(403, "Finanzwirksame Aktionen (Klasse C) entscheidet nur die Inhaberrolle")
+        fachlich(lambda: domaene.entscheiden(s, f, daten.freigeben, wer(p, daten.wer)))
         s.commit()
         return f
 
@@ -537,7 +584,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
             raise HTTPException(422, f"SPARQL-Fehler: {e}") from e
 
     # --- Management ---------------------------------------------------------------------------
-    @app.post("/wartung/planen")
+    @app.post("/wartung/planen", dependencies=[Depends(recht("bearbeiten"))])
     def wartung_planen(vorlauf_tage: int = Query(60, ge=0, le=365), kunden_anschreiben: bool = True,
                        m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
         neu = management.wartung_planen(s, m, app.state.uhr().date(), vorlauf_tage, kunden_anschreiben)
@@ -555,7 +602,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         return management.plantafel(s, m, tag or app.state.uhr().date(), tage)
 
     # --- Tool-API für den Voice-Agenten ------------------------------------------------------
-    @app.post("/voice/kunde-suchen")
+    @app.post("/voice/kunde-suchen", dependencies=[Depends(recht("bearbeiten"))])
     def voice_kunde_suchen(daten: VoiceKundeSuchen, m: Mandant = Depends(mandant_kontext),
                            s: Session = Depends(sitzung)) -> dict[str, Any]:
         k = s.scalar(select(Kunde).where(Kunde.mandant_id == m.id, Kunde.telefon == telefon_normalisieren(daten.telefon)))
@@ -568,7 +615,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         return {"gefunden": True, "kunde_id": k.id, "name": k.name, "ort": k.ort, "wartungsvertrag": k.vertragsstatus == "wartungsvertrag",
                 "anlagen": anlagen, "offene_vorgaenge": [{"id": f.id, "anliegen": f.anliegen, "status": f.status} for f in offen]}
 
-    @app.post("/voice/zeitfenster")
+    @app.post("/voice/zeitfenster", dependencies=[Depends(recht("bearbeiten"))])
     def voice_zeitfenster(daten: VoiceZeitfenster, m: Mandant = Depends(mandant_kontext),
                           s: Session = Depends(sitzung)) -> dict[str, Any]:
         bewertung = dringlichkeit_bewerten(daten.anliegen, app.state.uhr().month, daten.dringlichkeit)
@@ -585,7 +632,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
                 "zeitfenster": [{"ressource_id": z.ressource_id, "monteur": z.ressource_name,
                                  "beginn": z.beginn.isoformat(), "ende": z.ende.isoformat()} for z in fenster]}
 
-    @app.post("/voice/servicefall", status_code=201)
+    @app.post("/voice/servicefall", status_code=201, dependencies=[Depends(recht("bearbeiten"))])
     def voice_servicefall(daten: VoiceServicefall, m: Mandant = Depends(mandant_kontext),
                           s: Session = Depends(sitzung)) -> dict[str, Any]:
         telefon = telefon_normalisieren(daten.telefon)
@@ -621,7 +668,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         s.commit()
         return antwort
 
-    @app.post("/voice/gespraech-beendet", status_code=201)
+    @app.post("/voice/gespraech-beendet", status_code=201, dependencies=[Depends(recht("bearbeiten"))])
     def voice_gespraech_beendet(daten: VoiceGespraechBeendet, m: Mandant = Depends(mandant_kontext),
                                 s: Session = Depends(sitzung)) -> dict[str, Any]:
         k = None

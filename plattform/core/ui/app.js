@@ -1,5 +1,5 @@
 "use strict";
-// Büro-Oberfläche des Core-Service: spricht ausschließlich die REST-API (X-API-Key, X-Mandant).
+// Büro-Oberfläche des Core-Service: spricht ausschließlich die REST-API (Bearer-Token oder X-API-Key, X-Mandant).
 
 const STATUS = ["eingegangen", "qualifiziert", "eingeplant", "durchgefuehrt", "abgerechnet", "uebergeben"];
 const STATUS_TEXT = { eingegangen: "Eingegangen", qualifiziert: "Qualifiziert", eingeplant: "Eingeplant",
@@ -26,11 +26,13 @@ function speicher(schluessel, wert) {
   try { if (wert === undefined) return sessionStorage.getItem(schluessel); sessionStorage.setItem(schluessel, wert); } catch { return null; }
 }
 
-async function api(pfad, { methode = "GET", daten, mitMandant = true } = {}) {
+async function api(pfad, { methode = "GET", daten, mitMandant = true } = {}, erneut = true) {
   const kopf = { "Content-Type": "application/json" };
-  const key = speicher("apiKey"); if (key) kopf["X-API-Key"] = key;
+  const token = speicher("token"), key = speicher("apiKey");
+  if (token) kopf.Authorization = `Bearer ${token}`; else if (key) kopf["X-API-Key"] = key;
   if (mitMandant) kopf["X-Mandant"] = speicher("mandant") || "";
   const r = await fetch(pfad, { method: methode, headers: kopf, body: daten === undefined ? undefined : JSON.stringify(daten) });
+  if (r.status === 401 && token && erneut && await tokenErneuern()) return api(pfad, { methode, daten, mitMandant }, false);
   if (r.status === 401 || (mitMandant && r.status === 404 && (await r.clone().text()).includes("Mandant unbekannt"))) {
     anmelden(); throw new Error("Anmeldung erforderlich");
   }
@@ -40,7 +42,62 @@ async function api(pfad, { methode = "GET", daten, mitMandant = true } = {}) {
   return inhalt;
 }
 
-// --- Anmeldung -------------------------------------------------------------------------------
+// --- Anmeldung: OIDC (Authorization Code mit PKCE, öffentlicher Client) oder API-Key ---------
+// Personen melden sich über Keycloak an; Mandant und Rollen stehen im Token. Der API-Key bleibt
+// für Administration und Entwicklung. Tokens liegen nur im Sitzungsspeicher dieses Tabs.
+let KONFIG = null, ENDPUNKTE = null;
+async function konfiguration() {
+  if (!KONFIG) KONFIG = await (await fetch("/auth/konfiguration")).json();
+  if (KONFIG.oidc && !ENDPUNKTE) ENDPUNKTE = await (await fetch(`${KONFIG.oidc.issuer}/.well-known/openid-configuration`)).json();
+  return KONFIG;
+}
+const b64url = (puffer) => btoa(String.fromCharCode(...new Uint8Array(puffer))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const zufall = (n) => b64url(crypto.getRandomValues(new Uint8Array(n)));
+const ruecksprung = () => location.origin + location.pathname;
+
+async function oidcAnmelden() {
+  await konfiguration();
+  const verifier = zufall(32), zustand = zufall(16);
+  speicher("pkce", JSON.stringify({ verifier, zustand, ziel: location.hash }));
+  const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
+  const q = new URLSearchParams({ response_type: "code", client_id: KONFIG.oidc.client_id, redirect_uri: ruecksprung(),
+    scope: "openid profile", state: zustand, code_challenge: challenge, code_challenge_method: "S256" });
+  location.assign(`${ENDPUNKTE.authorization_endpoint}?${q}`);
+}
+async function tokenHolen(parameter) {
+  await konfiguration();
+  const r = await fetch(ENDPUNKTE.token_endpoint, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: KONFIG.oidc.client_id, ...parameter }) });
+  if (!r.ok) throw new Error(`Anmeldung fehlgeschlagen (HTTP ${r.status})`);
+  const t = await r.json();
+  speicher("token", t.access_token); speicher("refresh", t.refresh_token || ""); speicher("idToken", t.id_token || "");
+}
+async function tokenErneuern() {
+  if (!speicher("refresh")) return false;
+  try { await tokenHolen({ grant_type: "refresh_token", refresh_token: speicher("refresh") }); return true; } catch { return false; }
+}
+async function oidcRueckkehr() {
+  const q = new URLSearchParams(location.search);
+  if (!q.has("code") && !q.has("error")) return;
+  const pkce = JSON.parse(speicher("pkce") || "{}");
+  speicher("pkce", "");
+  history.replaceState(null, "", location.pathname + (pkce.ziel || ""));
+  if (q.has("error")) throw new Error(`Anmeldung abgebrochen: ${q.get("error_description") || q.get("error")}`);
+  if (!pkce.zustand || q.get("state") !== pkce.zustand) throw new Error("Anmeldung abgewiesen: state stimmt nicht überein");
+  await tokenHolen({ grant_type: "authorization_code", code: q.get("code"), redirect_uri: ruecksprung(), code_verifier: pkce.verifier });
+  ICH = null;
+  const wir = await ich();
+  const betrieb = (await api("/mandanten", { mitMandant: false }))[0];
+  speicher("mandant", wir.mandant); speicher("mandantName", `${betrieb?.name || wir.mandant} · ${wir.name}`);
+}
+function abmelden() {
+  const idToken = speicher("idToken");
+  ["token", "refresh", "idToken", "mandant", "mandantName"].forEach((k) => speicher(k, "")); ICH = null;
+  if (idToken && ENDPUNKTE?.end_session_endpoint) {
+    location.assign(`${ENDPUNKTE.end_session_endpoint}?${new URLSearchParams({ id_token_hint: idToken, post_logout_redirect_uri: ruecksprung() })}`);
+  } else anmelden();
+}
+
 async function mandantenLaden() {
   speicher("apiKey", $("#api-key").value.trim());
   const fehler = $("#anmeldefehler"); fehler.hidden = true;
@@ -50,17 +107,22 @@ async function mandantenLaden() {
       || `<option value="">Keine Betriebe: python -m core seed</option>`;
   } catch (e) { fehler.textContent = e.message; fehler.hidden = false; }
 }
-function anmelden() {
+async function anmelden(meldung) {
   const d = $("#anmeldung"); if (d.open) return;
-  $("#api-key").value = speicher("apiKey") || ""; d.showModal(); mandantenLaden();
+  $("#api-key").value = speicher("apiKey") || ""; d.showModal();
+  $("#anmeldefehler").textContent = meldung || ""; $("#anmeldefehler").hidden = !meldung;
+  try { $("#oidc-bereich").hidden = !(await konfiguration()).oidc; } catch { /* Core nicht erreichbar */ }
+  if ($("#oidc-bereich").hidden && !meldung) mandantenLaden();
 }
-$("#mandanten-laden").addEventListener("click", mandantenLaden);
+$("#oidc-anmelden").addEventListener("click", () => oidcAnmelden().catch((e) => { $("#anmeldefehler").textContent = e.message; $("#anmeldefehler").hidden = false; }));
+$("#mandanten-laden").addEventListener("click", () => mandantenLaden());
 $("#anmeldeformular").addEventListener("submit", () => {
   const auswahl = $("#mandant-auswahl");
+  ["token", "refresh", "idToken"].forEach((k) => speicher(k, "")); ICH = null;
   speicher("apiKey", $("#api-key").value.trim()); speicher("mandant", auswahl.value);
   speicher("mandantName", auswahl.selectedOptions[0]?.textContent || ""); zeigen();
 });
-$("#abmelden").addEventListener("click", anmelden);
+$("#abmelden").addEventListener("click", () => abmelden());
 
 // --- Routing ---------------------------------------------------------------------------------
 const ANSICHTEN = { cockpit, anruf, freigaben, vorgaenge, plantafel, kunden, wartung, ontologie, protokoll };
@@ -77,6 +139,8 @@ window.addEventListener("hashchange", zeigen);
 async function freigabenZaehlen() {
   try { const n = (await api("/freigaben")).length; $("#zaehler-freigaben").innerHTML = n ? tag(n, "offen", n) : ""; } catch { /* Anmeldung läuft */ }
 }
+let ICH = null;  // Prinzipal der Sitzung (Name, Rollen, Rechte), nach jedem Anmelden neu geladen
+async function ich() { return ICH || (ICH = await api("/ich", { mitMandant: false })); }
 function detail(html) { $("#detail-inhalt").innerHTML = html; const d = $("#detail"); if (!d.open) d.showModal(); return $("#detail-inhalt"); }
 
 // --- Cockpit ---------------------------------------------------------------------------------
@@ -175,21 +239,23 @@ async function anrufDurchspielen() {
 
 // --- Freigabe-Inbox --------------------------------------------------------------------------
 async function freigaben(ziel) {
-  const [offen, erledigt] = await Promise.all([api("/freigaben"), api("/freigaben?status=freigegeben")]);
+  const [offen, erledigt, wir] = await Promise.all([api("/freigaben"), api("/freigaben?status=freigegeben"), ich()]);
+  const sperre = (f) => (f.risikoklasse === "C" && !wir.rechte.includes("freigeben_c")) || !wir.rechte.includes("freigeben")
+    ? ` disabled title="Ihre Rolle darf diese Aktion nicht entscheiden"` : "";
   ziel.innerHTML = `
     <h1>Freigabe-Inbox</h1><p class="unterzeile">Human-in-the-Loop: Klasse B (kundenwirksam) nach Mandanten-Policy, Klasse C (finanzwirksam) immer manuell.</p>
     <div class="karte"><div class="tabelle-rahmen"><table><thead><tr><th>Klasse</th><th>Aktion</th><th>Begründung</th><th>Eingang</th><th></th></tr></thead><tbody>
     ${offen.map((f) => `<tr><td>${tag(f.risikoklasse, f.risikoklasse, KLASSE_TEXT[f.risikoklasse])}</td><td>${esc(AKTION_TEXT[f.aktion] || f.aktion)}</td>
       <td>${esc(f.begruendung || "")}${f.servicefall_id ? ` · <a href="#" data-fall="${esc(f.servicefall_id)}">Vorgang</a>` : ""}</td><td>${zeit(f.erstellt)}</td>
-      <td><div class="aktionen"><button class="gefahr" data-entscheidung="${esc(f.id)}" data-ja="0">Ablehnen</button><button data-entscheidung="${esc(f.id)}" data-ja="1">Freigeben</button></div></td></tr>`).join("")
+      <td><div class="aktionen"><button class="gefahr" data-entscheidung="${esc(f.id)}" data-ja="0"${sperre(f)}>Ablehnen</button><button data-entscheidung="${esc(f.id)}" data-ja="1"${sperre(f)}>Freigeben</button></div></td></tr>`).join("")
       || `<tr><td colspan="5">Keine offenen Freigaben.</td></tr>`}
     </tbody></table></div></div>
     <h2 style="margin-top:24px">Zuletzt freigegeben</h2>
     <div class="karte"><table><tbody>${erledigt.slice(-8).reverse().map((f) => `<tr><td>${tag(f.risikoklasse)}</td><td>${esc(AKTION_TEXT[f.aktion] || f.aktion)}</td><td>${esc(f.entschieden_von)}</td><td>${esc(f.begruendung || "")}</td></tr>`).join("") || "<tr><td>–</td></tr>"}</tbody></table></div>`;
   ziel.querySelectorAll("[data-entscheidung]").forEach((b) => b.addEventListener("click", async () => {
     b.disabled = true;
-    await api(`/freigaben/${b.dataset.entscheidung}/entscheidung`, { methode: "POST", daten: { freigeben: b.dataset.ja === "1", wer: "buero" } });
-    zeigen();
+    try { await api(`/freigaben/${b.dataset.entscheidung}/entscheidung`, { methode: "POST", daten: { freigeben: b.dataset.ja === "1", wer: "buero" } }); zeigen(); }
+    catch (e) { b.disabled = false; alert(e.message); }
   }));
   ziel.querySelectorAll("a[data-fall]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); fallDetail(a.dataset.fall); }));
 }
@@ -343,4 +409,4 @@ async function protokoll(ziel) {
     ${ereignisse.map((e) => `<tr><td>${zeit(e.zeit)}</td><td>${tag(e.akteur, "neutral")}${e.akteur_name ? ` <small>${esc(e.akteur_name)}</small>` : ""}</td><td><code>${esc(e.typ)}</code></td><td><small>${esc(JSON.stringify(e.payload))}</small></td></tr>`).join("")}</tbody></table></div></div>`;
 }
 
-zeigen();
+oidcRueckkehr().then(zeigen, (e) => anmelden(e.message));

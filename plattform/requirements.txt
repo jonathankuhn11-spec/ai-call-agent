@@ -5,6 +5,9 @@ pydantic==2.13.5
 SQLAlchemy==2.0.55
 psycopg[binary]==3.2.10
 httpx==0.28.1
+alembic==1.20.0
+# OIDC: Prüfung der Access Tokens (RS256/ES256) gegen die JWKS von Keycloak
+PyJWT[crypto]==2.15.1
 # Ontologie: Validierung des Turtle-Exports in den Tests, optional für SPARQL-Abfragen
 rdflib==7.6.0
 pytest==9.1.1

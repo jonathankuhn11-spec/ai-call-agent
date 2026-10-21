@@ -1,0 +1,70 @@
+#cloud-config
+# Grundeinrichtung eines Servers (Ubuntu 24.04 LTS) für die Plattform, z. B. als „Cloud config“ bei
+# Hetzner Cloud, IONOS Cloud oder STACKIT angeben. Vorher den öffentlichen SSH-Schlüssel eintragen.
+# Ergebnis: Nutzer shk mit Docker, Firewall, automatische Sicherheitsupdates, fail2ban, nächtliche
+# Sicherung um 02:15 Uhr. Die Anwendung selbst rollt deploy.sh aus (HOSTING.md, Schritt 4).
+
+package_update: true
+package_upgrade: true
+timezone: Europe/Berlin
+locale: de_DE.UTF-8
+
+users:
+  - name: shk   # Gruppe docker folgt nach der Docker-Installation (runcmd)
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart docker"
+    ssh_authorized_keys:
+      - ssh-ed25519 BITTE-OEFFENTLICHEN-SCHLUESSEL-EINTRAGEN shk-deploy
+
+packages:
+  - ca-certificates
+  - curl
+  - git
+  - ufw
+  - fail2ban
+  - unattended-upgrades
+  - restic
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/10-shk.conf
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin no
+      AllowUsers shk
+  - path: /etc/apt/apt.conf.d/52shk-unattended
+    content: |
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "04:30";
+  - path: /etc/docker/daemon.json
+    content: |
+      {"log-driver": "json-file", "log-opts": {"max-size": "20m", "max-file": "5"}, "live-restore": true}
+  - path: /etc/cron.d/shk-backup
+    content: |
+      SHELL=/bin/sh
+      15 2 * * * shk /opt/shk/plattform/deploy/server/backup.sh >> /var/log/shk-backup.log 2>&1
+
+runcmd:
+  # Docker Engine aus dem offiziellen Repository
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  - sh -c 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list'
+  - apt-get update
+  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+  - usermod -aG docker shk
+  # Firewall: HTTP(S) für Caddy, SSH; SIP und RTP nur, wenn Telefonie auf diesem Server läuft.
+  # SIP möglichst auf die IP-Bereiche des Carriers einschränken (ufw allow from <netz> to any port 5060).
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow 22/tcp
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw allow 443/udp
+  - ufw allow 5060/udp
+  - ufw allow 10000:20000/udp
+  - ufw --force enable
+  - install -d -o shk -g shk /opt/shk /var/backups/shk
+  - touch /var/log/shk-backup.log && chown shk /var/log/shk-backup.log
+  - git clone https://github.com/jonathankuhn11-spec/ai-call-agent.git /opt/shk && chown -R shk:shk /opt/shk
+  - systemctl enable --now fail2ban
+  - systemctl restart ssh

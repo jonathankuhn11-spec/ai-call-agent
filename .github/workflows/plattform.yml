@@ -31,15 +31,23 @@ jobs:
         run: python -m pip install -r requirements.txt ruff
       - name: Statische Prüfung
         run: ruff check --select F,E9 .
-      - name: Tests (SQLite im Speicher)
+      - name: Datenbankrollen anlegen (wie deploy/postgres/init)
+        run: psql "postgresql://shk:ci@localhost:5432/shk" -v app_passwort=ci-app -v system_passwort=ci-system -f deploy/postgres/rollen.sql
+      - name: Tests (SQLite im Speicher, zusätzlich Migrationen und Row-Level Security gegen PostgreSQL)
+        env:
+          PG_TEST_URL: postgresql+psycopg://shk:ci@localhost:5432/shk
         run: python -m pytest -q
       - name: Referenzfluss (Heizungsausfall per Telefon bis Outbox)
         run: python -m core demo
-      - name: Core gegen PostgreSQL starten und Durchstich per HTTP
+      - name: Core gegen PostgreSQL starten (Rolle shk_app unter RLS) und Durchstich per HTTP
         env:
-          DATABASE_URL: postgresql+psycopg://shk:ci@localhost:5432/shk
+          MIGRATION_DATABASE_URL: postgresql+psycopg://shk:ci@localhost:5432/shk
+          DATABASE_URL: postgresql+psycopg://shk_app:rls-test@localhost:5432/shk
+          SYSTEM_DATABASE_URL: postgresql+psycopg://shk_system:rls-test@localhost:5432/shk
           CORE_API_KEY: ci-key
         run: |
+          psql "postgresql://shk:ci@localhost:5432/shk" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public"
+          python -m core migrate
           python -m core serve --port 8100 > serve.log 2>&1 &
           for i in $(seq 1 40); do curl -fsS http://127.0.0.1:8100/health > /dev/null 2>&1 && break; sleep 0.5; done
           H='-H X-API-Key:ci-key -H Content-Type:application/json'
@@ -76,3 +84,12 @@ jobs:
         run: docker build -t shk-core:ci plattform
       - name: Referenzfluss im Container
         run: docker run --rm shk-core:ci python -m core demo
+      - name: Compose-Dateien und Caddyfile prüfen
+        working-directory: plattform
+        run: |
+          cp .env.example .env
+          SHK_VERSION=0.0.0 SHK_DOMAIN=ci.example.de ACME_EMAIL=ci@example.de KEYCLOAK_DB_PASSWORD=ci \
+            docker compose -f docker-compose.yml -f deploy/server/docker-compose.prod.yml --profile auth --profile voice config --quiet
+          docker run --rm -e SHK_DOMAIN=backoffice.example.de -e ACME_EMAIL=it@example.de \
+            -v "$PWD/deploy/server/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile
+          python -c "import json; json.load(open('deploy/keycloak/shk-realm.json'))"

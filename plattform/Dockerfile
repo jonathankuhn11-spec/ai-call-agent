@@ -7,6 +7,8 @@ RUN pip install --no-cache-dir -r requirements.txt \
 COPY core core
 COPY voice voice
 COPY ontologie ontologie
+COPY alembic.ini ./
+COPY migrations migrations
 RUN useradd --create-home app && mkdir -p /app/export && chown app /app/export
 USER app
 EXPOSE 8100

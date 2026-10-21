@@ -19,12 +19,18 @@ plattform/
 │   ├── zustellung.py     Outbox-Worker mit Backoff, Dead-Letter, CSV-Degradierung
 │   ├── management.py     Wartungsplanung, Kennzahlen, Plantafel, SPARQL über den Zwilling
 │   ├── api.py            REST-API inkl. /voice/* für den Agenten
+│   ├── auth.py           API-Key für Maschinen, OIDC-Token für Personen, Rollen und Rechte
 │   ├── seed.py           fiktive Demodaten relativ zum heutigen Datum
 │   ├── demo.py           Referenzfluss „Heizungsausfall bis Outbox“
 │   └── ui/               Büro-Oberfläche (statisch, ohne Build-Schritt), ausgeliefert unter /app
+├── migrations/           Alembic: Grundschema, Row-Level Security je Mandant
 ├── voice/                Voice-Agent (LiveKit Agents) und Tool-Client
 ├── ontologie/shk.ttl     Domänenontologie (OWL 2, Brick-Abgleich)
 ├── deploy/livekit/       LiveKit-Server, SIP-Gateway, Trunk und Dispatch-Regel
+├── deploy/keycloak/      Realm „shk“: Rollen, Client mit PKCE, Mandanten-Claim
+├── deploy/postgres/      Datenbankrollen (shk_app unter RLS, shk_system) und Init-Skripte
+├── deploy/server/        Serverbetrieb: Compose-Override, Caddy, cloud-init, Deploy, Backup
+├── HOSTING.md            Hosting in Deutschland, Einrichtung, Sicherung, Sicherheitskonzept
 ├── docker-compose.yml    Profile: Basis, voice, ops (n8n), auth (Keycloak), ontologie (Fuseki)
 ├── KATALOG.md            Open-Source-Komponenten mit Lizenz und Einbindungsart
 └── VOICE-AGENT.md        Auswahl des Voice-Agenten und Aufbau des Voice-Backends
@@ -57,12 +63,37 @@ Danach `http://localhost:8100/` öffnen (Oberfläche) bzw. `/docs` (OpenAPI). Oh
 | Ontologie | vorbereitete SPARQL-Abfragen und freies Abfragefeld über TBox und Instanzdaten |
 | Ereignisprotokoll | Event-Log und Outbox inkl. Dead-Letter |
 
-Mit Docker: `cp .env.example .env`, Werte setzen, `docker compose up -d` (PostgreSQL, Core, Worker).
-Voice zusätzlich mit `--profile voice`, siehe [VOICE-AGENT.md](VOICE-AGENT.md).
+Mit Docker: `cp .env.example .env`, Werte setzen, `docker compose up -d` (PostgreSQL, Migration,
+Core, Worker). Anmeldung über Keycloak mit `--profile auth` und `OIDC_ISSUER=http://localhost:8180/realms/shk`,
+Voice mit `--profile voice` (siehe [VOICE-AGENT.md](VOICE-AGENT.md)). Serverbetrieb: [HOSTING.md](HOSTING.md).
+
+## Anmeldung, Rollen, Mandantentrennung
+
+| Prinzipal | Nachweis | Mandant | Rechte |
+| --- | --- | --- | --- |
+| Maschine (Voice-Agent, n8n, Administration) | `X-API-Key` | Header `X-Mandant` | alle |
+| Person | `Authorization: Bearer` (Keycloak, Authorization Code + PKCE) | Claim `mandant` im Token | nach Rolle |
+| Entwicklung | weder `CORE_API_KEY` noch `OIDC_ISSUER` gesetzt | Header `X-Mandant` | alle |
+
+| Recht | inhaber | buero | monteur | steuerberater |
+| --- | :-: | :-: | :-: | :-: |
+| lesen (CRM, Vorgänge, Plantafel, Twin, Ontologie) | ✓ | ✓ | ✓ | ✓ |
+| bearbeiten (CRM, Servicefälle, Termine, Wartung, Voice-Tools) | ✓ | ✓ | | |
+| Status „durchgeführt“ melden | ✓ | ✓ | ✓ | |
+| Freigaben Klasse A/B | ✓ | ✓ | | |
+| Freigaben Klasse C (finanzwirksam) | ✓ | | | |
+| Monteure/Ressourcen verwalten | ✓ | | | |
+
+Bei Personen stammt der Name im Event-Log aus dem Token; eine Angabe `wer` in der Anfrage wird
+ignoriert. In PostgreSQL erzwingt zusätzlich Row-Level Security die Mandantentrennung
+(Migration `0002`): Der Core läuft als Rolle `shk_app` ohne DDL- und ohne Bypass-Recht, jede
+Transaktion setzt `app.mandant`, ohne diesen Wert sind keine Zeilen sichtbar. Worker, Seed und
+Mandantenverwaltung nutzen `shk_system` (`SYSTEM_DATABASE_URL`). Schemaänderungen laufen nur über
+`python -m core migrate` (`MIGRATION_DATABASE_URL`, Eigentümerrolle).
 
 ## API im Überblick
 
-Alle Fachendpunkte verlangen `X-Mandant`; mit gesetztem `CORE_API_KEY` zusätzlich `X-API-Key`.
+Fachendpunkte verlangen einen Mandantenkontext: bei Maschinen `X-Mandant`, bei Personen aus dem Token.
 
 | Bereich | Endpunkte |
 | --- | --- |
@@ -73,7 +104,8 @@ Alle Fachendpunkte verlangen `X-Mandant`; mit gesetztem `CORE_API_KEY` zusätzli
 | Betrieb | `GET /outbox?status=tot` (Dead-Letter), `GET /ereignisse` |
 | Digital Twin | `GET /twin/betrieb`, `GET /twin/anlagen/{id}` |
 | Ontologie | `GET /ontologie/tbox`, `GET /ontologie/export?mit_tbox=true` (text/turtle), `POST /ontologie/sparql` (nur SELECT/ASK) |
-| Management | `POST /wartung/planen`, `GET /kennzahlen`, `GET /plantafel`, `GET /mandanten` |
+| Management | `POST /wartung/planen`, `GET /kennzahlen`, `GET /plantafel`, `GET/POST /mandanten` |
+| Anmeldung | `GET /auth/konfiguration` (öffentlich), `GET /ich` (Name, Rollen, Rechte) |
 | Voice-Tools | `POST /voice/kunde-suchen`, `/voice/zeitfenster`, `/voice/servicefall`, `/voice/gespraech-beendet` |
 
 Ontologie in Fuseki laden (Profil `ontologie`):
@@ -92,17 +124,21 @@ Ontologie in Fuseki laden (Profil `ontologie`):
 
 ## Stand und offene Punkte
 
-Getestet (pytest, SQLite): Referenzfluss Ende-zu-Ende, Statusautomat, Freigabeklassen, Dubletten,
+Getestet (pytest): Referenzfluss Ende-zu-Ende, Statusautomat, Freigabeklassen, Dubletten,
 Mandantentrennung, Disposition (Qualifikation, Wochenende, Kollision, Puffer), Sicherheitsfall
-Gasgeruch, Outbox-Idempotenz und Dead-Letter, Digital Twin, SPARQL über Export und TBox,
-API-Key, Tool-Client des Voice-Agenten. In CI zusätzlich: Start gegen PostgreSQL, Docker-Build,
-Import des Voice-Agenten.
+Gasgeruch, Outbox-Idempotenz und Dead-Letter, Digital Twin, SPARQL über Export und TBox, Tool-Client
+des Voice-Agenten, OIDC-Tokenprüfung (Signatur, Ablauf, Audience, Issuer, Mandanten-Claim) und
+Rollenmodell. Gegen PostgreSQL (`PG_TEST_URL`, in CI): Migrationen entsprechen dem Modell,
+Row-Level Security trennt Mandanten auch ohne Filter im Code, `shk_app` darf kein DDL, Worker
+arbeitet mandantenübergreifend. Manuell: Browser-Anmeldung gegen Keycloak 26.0.7 mit dem
+mitgelieferten Realm, Oberfläche hinter Caddy mit Produktions-CSP. In CI zusätzlich: Docker-Build,
+Import des Voice-Agenten, `docker compose config`, `caddy validate`.
 
 Nicht getestet bzw. offen:
 - echter Anruf über SIP (braucht Carrier-Trunk, Server mit öffentlicher IP, STT/TTS-Schlüssel)
+- Erstausrollung auf einem echten Server (cloud-init, Let's Encrypt, GHCR), Backup im Containerbetrieb
 - Fachsoftware-Adapter (openHandwerk, pds …): abhängig von der API-Klärung, bis dahin CSV-Degradierung
-- Oberfläche ohne OIDC-Anmeldung (API-Key im Browser-Sitzungsspeicher); für den Pilot Keycloak davorschalten
 - Finanzanbindung (Lexware Office, sevDesk, DATEV, XRechnung über Mustang Project)
-- Datenbankmigrationen (Alembic) statt `create_all`, Row-Level-Security-Policies, OIDC im Core
+- Zuordnung Monteur zu Ressource (Monteure sehen derzeit alle Einsätze des Mandanten)
 - AVV, TOMs, Löschkonzept: rechtliche Unterlagen vor dem ersten Pilotkunden
 - Namespace der Ontologie (`https://w3id.org/shk-backoffice/ont#`) ist ein Platzhalter

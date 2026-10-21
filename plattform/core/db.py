@@ -1,25 +1,29 @@
 """Datenbankanbindung: PostgreSQL im Betrieb, SQLite in Tests und Demo.
 
-Mandantentrennung erfolgt über die Spalte mandant_id an jeder Fachtabelle; jede Abfrage im
-Core-Service läuft über den Mandantenkontext der Anfrage (api.mandant_kontext). Das ist mit
-Row-Level Security in PostgreSQL direkt nachrüstbar (Policy auf mandant_id), ohne das Schema
-zu ändern. Die Architektur sah ursprünglich ein Schema je Mandant vor; die Spaltenlösung ist
-im Pilot einfacher zu migrieren und skaliert über 100 Mandanten hinaus.
+Mandantentrennung erfolgt zweistufig: im Code über die Spalte mandant_id und den
+Mandantenkontext der Anfrage (api.mandant_kontext), in PostgreSQL zusätzlich über Row-Level
+Security (Migration 0002). Dafür setzt jede Transaktion `app.mandant` auf den Mandanten, der mit
+mandant_binden an die Sitzung gebunden wurde. Die Architektur sah ursprünglich ein Schema je
+Mandant vor; die Spaltenlösung ist einfacher zu migrieren und skaliert über 100 Mandanten hinaus.
+
+Schema: SQLite (Tests, Demo) per create_all, PostgreSQL ausschließlich über Alembic-Migrationen
+(`python -m core migrate`), weil der Core dort ohne DDL-Rechte läuft.
 """
 from __future__ import annotations
 
 import os
 from collections.abc import Iterator
-
 from datetime import datetime, timezone
+from pathlib import Path
 
-from sqlalchemy import DateTime, create_engine, event
+from sqlalchemy import DateTime, create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.types import TypeDecorator
 
 STANDARD_URL = "sqlite:///plattform-demo.db"
+WURZEL = Path(__file__).resolve().parent.parent
 
 
 class Basis(DeclarativeBase):
@@ -62,15 +66,42 @@ def engine_erzeugen(url: str | None = None) -> Engine:
     return create_engine(url, pool_pre_ping=True)
 
 
+def _mandant_setzen(sitzung: Session, _transaktion, verbindung) -> None:
+    # transaktionslokal: nach Commit oder Rollback ist der Wert weg, eine Verbindung aus dem Pool
+    # kann also keinen Mandanten der vorigen Anfrage mitbringen
+    verbindung.exec_driver_sql("SELECT set_config('app.mandant', %s, true)", (sitzung.info.get("mandant", ""),))
+
+
+def mandant_binden(s: Session, mandant_id: str) -> None:
+    """Bindet den Mandanten an die Sitzung; gilt für die laufende und jede folgende Transaktion."""
+    s.info["mandant"] = mandant_id
+    if s.in_transaction() and s.get_bind().dialect.name == "postgresql":
+        s.execute(text("SELECT set_config('app.mandant', :m, true)"), {"m": mandant_id})
+
+
+def migrieren(url: str | None = None, ziel: str = "head") -> None:
+    from alembic import command
+    from alembic.config import Config
+
+    cfg = Config(str(WURZEL / "alembic.ini"))
+    cfg.attributes["url"] = url or os.environ.get("MIGRATION_DATABASE_URL") or os.environ.get("DATABASE_URL", STANDARD_URL)
+    command.upgrade(cfg, ziel)
+
+
 class Datenbank:
     def __init__(self, url: str | None = None):
         self.engine = engine_erzeugen(url)
         self.sitzungen = sessionmaker(self.engine, expire_on_commit=False)
+        self.postgres = self.engine.dialect.name == "postgresql"
+        if self.postgres:
+            event.listen(self.sitzungen, "after_begin", _mandant_setzen)
 
     def schema_anlegen(self) -> None:
+        """SQLite: Tabellen direkt anlegen. PostgreSQL: nichts tun, das Schema kommt aus den Migrationen."""
         from core import modelle  # noqa: F401  (registriert die Tabellen an Basis.metadata)
 
-        Basis.metadata.create_all(self.engine)
+        if not self.postgres:
+            Basis.metadata.create_all(self.engine)
 
     def sitzung(self) -> Iterator[Session]:
         with self.sitzungen() as s:

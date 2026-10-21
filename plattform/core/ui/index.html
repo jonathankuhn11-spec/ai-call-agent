@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SHK-Backoffice</title>
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -19,7 +20,7 @@
     <a href="#wartung" data-ansicht="wartung">Wartungsplanung</a>
     <a href="#ontologie" data-ansicht="ontologie">Ontologie</a>
     <a href="#protokoll" data-ansicht="protokoll">Ereignisprotokoll</a>
-    <button id="abmelden" class="leise">Mandant wechseln</button>
+    <button id="abmelden" class="leise">Abmelden / wechseln</button>
   </nav>
   <main id="inhalt" tabindex="-1"></main>
 </div>
@@ -27,6 +28,10 @@
 <dialog id="anmeldung">
   <form method="dialog" id="anmeldeformular">
     <h2>Anmelden</h2>
+    <div id="oidc-bereich" hidden>
+      <p><button id="oidc-anmelden" type="button">Mit Betriebskonto anmelden</button></p>
+      <p class="unterzeile">Administration und Entwicklung: mit API-Key und Betrieb.</p>
+    </div>
     <label>API-Key <input id="api-key" type="password" autocomplete="off" placeholder="leer lassen, wenn CORE_API_KEY nicht gesetzt ist"></label>
     <label>Betrieb <select id="mandant-auswahl"></select></label>
     <p id="anmeldefehler" class="fehler" hidden></p>

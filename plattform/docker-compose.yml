@@ -1,14 +1,19 @@
 # SHK-Backoffice-Plattform. Profile:
-#   (ohne)      postgres, core, worker                       docker compose up -d
+#   (ohne)      postgres, migrate, core, worker              docker compose up -d
 #   voice       + redis, livekit, livekit-sip, voice-agent   docker compose --profile voice up -d
 #   ops         + n8n (Eingangsworkflows)                    docker compose --profile ops up -d
-#   auth        + keycloak (OIDC für Büro-Oberfläche)        docker compose --profile auth up -d
+#   auth        + keycloak (OIDC, Realm shk importiert)       docker compose --profile auth up -d
 #   ontologie   + Apache Jena Fuseki (SPARQL)                docker compose --profile ontologie up -d
 # Fremd-Images mit :latest vor dem Produktivbetrieb auf eine geprüfte Version pinnen.
+# Betrieb auf einem Server: deploy/server/ (HOSTING.md).
 
+# Datenbankrollen (deploy/postgres/rollen.sql): shk = Eigentümer, nur Migrationen;
+# shk_app = Core, unterliegt Row-Level Security; shk_system = Worker/Seed, mandantenübergreifend.
 x-core-umgebung: &core-umgebung
-  DATABASE_URL: postgresql+psycopg://shk:${POSTGRES_PASSWORD}@postgres:5432/shk
+  DATABASE_URL: postgresql+psycopg://shk_app:${SHK_APP_PASSWORD}@postgres:5432/shk
+  SYSTEM_DATABASE_URL: postgresql+psycopg://shk_system:${SHK_SYSTEM_PASSWORD}@postgres:5432/shk
   CORE_API_KEY: ${CORE_API_KEY}
+  OIDC_ISSUER: ${OIDC_ISSUER:-}
 
 services:
   postgres:
@@ -17,24 +22,39 @@ services:
       POSTGRES_USER: shk
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: shk
-    volumes: [postgres-daten:/var/lib/postgresql/data]
+      SHK_APP_PASSWORD: ${SHK_APP_PASSWORD}
+      SHK_SYSTEM_PASSWORD: ${SHK_SYSTEM_PASSWORD}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-}
+    volumes:
+      - postgres-daten:/var/lib/postgresql/data
+      - ./deploy/postgres/init:/docker-entrypoint-initdb.d:ro   # nur beim ersten Start (leeres Volume)
+      - ./deploy/postgres/rollen.sql:/shk/rollen.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U shk -d shk"]
       interval: 5s
       retries: 10
+
+  migrate:
+    build: .
+    command: ["python", "-m", "core", "migrate"]
+    environment:
+      MIGRATION_DATABASE_URL: postgresql+psycopg://shk:${POSTGRES_PASSWORD}@postgres:5432/shk
+    depends_on:
+      postgres: {condition: service_healthy}
 
   core:
     build: .
     environment: *core-umgebung
     ports: ["127.0.0.1:8100:8100"]
     depends_on:
-      postgres: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
 
   worker:
     build: .
     command: ["python", "-m", "core", "worker"]
     environment:
       <<: *core-umgebung
+      DATABASE_URL: postgresql+psycopg://shk_system:${SHK_SYSTEM_PASSWORD}@postgres:5432/shk
       CSV_EXPORT: /app/export
     volumes: [export:/app/export]
     depends_on:
@@ -99,14 +119,16 @@ services:
       N8N_DIAGNOSTICS_ENABLED: "false"
     volumes: [n8n-daten:/home/node/.n8n]
 
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.0
+  keycloak:   # lokal im Entwicklungsmodus; Produktion: deploy/server/docker-compose.prod.yml
+    image: quay.io/keycloak/keycloak:26.0.7
     profiles: [auth]
-    command: ["start-dev"]
-    ports: ["127.0.0.1:8180:8080"]
+    command: ["start-dev", "--http-port", "8180", "--import-realm"]
+    ports: ["127.0.0.1:8180:8180"]
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${POSTGRES_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      SHK_OEFFENTLICHE_URL: ${SHK_OEFFENTLICHE_URL:-http://localhost:8100}
+    volumes: ["./deploy/keycloak/shk-realm.json:/opt/keycloak/data/import/shk-realm.json:ro"]
 
   fuseki:
     image: stain/jena-fuseki:latest

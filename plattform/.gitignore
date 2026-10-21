@@ -1,3 +1,4 @@
 .env
 plattform-demo.db
 export/
+__pycache__/

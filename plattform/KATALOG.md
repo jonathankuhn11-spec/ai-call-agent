@@ -46,7 +46,11 @@ vorbereitet · `Referenz` = geprüfte Alternative für eine spätere Entscheidun
 | FastAPI | MIT | REST-API | aktiv | — |
 | n8n | Sustainable Use License (kein OSI-Open-Source) | Eingangsworkflows E-Mail/Formular | optional (Profil `ops`) | interne Nutzung erlaubt; n8n nicht als Dienst an Dritte anbieten |
 | Temporal | MIT | Durable Execution | Referenz | Stufe 2 der Architektur |
-| Keycloak | Apache-2.0 | OIDC, Rollen | optional (Profil `auth`) | Rollen Inhaber, Büro, Monteur, Steuerberater |
+| Keycloak | Apache-2.0 | OIDC, Rollen | aktiv (Profil `auth`, Realm `deploy/keycloak/`) | Rollen Inhaber, Büro, Monteur, Steuerberater; Mandant als Token-Claim |
+| PyJWT | MIT | Prüfung der Access Tokens im Core | aktiv (`core/auth.py`) | JWKS per OIDC-Discovery |
+| Alembic | MIT | Datenbankmigrationen | aktiv (`migrations/`) | inkl. Row-Level-Security-Policies |
+| Caddy | Apache-2.0 | Reverse-Proxy, automatisches TLS | aktiv (Serverbetrieb) | `deploy/server/Caddyfile` |
+| restic | BSD-2-Clause | verschlüsselte Außer-Haus-Sicherung | optional (`backup.sh`) | z. B. Hetzner Storage Box per SFTP |
 | Zitadel | AGPL-3.0 (ab v3) | OIDC | Referenz | Lizenzwechsel beachten |
 | Langfuse | MIT (Kern) | LLM-Tracing, Evals | Referenz | eigener Stack (ClickHouse, Redis, S3), separat betreiben |
 | OpenTelemetry | Apache-2.0 | Tracing, Metriken | Referenz | — |

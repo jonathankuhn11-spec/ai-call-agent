@@ -5,6 +5,11 @@
     python -m core seed                    fiktive Demodaten anlegen, gibt die Mandanten-ID aus
     python -m core demo                    Demo-Mandant anlegen und Referenzfluss einmal durchspielen
     python -m core worker [--intervall 5]  Outbox-Worker (Zustellung an Adapter, hier CSV-Degradierung)
+    python -m core migrate [--ziel head]   Datenbankmigrationen (MIGRATION_DATABASE_URL, Eigentümerrolle)
+
+Verbindungen in PostgreSQL: DATABASE_URL (shk_app, unterliegt Row-Level Security) für den Core,
+SYSTEM_DATABASE_URL (shk_system) für Worker, Seed und Mandantenverwaltung. Ohne
+SYSTEM_DATABASE_URL wird DATABASE_URL verwendet (SQLite, Entwicklung).
 """
 from __future__ import annotations
 
@@ -14,7 +19,11 @@ import os
 import time
 from pathlib import Path
 
-from core.db import Datenbank
+from core.db import Datenbank, migrieren
+
+
+def system_datenbank() -> Datenbank:
+    return Datenbank(os.environ.get("SYSTEM_DATABASE_URL") or None)
 
 
 def main() -> None:
@@ -29,6 +38,8 @@ def main() -> None:
     worker = unter.add_parser("worker")
     worker.add_argument("--intervall", type=float, default=5.0)
     worker.add_argument("--csv-verzeichnis", type=Path, default=Path(os.environ.get("CSV_EXPORT", "export")))
+    migrate = unter.add_parser("migrate")
+    migrate.add_argument("--ziel", default="head")
     args = parser.parse_args()
 
     if args.befehl == "serve":
@@ -38,21 +49,23 @@ def main() -> None:
         app = app_erzeugen()
         if args.demo:
             from core.seed import demodaten_anlegen
-            with app.state.db.sitzungen() as s:
+            with app.state.system_db.sitzungen() as s:
                 print(f"Demo-Mandant: {demodaten_anlegen(s)}", flush=True)
         uvicorn.run(app, host=args.host, port=args.port)
     elif args.befehl == "seed":
         from core.seed import demodaten_anlegen
-        db = Datenbank()
+        db = system_datenbank()
         db.schema_anlegen()
         with db.sitzungen() as s:
             print(demodaten_anlegen(s))
     elif args.befehl == "demo":
         from core.demo import referenzfluss
         print(json.dumps(referenzfluss(), indent=2, ensure_ascii=False, default=str))
+    elif args.befehl == "migrate":
+        migrieren(ziel=args.ziel)
     elif args.befehl == "worker":
         from core.zustellung import CsvAdapter, abarbeiten
-        db = Datenbank()
+        db = system_datenbank()
         db.schema_anlegen()
         adapter = {ziel: CsvAdapter(ziel, args.csv_verzeichnis) for ziel in ("fachsoftware", "endkunde", "finanz")}
         while True:
