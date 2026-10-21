@@ -164,6 +164,7 @@ def demodaten_anlegen(s: Session, jetzt_: datetime | None = None) -> str:
                                         .order_by(Ereignis.id))):
             e.zeit = f.erstellt + timedelta(minutes=25 + 15 * n)
     _betriebsdaten(s, m, monteure, faelle, jetzt_, heute)
+    _auftragsdaten(s, m, monteure, kunden, anlagen_je_kunde, jetzt_, heute)
     s.commit()
     return m.id
 
@@ -212,6 +213,77 @@ def _betriebsdaten(s: Session, m: Mandant, monteure: list[Ressource], faelle: li
     for bezug_typ, bezug_id, art, bez, tage, intervall, hinweis in fristen:
         s.add(Frist(mandant_id=m.id, bezug_typ=bezug_typ, bezug_id=bezug_id, art=art, bezeichnung=bez,
                     faellig=heute + timedelta(days=tage), intervall_monate=intervall, hinweis=hinweis))
+    s.flush()
+
+
+def _auftragsdaten(s: Session, m: Mandant, monteure: list[Ressource], kunden: list[Kunde], anlagen_je_kunde: list, jetzt_: datetime,
+                   heute: date) -> None:
+    """Artikelstamm, Angebote in allen Stadien, Rechnungen mit Zahlungen und Mahnstufe, Wartungsverträge, Abwesenheit, Anfragen."""
+    from core import angebote, anfragen, forderungen, vertraege
+    from core.rechnung import rechnung_erzeugen
+    m.stammdaten = {**m.stammdaten, "angebotsnummer_praefix": "AN", "bewertungslink": "https://g.page/r/demo-haustechnik/review",
+                    "webformular_token": f"{m.id}.demo-formular-token"}
+    artikel = [("A-100", "Monteurstunde", "arbeit", "Std", "55.00", "69.00", None), ("A-110", "Helferstunde", "arbeit", "Std", "38.00", "49.00", None),
+               ("F-010", "Anfahrtspauschale Stadtgebiet", "fahrt", "psch", None, "35.00", None),
+               ("M-200", "Umwälzpumpe Hocheffizienz 25-60", "material", "Stk", "198.00", "289.00", "Heizungsgroßhandel West (fiktiv)"),
+               ("M-210", "Ausdehnungsgefäß 18 l", "material", "Stk", "41.00", "69.00", "Heizungsgroßhandel West (fiktiv)"),
+               ("M-300", "Thermostatventil inkl. Kopf", "material", "Stk", "19.50", "34.00", "Sanitärgroßhandel Rheinland (fiktiv)"),
+               ("M-400", "Gas-Brennwerttherme 25 kW", "material", "Stk", "2890.00", "3790.00", "Heizungsgroßhandel West (fiktiv)"),
+               ("P-500", "Wartung Gastherme inkl. Abgasmessung", "pauschale", "psch", None, "189.00", None)]
+    from core.modelle import Abwesenheit, Artikel
+    art = {}
+    for nummer, bez, kat, einheit, ek, vk, lieferant in artikel:
+        a = Artikel(mandant_id=m.id, nummer=nummer, bezeichnung=bez, kategorie=kat, einheit=einheit, einkauf_netto=ek, verkauf_netto=vk, lieferant=lieferant)
+        s.add(a)
+        art[nummer] = a
+    s.flush()
+    # Angebote: Entwurf, versendet, angenommen (mit Rechnung), abgelehnt
+    def angebot(kunde, titel, zeilen, tage, status):
+        a = angebote.angebot_erzeugen(s, m, {"kunde_id": kunde.id, "titel": titel, "positionen": [{"artikel_id": art[n].id, "menge": mg} for n, mg in zeilen]},
+                                      heute - timedelta(days=tage), "buero")
+        a.erstellt = jetzt_ - timedelta(days=tage)
+        if status in ("versendet", "angenommen", "abgelehnt"):
+            a.status = "versendet"
+        if status == "angenommen":
+            angebote.annehmen(s, m, a, heute - timedelta(days=max(0, tage - 7)), "buero")
+        if status == "abgelehnt":
+            angebote.ablehnen(s, a, heute - timedelta(days=max(0, tage - 5)), "Preis", "buero")
+        return a
+    angebot(kunden[3], "Austausch Ölkessel gegen Gas-Brennwerttherme", [("M-400", 1), ("A-100", 16), ("A-110", 16), ("F-010", 2)], 12, "versendet")
+    angebot(kunden[9], "Pumpentausch und hydraulischer Abgleich", [("M-200", 1), ("M-300", 8), ("A-100", 6), ("F-010", 1)], 25, "angenommen")
+    angebot(kunden[6], "Ausdehnungsgefäß erneuern", [("M-210", 1), ("A-100", 1.5), ("F-010", 1)], 40, "abgelehnt")
+    angebot(kunden[1], "Wärmepumpe: Pufferspeicher und Hydraulik", [("A-100", 8), ("F-010", 1)], 1, "entwurf")
+    # Rechnungen mit Zahlungsverlauf: bezahlt, teilbezahlt, überfällig mit Erinnerung, frisch gestellt
+    def rechnung(kunde, netto, tage):
+        r = rechnung_erzeugen(s, m, {"kunde_id": kunde.id, "positionen": [{"bezeichnung": "Wartung Gastherme inkl. Abgasmessung", "menge": 1, "einzelpreis_netto": str(netto)}]},
+                              heute - timedelta(days=tage))
+        r.faellig = r.datum + timedelta(days=14)
+        return r
+    r1 = rechnung(kunden[0], "189.00", 50)
+    forderungen.zahlung_buchen(s, m, r1, r1.brutto, heute - timedelta(days=40), "ueberweisung", f"Rechnung {r1.nummer}", "bankimport", "seed")
+    r2 = rechnung(kunden[2], "640.00", 30)
+    forderungen.zahlung_buchen(s, m, r2, "400.00", heute - timedelta(days=12), "ueberweisung", f"{r2.nummer} Abschlag", "bankimport", "seed")
+    r3 = rechnung(kunden[4], "275.00", 45)
+    forderungen.mahnung_erzeugen(s, m, r3, 1, heute - timedelta(days=20), "0.00")
+    rechnung(kunden[7], "189.00", 3)
+    # Wartungsverträge für die Vertragskunden
+    for ki, preis, beginn in ((0, "189.00", date(heute.year - 2, 3, 1)), (2, "540.00", date(heute.year - 1, 9, 1)), (5, "229.00", date(heute.year, 1, 15)),
+                              (7, "310.00", date(heute.year - 3, 6, 1))):
+        k = kunden[ki]
+        v = vertraege.vertrag_anlegen(s, m, {"kunde_id": k.id, "bezeichnung": "Wartungsvertrag Heizung und Trinkwasser" if ki != 7 else "Wartungsvertrag Klima und Trinkwasser",
+                                             "anlagen_ids": [a.id for a in anlagen_je_kunde[ki]], "leistungen": "jährliche Wartung, Abgasmessung, Prüfung Sicherheitseinrichtungen",
+                                             "beginn": beginn, "preis_jahr_netto": preis, "naechste_abrechnung": heute + timedelta(days=(ki * 37) % 120)}, heute, "buero")
+        v.erstellt = jetzt_ - timedelta(days=30)
+    # Abwesenheit: Monteur B nächste Woche zwei Tage Schulung
+    naechste = heute + timedelta(days=(7 - heute.weekday()) % 7 or 7)
+    s.add(Abwesenheit(mandant_id=m.id, ressource_id=monteure[1].id, von=naechste + timedelta(days=1), bis=naechste + timedelta(days=2), art="schulung",
+                      notiz="Herstellerschulung Wärmepumpe"))
+    # Anfragen: Webformular (Neukunde) und E-Mail (Bestandskunde)
+    anfragen.anfrage_verarbeiten(s, m, "web", "web:demo-1", "Sabine Quast", "0221 990199", "s.quast@example.invalid", None,
+                                 "Hallo, wir hätten gern ein Angebot für den Austausch unserer 20 Jahre alten Gastherme. Wann könnten Sie vorbeikommen?",
+                                 jetzt_ - timedelta(hours=5), "Weyertal 9", "50937", "Köln")
+    anfragen.anfrage_verarbeiten(s, m, "email", "<demo-2@example.invalid>", kunden[4].name, kunden[4].telefon, None, "Klimaanlage kühlt nicht richtig",
+                                 "Guten Tag, die Klimaanlage im Gastraum kühlt seit zwei Tagen kaum noch. Bitte um Rückruf.", jetzt_ - timedelta(hours=26))
     s.flush()
 
 

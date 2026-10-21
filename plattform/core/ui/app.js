@@ -133,7 +133,8 @@ $("#abmelden").addEventListener("click", () => abmelden());
 
 // --- Routing ---------------------------------------------------------------------------------
 const ANSICHTEN = { cockpit, anruf, freigaben, vorgaenge, plantafel, kunden, wartung, ontologie, rechnungen, protokoll, einstellungen,
-  einsatz: einsatzAnsicht, belege: belegeAnsicht, zeiten: zeitenAnsicht, betrieb: betriebAnsicht };
+  einsatz: einsatzAnsicht, belege: belegeAnsicht, zeiten: zeitenAnsicht, betrieb: betriebAnsicht, angebote: angeboteAnsicht,
+  forderungen: forderungenAnsicht, vertraege: vertraegeAnsicht, anfragen: anfragenAnsicht, auswertungen: auswertungenAnsicht };
 async function zeigen() {
   if (!speicher("mandant")) return anmelden();
   $("#mandant-name").textContent = speicher("mandantName") || "";
@@ -152,6 +153,7 @@ window.addEventListener("hashchange", zeigen);
 async function freigabenZaehlen() {
   try { const n = (await api("/freigaben")).length; $("#zaehler-freigaben").innerHTML = n ? tag(n, "offen", n) : ""; } catch { /* Anmeldung läuft */ }
   try { if (ICH?.rechte.includes("finanzen")) { const n = (await api("/belege?status=erfasst")).length; $("#zaehler-belege").innerHTML = n ? tag(n, "offen", n) : ""; } } catch { /* Anmeldung läuft */ }
+  try { if (ICH?.rechte.includes("finanzen")) { const n = (await api("/offene-posten")).filter((p) => p.tage_ueberfaellig > 0).length; $("#zaehler-op").innerHTML = n ? tag(n, "ueberfaellig", n) : ""; } } catch { /* Anmeldung läuft */ }
 }
 async function dateiLaden(pfad, name) {
   const r = await fetch(pfad, { headers: authKopf() });
@@ -334,11 +336,12 @@ async function plantafel(ziel) {
     <div class="tabelle-rahmen"><div class="plantafel" style="grid-template-columns: 180px repeat(${p.tage}, minmax(150px, 1fr)); min-width: ${180 + p.tage * 150}px">
       <div class="pt-zelle pt-kopf">Monteur</div>${tage.map((d) => `<div class="pt-zelle pt-kopf">${esc(WOCHENTAG.format(d))}</div>`).join("")}
       ${p.ressourcen.map((r) => `<div class="pt-zelle"><strong>${esc(r.name.split(" (")[0])}</strong><br><small>${esc(r.qualifikationen.join(", "))}</small><br><small>${esc(r.arbeitsbeginn)}–${esc(r.arbeitsende)}</small></div>
-        ${tage.map((d) => `<div class="pt-zelle">${r.termine.filter((t) => gleicherTag(t.beginn, d)).map((t) => `
+        ${tage.map((d) => `<div class="pt-zelle">${(r.abwesenheiten || []).filter((a) => a.von <= TAGESSCHLUESSEL.format(d) && a.bis >= TAGESSCHLUESSEL.format(d)).map((a) => `<div class="einsatz abwesend">${esc(ABWESENHEIT_TEXT[a.art] || a.art)}</div>`).join("")}${r.termine.filter((t) => gleicherTag(t.beginn, d)).map((t) => `
           <div class="einsatz ${esc(t.status)} ${t.dringlichkeit === "notdienst" ? "notdienst" : ""}" data-fall="${esc(t.servicefall_id)}">
           <strong>${esc(UHRZEIT.format(new Date(t.beginn)))}–${esc(UHRZEIT.format(new Date(t.ende)))}</strong> ${esc(t.kunde)}<br>${esc(t.anliegen)}</div>`).join("")}</div>`).join("")}`).join("")}
     </div></div>`;
   ziel.querySelectorAll("[data-fall]").forEach((k) => k.addEventListener("click", () => fallDetail(k.dataset.fall)));
+  if (wir.rechte.includes("bearbeiten")) await abwesenheitenVerwalten(ziel, await api("/ressourcen"));
   if (wir.rechte.includes("verwalten")) await monteureVerwalten(ziel);
 }
 
@@ -481,7 +484,9 @@ const FELDER_STAMM = [["inhaber", "Inhaber/in"], ["strasse", "Straße"], ["plz",
   ["ust_id", "USt-IdNr."], ["steuernummer", "Steuernummer"], ["handwerksrolle", "Handwerksrolle"], ["iban", "IBAN"], ["bic", "BIC"], ["bank", "Bank"],
   ["zahlungsziel_tage", "Zahlungsziel (Tage)"], ["rechnungsnummer_praefix", "Rechnungsnummer-Präfix"], ["rechnungshinweis", "Hinweis auf der Rechnung"],
   ["kontenrahmen", "Kontenrahmen (SKR03/SKR04)"], ["datev_beraternummer", "DATEV Beraternummer"], ["datev_mandantennummer", "DATEV Mandantennummer"], ["kanzlei_email", "E-Mail der Kanzlei"],
-  ["stundensatz_kosten", "Stundensatz intern (€/h, Nachkalkulation)"], ["stundensatz_verrechnung", "Stundensatz Verrechnung (€/h)"], ["materialaufschlag_prozent", "Materialaufschlag (%)"]];
+  ["stundensatz_kosten", "Stundensatz intern (€/h, Nachkalkulation)"], ["stundensatz_verrechnung", "Stundensatz Verrechnung (€/h)"], ["materialaufschlag_prozent", "Materialaufschlag (%)"],
+  ["angebotsnummer_praefix", "Angebotsnummer-Präfix"], ["angebot_gueltig_tage", "Angebote gültig (Tage)"], ["mahn_karenz_tage", "Karenz nach Fälligkeit (Tage)"], ["mahn_frist_tage", "Zahlungsfrist je Mahnstufe (Tage)"],
+  ["mahngebuehr_stufe2", "Mahngebühr Stufe 2 (€)"], ["mahngebuehr_stufe3", "Mahngebühr Stufe 3 (€)"], ["bewertungslink", "Bewertungslink (Google/ProvenExpert, Anfrage nach erledigtem Rapport)"], ["basis_url", "Öffentliche Adresse der Plattform (für Formular-URL)"]];
 const ANBINDUNGEN = {
   fachsoftware: { titel: "Fachsoftware", hinweis: "Termine und Aufträge. Bis die Schreib-API der Fachsoftware geklärt ist: Webhook (z. B. n8n) oder CSV-Export.",
     typen: { webhook: [["url", "Webhook-URL"], ["signatur_schluessel", "Signaturschlüssel (HMAC)", true], ["api_key", "Bearer-Token (optional)", true]], csv: [] } },
@@ -513,7 +518,7 @@ async function einstellungen(ziel) {
   $("#e-stamm").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const fd = new FormData(ev.target); const daten = {};
-    for (const [k, v] of fd.entries()) if (k !== "kleinunternehmer" && v !== "") daten[k] = k === "zahlungsziel_tage" ? Number(v) : v;
+    for (const [k, v] of fd.entries()) if (k !== "kleinunternehmer" && v !== "") daten[k] = ["zahlungsziel_tage", "stundensatz_kosten", "stundensatz_verrechnung", "materialaufschlag_prozent", "angebot_gueltig_tage", "mahn_karenz_tage", "mahn_frist_tage", "mahngebuehr_stufe2", "mahngebuehr_stufe3"].includes(k) ? Number(String(v).replace(",", ".")) : v;
     daten.kleinunternehmer = fd.has("kleinunternehmer");
     try { await api("/betrieb/stammdaten", { methode: "PUT", daten }); alert("Gespeichert"); } catch (e) { alert(e.message); }
   });
@@ -526,6 +531,7 @@ async function einstellungen(ziel) {
     catch (e) { meldung.className = "fehler"; meldung.textContent = e.message; meldung.hidden = false; }
   }));
   await monteureVerwalten(ziel);
+  await einstellungenErgaenzen(ziel);
 }
 
 async function protokoll(ziel) {
@@ -824,5 +830,229 @@ async function kundeDokumente(wurzel, id) {
     const datei = $("#kd-datei", teil).files[0]; if (!datei) return alert("Datei wählen");
     const fd = new FormData(); fd.append("datei", datei); fd.append("bezug_typ", "kunde"); fd.append("bezug_id", id); fd.append("art", datei.type.startsWith("image/") ? "foto" : "dokument"); if ($("#kd-notiz", teil).value) fd.append("notiz", $("#kd-notiz", teil).value);
     try { await api("/anhaenge", { methode: "POST", daten: fd }); kundeDetail(id); } catch (e) { $("#kd-status", teil).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
+}
+
+// --- Angebote: Artikelstamm, Positionen, Versand, Annahme, Abrechnung ------------------------
+const ANGEBOTSTATUS_TEXT = { entwurf: "Entwurf", versendet: "Versendet", angenommen: "Angenommen", abgelehnt: "Abgelehnt", abgelaufen: "Abgelaufen" };
+const ANGEBOTSTATUS_KLASSE = { entwurf: "neutral", versendet: "B", angenommen: "aktuell", abgelehnt: "abgelehnt", abgelaufen: "ueberfaellig" };
+async function angeboteAnsicht(ziel) {
+  const [liste, wir, kunden, artikel] = await Promise.all([api("/angebote"), ich(), api("/kunden?limit=500"), api("/artikel")]);
+  const darf = wir.rechte.includes("bearbeiten");
+  ziel.innerHTML = `<h1>Angebote</h1><p class="unterzeile">Eigener Nummernkreis. Versand ist kundenwirksam (Freigabe B), die Annahme erzeugt den Auftrag als Vorgang, die Rechnung aus dem Angebot entsteht über eine Freigabe C. Versendete Angebote sind preisgebunden und nicht mehr änderbar.</p>
+    ${darf ? `<div class="karte" style="margin-bottom:16px"><h2>Neues Angebot</h2><form id="an-neu"><div class="raster">
+      <label>Kunde <select name="kunde_id" required><option value="">– wählen –</option>${kunden.map((k) => `<option value="${esc(k.id)}">${esc(k.name)}${k.ort ? `, ${esc(k.ort)}` : ""}</option>`).join("")}</select></label>
+      <label>Titel <input name="titel" placeholder="z. B. Austausch Umwälzpumpe"></label><label>Gültig bis <input name="gueltig_bis" type="date"></label>
+      <label style="grid-column:1/-1">Einleitung <textarea name="einleitung" rows="2" placeholder="Sehr geehrte …, wie besprochen bieten wir an:"></textarea></label></div>
+      <table id="an-positionen"><thead><tr><th>Artikel / Bezeichnung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis netto</th><th>USt %</th><th></th></tr></thead><tbody></tbody></table>
+      <div class="aktionen"><button type="button" class="leise" id="an-zeile">+ Position</button><button type="submit">Als Entwurf anlegen</button></div><p id="an-status"></p></form></div>` : ""}
+    <div class="karte"><div class="tabelle-rahmen"><table><thead><tr><th>Nummer</th><th>Datum</th><th>Kunde</th><th>Titel</th><th style="text-align:right">Brutto</th><th>Gültig bis</th><th>Status</th><th></th></tr></thead><tbody>
+    ${liste.map((a) => `<tr><td><strong>${esc(a.nummer)}</strong></td><td>${esc(DATUM.format(new Date(a.datum)))}</td><td>${esc(a.empfaenger.name || "")}</td><td>${esc(a.titel)}<br><small>${a.positionen.length} Positionen</small></td>
+      <td style="text-align:right">${esc(EURO.format(a.brutto))}</td><td>${esc(DATUM.format(new Date(a.gueltig_bis)))}</td><td>${tag(a.status, ANGEBOTSTATUS_KLASSE[a.status], ANGEBOTSTATUS_TEXT[a.status])}${a.rechnung_id ? "<br><small>abgerechnet</small>" : ""}</td>
+      <td><div class="aktionen"><button class="leise" data-pdf="${esc(a.id)}" data-nr="${esc(a.nummer)}">PDF</button>
+        ${darf && ["entwurf", "versendet"].includes(a.status) ? `<button class="leise" data-senden="${esc(a.id)}">${a.status === "entwurf" ? "Versenden" : "Erneut senden"}</button>` : ""}
+        ${darf && ["entwurf", "versendet"].includes(a.status) ? `<button data-annehmen="${esc(a.id)}">Angenommen</button><button class="gefahr" data-ablehnen="${esc(a.id)}">Abgelehnt</button>` : ""}
+        ${darf && a.status === "angenommen" && !a.rechnung_id ? `<button data-rechnung="${esc(a.id)}">Rechnung</button>` : ""}
+        ${a.servicefall_id ? `<button class="leise" data-fall="${esc(a.servicefall_id)}">Vorgang</button>` : ""}</div></td></tr>`).join("") || `<tr><td colspan="8">Noch keine Angebote.</td></tr>`}
+    </tbody></table></div></div>`;
+  const artikelOptionen = `<option value="">frei</option>${artikel.map((a) => `<option value="${esc(a.id)}" data-preis="${esc(a.verkauf_netto)}" data-einheit="${esc(a.einheit)}" data-ust="${esc(a.ust_satz)}" data-bez="${esc(a.bezeichnung)}">${esc(a.nummer)} ${esc(a.bezeichnung)} (${esc(EURO.format(a.verkauf_netto))})</option>`).join("")}`;
+  const zeile = () => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><select name="artikel_id">${artikelOptionen}</select><input name="bezeichnung" placeholder="Bezeichnung" style="margin-top:4px"></td><td><input name="menge" type="number" step="0.01" value="1" style="width:5em"></td>
+      <td><input name="einheit" value="Stk" style="width:5em"></td><td><input name="einzelpreis_netto" type="number" step="0.01" style="width:7em"></td><td><input name="ust_satz" value="19" style="width:4em"></td><td><button type="button" class="gefahr" data-weg>×</button></td>`;
+    tr.querySelector("select").addEventListener("change", (ev) => { const o = ev.target.selectedOptions[0]; if (!o.value) return;
+      tr.querySelector("[name=bezeichnung]").value = o.dataset.bez; tr.querySelector("[name=einzelpreis_netto]").value = o.dataset.preis; tr.querySelector("[name=einheit]").value = o.dataset.einheit; tr.querySelector("[name=ust_satz]").value = o.dataset.ust; });
+    tr.querySelector("[data-weg]").addEventListener("click", () => tr.remove());
+    $("#an-positionen tbody").append(tr);
+  };
+  $("#an-zeile")?.addEventListener("click", zeile); if (darf) zeile();
+  $("#an-neu")?.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target); const daten = { kunde_id: fd.get("kunde_id"), titel: fd.get("titel") || null, einleitung: fd.get("einleitung") || null, gueltig_bis: fd.get("gueltig_bis") || null, positionen: [] };
+    for (const tr of $("#an-positionen tbody").rows) {
+      const w = (n) => tr.querySelector(`[name=${n}]`).value;
+      const p = { menge: w("menge"), einheit: w("einheit"), ust_satz: w("ust_satz") };
+      if (w("artikel_id")) p.artikel_id = w("artikel_id"); else p.bezeichnung = w("bezeichnung");
+      if (w("einzelpreis_netto")) p.einzelpreis_netto = w("einzelpreis_netto");
+      if (w("bezeichnung")) p.bezeichnung = w("bezeichnung");
+      daten.positionen.push(p);
+    }
+    try { const a = await api("/angebote", { methode: "POST", daten }); $("#an-status").innerHTML = `<span class="hinweis">Angebot ${esc(a.nummer)} angelegt (${esc(EURO.format(a.brutto))} brutto)</span>`; zeigen(); }
+    catch (e) { $("#an-status").innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
+  ziel.querySelectorAll("[data-pdf]").forEach((b) => b.addEventListener("click", () => dateiLaden(`/angebote/${b.dataset.pdf}/pdf`, `${b.dataset.nr}.pdf`)));
+  ziel.querySelectorAll("[data-fall]").forEach((b) => b.addEventListener("click", () => fallDetail(b.dataset.fall)));
+  const aktion = (attr, pfad, meldung, koerper) => ziel.querySelectorAll(`[${attr}]`).forEach((b) => b.addEventListener("click", async () => {
+    try { const d = koerper ? koerper() : undefined; if (d === null) return; await api(`/angebote/${b.getAttribute(attr)}/${pfad}`, { methode: "POST", daten: d }); if (meldung) alert(meldung); zeigen(); } catch (e) { alert(e.message); }
+  }));
+  aktion("data-senden", "senden", "Versand liegt in der Freigabe-Inbox (Klasse B).");
+  aktion("data-annehmen", "annehmen", "Auftrag angelegt; die Auftragsbestätigung liegt in der Freigabe-Inbox.");
+  aktion("data-ablehnen", "ablehnen", null, () => { const g = prompt("Grund der Ablehnung (optional):"); return g === null ? null : { grund: g || null }; });
+  aktion("data-rechnung", "rechnung", "Rechnung liegt in der Freigabe-Inbox (Klasse C).");
+}
+
+// --- Offene Posten: Zahlungen, Bankimport, Mahnwesen -----------------------------------------
+const ZAHLART_TEXT = { ueberweisung: "Überweisung", bar: "Bar", karte: "Karte", skonto: "Skonto", ausbuchung: "Ausbuchung" };
+const MAHNSTUFE_TEXT = { 0: "–", 1: "Zahlungserinnerung", 2: "Mahnung", 3: "Letzte Mahnung" };
+async function forderungenAnsicht(ziel) {
+  const [posten, zahlungen, mahnungen, wir] = await Promise.all([api("/offene-posten"), api("/zahlungen?limit=50"), api("/mahnungen"), ich()]);
+  const summe = posten.reduce((s, p) => s + Number(p.offen), 0), ueberfaellig = posten.filter((p) => p.tage_ueberfaellig > 0);
+  ziel.innerHTML = `<h1>Offene Posten</h1><p class="unterzeile">Zahlungen manuell oder per CSV-Import aus dem Online-Banking (Rechnungsnummer im Verwendungszweck). Der Mahnlauf erzeugt nur Vorschläge: Zahlungserinnerung als Freigabe B, Mahnungen mit Gebühr als Freigabe C.</p>
+    <div class="kacheln"><div class="kachel"><div class="wert">${esc(EURO.format(summe))}</div><div class="bez">offen (${posten.length} Rechnungen)</div></div>
+      <div class="kachel"><div class="wert">${esc(EURO.format(ueberfaellig.reduce((s, p) => s + Number(p.offen), 0)))}</div><div class="bez">überfällig (${ueberfaellig.length})</div></div>
+      <div class="kachel"><div class="wert">${posten.filter((p) => p.mahnstufe > 0).length}</div><div class="bez">gemahnt</div></div></div>
+    <div class="karte" style="margin:16px 0"><div class="zeile"><label>Bankumsätze (CSV) <input id="op-csv" type="file" accept=".csv,text/csv"></label><button id="op-import" class="leise">Importieren und buchen</button>
+      <button id="op-mahnlauf">Mahnlauf starten</button></div><p id="op-status"></p></div>
+    <div class="karte" style="margin-bottom:16px"><h2>Offene Rechnungen</h2><div class="tabelle-rahmen"><table><thead><tr><th>Rechnung</th><th>Kunde</th><th>Fällig</th><th style="text-align:right">Brutto</th><th style="text-align:right">Offen</th><th>Mahnstufe</th><th></th></tr></thead><tbody>
+      ${posten.map((p) => `<tr><td><strong>${esc(p.nummer)}</strong><br><small>${tag(p.status, p.status === "teilbezahlt" ? "B" : "neutral", p.status)}</small></td><td>${esc(p.kunde || "")}</td>
+        <td>${esc(DATUM.format(new Date(p.faellig)))}${p.tage_ueberfaellig ? `<br>${tag(`${p.tage_ueberfaellig} Tage überfällig`, "ueberfaellig")}` : ""}</td>
+        <td style="text-align:right">${esc(EURO.format(p.brutto))}</td><td style="text-align:right"><strong>${esc(EURO.format(p.offen))}</strong></td>
+        <td>${esc(MAHNSTUFE_TEXT[p.mahnstufe])}${p.mahnfrist ? `<br><small>Frist ${esc(DATUM.format(new Date(p.mahnfrist)))}</small>` : ""}</td>
+        <td><div class="aktionen"><button class="leise" data-zahlung="${esc(p.rechnung_id)}" data-offen="${esc(p.offen)}" data-nr="${esc(p.nummer)}">Zahlung buchen</button></div></td></tr>`).join("") || `<tr><td colspan="7">Keine offenen Posten.</td></tr>`}
+    </tbody></table></div></div>
+    <div class="raster"><div class="karte"><h2>Letzte Zahlungen</h2><table><thead><tr><th>Datum</th><th>Rechnung</th><th style="text-align:right">Betrag</th><th>Art</th><th>Quelle</th></tr></thead><tbody>
+      ${zahlungen.map((z) => `<tr><td>${esc(DATUM.format(new Date(z.datum)))}</td><td><strong>${esc(z.rechnung_nummer || "")}</strong>${z.referenz ? `<br><small>${esc(z.referenz)}</small>` : ""}</td><td style="text-align:right">${esc(EURO.format(z.betrag))}</td><td>${esc(ZAHLART_TEXT[z.art])}</td><td>${esc(z.quelle)}</td></tr>`).join("") || `<tr><td colspan="5">Keine Zahlungen.</td></tr>`}</tbody></table></div>
+    <div class="karte"><h2>Mahnungen</h2><table><thead><tr><th>Datum</th><th>Stufe</th><th style="text-align:right">Offen</th><th>Frist</th><th></th></tr></thead><tbody>
+      ${mahnungen.map((m) => `<tr><td>${esc(DATUM.format(new Date(m.datum)))}</td><td>${esc(MAHNSTUFE_TEXT[m.stufe])}${Number(m.gebuehr) ? `<br><small>Gebühr ${esc(EURO.format(m.gebuehr))}</small>` : ""}</td><td style="text-align:right">${esc(EURO.format(m.offen))}</td><td>${esc(DATUM.format(new Date(m.frist)))}</td><td><button class="leise" data-mpdf="${esc(m.id)}">PDF</button></td></tr>`).join("") || `<tr><td colspan="5">Keine Mahnungen.</td></tr>`}</tbody></table></div></div>`;
+  const status = (html) => { $("#op-status").innerHTML = html; };
+  $("#op-import").addEventListener("click", async () => {
+    const datei = $("#op-csv").files[0]; if (!datei) return status(`<span class="fehler">CSV-Datei wählen</span>`);
+    const fd = new FormData(); fd.append("datei", datei);
+    try { const e = await api("/zahlungen/bankimport", { methode: "POST", daten: fd });
+      status(`<span class="hinweis">${e.zugeordnet.length} Zahlungen gebucht, ${e.unklar.length} ohne Rechnungsbezug, ${e.uebersprungen} übersprungen.</span>${e.unklar.length ? `<ul class="verlauf">${e.unklar.map((u) => `<li>${esc(u.datum || "")} · ${esc(EURO.format(u.betrag))} · ${esc(u.zweck || "")}</li>`).join("")}</ul>` : ""}`);
+      setTimeout(zeigen, 2500);
+    } catch (e) { status(`<span class="fehler">${esc(e.message)}</span>`); }
+  });
+  $("#op-mahnlauf").addEventListener("click", async () => {
+    try { const v = await api("/mahnlauf", { methode: "POST" }); status(`<span class="hinweis">${v.length ? `${v.length} Vorschläge liegen in der Freigabe-Inbox: ${esc(v.map((x) => `${x.rechnung} (${MAHNSTUFE_TEXT[x.stufe]})`).join(", "))}` : "Keine Mahnung fällig."}</span>`); freigabenZaehlen(); }
+    catch (e) { status(`<span class="fehler">${esc(e.message)}</span>`); }
+  });
+  ziel.querySelectorAll("[data-zahlung]").forEach((b) => b.addEventListener("click", async () => {
+    const betrag = prompt(`Zahlung zu ${b.dataset.nr} (offen ${EURO.format(b.dataset.offen)}). Betrag in €:`, b.dataset.offen); if (!betrag) return;
+    const art = prompt("Art: ueberweisung, bar, karte, skonto oder ausbuchung", "ueberweisung") || "ueberweisung";
+    try { await api("/zahlungen", { methode: "POST", daten: { rechnung_id: b.dataset.zahlung, betrag: Number(betrag.replace(",", ".")), art } }); zeigen(); } catch (e) { alert(e.message); }
+  }));
+  ziel.querySelectorAll("[data-mpdf]").forEach((b) => b.addEventListener("click", () => dateiLaden(`/mahnungen/${b.dataset.mpdf}/pdf`, "Mahnung.pdf")));
+}
+
+// --- Wartungsverträge ------------------------------------------------------------------------
+async function vertraegeAnsicht(ziel) {
+  const [liste, wir, kunden] = await Promise.all([api("/vertraege"), ich(), api("/kunden?limit=500")]);
+  const darf = wir.rechte.includes("bearbeiten");
+  const volumen = liste.filter((v) => v.status === "aktiv").reduce((s, v) => s + Number(v.preis_jahr_netto), 0);
+  ziel.innerHTML = `<h1>Wartungsverträge</h1><p class="unterzeile">Laufzeit, Kündigungsfrist und automatische Verlängerung; der Tageslauf legt die periodische Abrechnung als Freigabe C vor und führt die Kündigungsfrist als Frist. Vertragskunden erscheinen in der Wartungsplanung mit Vertragsstatus.</p>
+    <div class="kacheln"><div class="kachel"><div class="wert">${liste.filter((v) => v.status === "aktiv").length}</div><div class="bez">aktive Verträge</div></div><div class="kachel"><div class="wert">${esc(EURO.format(volumen))}</div><div class="bez">Jahresvolumen netto</div></div></div>
+    ${darf ? `<div class="karte" style="margin:16px 0"><h2>Neuer Vertrag</h2><form id="vt-neu"><div class="raster">
+      <label>Kunde <select name="kunde_id" required><option value="">– wählen –</option>${kunden.map((k) => `<option value="${esc(k.id)}">${esc(k.name)}${k.ort ? `, ${esc(k.ort)}` : ""}</option>`).join("")}</select></label>
+      <label>Bezeichnung <input name="bezeichnung" value="Wartungsvertrag Heizung"></label><label>Beginn <input name="beginn" type="date" value="${esc(TAGESSCHLUESSEL.format(new Date()))}"></label>
+      <label>Preis je Jahr netto (€) <input name="preis_jahr_netto" type="number" step="0.01" required></label><label>Laufzeit (Monate) <input name="laufzeit_monate" type="number" value="12"></label>
+      <label>Kündigungsfrist (Monate) <input name="kuendigungsfrist_monate" type="number" value="3"></label><label>Verlängerung (Monate) <input name="verlaengerung_monate" type="number" value="12"></label>
+      <label>Abrechnung alle (Monate) <input name="abrechnung_monate" type="number" value="12" min="1" max="12"></label>
+      <label style="grid-column:1/-1">Leistungen <textarea name="leistungen" rows="2" placeholder="jährliche Wartung, Abgasmessung, Prüfung Ausdehnungsgefäß …"></textarea></label></div>
+      <div class="aktionen"><button type="submit">Anlegen</button></div><p id="vt-status"></p></form></div>` : ""}
+    <div class="karte"><div class="tabelle-rahmen"><table><thead><tr><th>Kunde</th><th>Vertrag</th><th>Beginn</th><th>Laufzeit bis</th><th>Kündbar bis</th><th>Nächste Abrechnung</th><th style="text-align:right">Preis/Jahr netto</th><th>Status</th><th></th></tr></thead><tbody>
+    ${liste.map((v) => `<tr><td><strong>${esc(v.kunde)}</strong></td><td>${esc(v.bezeichnung)}${v.leistungen ? `<br><small>${esc(v.leistungen)}</small>` : ""}</td><td>${esc(DATUM.format(new Date(v.beginn)))}</td>
+      <td>${esc(DATUM.format(new Date(v.laufzeitende)))}</td><td>${esc(DATUM.format(new Date(v.kuendigungstermin)))}</td><td>${esc(DATUM.format(new Date(v.naechste_abrechnung)))}</td>
+      <td style="text-align:right">${esc(EURO.format(v.preis_jahr_netto))}</td><td>${tag(v.status, v.status === "aktiv" ? "aktuell" : "abgelehnt", v.status)}${v.gekuendigt_zum ? `<br><small>zum ${esc(DATUM.format(new Date(v.gekuendigt_zum)))}</small>` : ""}</td>
+      <td>${darf && v.status === "aktiv" ? `<button class="gefahr" data-kuendigen="${esc(v.id)}">Kündigen</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="9">Keine Verträge.</td></tr>`}
+    </tbody></table></div></div>`;
+  $("#vt-neu")?.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const daten = {}; for (const [k, v] of new FormData(ev.target).entries()) if (v !== "") daten[k] = ["preis_jahr_netto", "laufzeit_monate", "kuendigungsfrist_monate", "verlaengerung_monate", "abrechnung_monate"].includes(k) ? Number(v) : v;
+    try { await api("/vertraege", { methode: "POST", daten }); zeigen(); } catch (e) { $("#vt-status").innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
+  ziel.querySelectorAll("[data-kuendigen]").forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm("Vertrag zum nächstmöglichen Termin kündigen?")) return;
+    try { const v = await api(`/vertraege/${b.dataset.kuendigen}/kuendigen`, { methode: "POST", daten: {} }); alert(`Gekündigt zum ${DATUM.format(new Date(v.gekuendigt_zum))}`); zeigen(); } catch (e) { alert(e.message); }
+  }));
+}
+
+// --- Anfragen (Webformular, Postfach) --------------------------------------------------------
+const ANFRAGESTATUS_TEXT = { neu: "Büro-Aufgabe", uebernommen: "Vorgang angelegt", verworfen: "Verworfen" };
+async function anfragenAnsicht(ziel) {
+  const [liste, wir] = await Promise.all([api("/anfragen"), ich()]);
+  ziel.innerHTML = `<h1>Anfragen</h1><p class="unterzeile">Schriftlicher Eingang über das Kontaktformular der Website und das E-Mail-Postfach. Bestandskunden werden an Telefonnummer oder E-Mail erkannt; aus jeder Anfrage mit Rückkanal entsteht ein Vorgang mit Dringlichkeitsbewertung. Einrichtung unter Einstellungen.</p>
+    <div class="karte" style="margin-bottom:16px"><div class="zeile"><button id="af-abrufen" class="leise" ${wir.rechte.includes("bearbeiten") ? "" : "disabled"}>Postfach jetzt abrufen</button><span id="af-status"></span></div></div>
+    <div class="karte"><div class="tabelle-rahmen"><table><thead><tr><th>Eingang</th><th>Kanal</th><th>Absender</th><th>Betreff / Nachricht</th><th>Status</th><th></th></tr></thead><tbody>
+    ${liste.map((a) => `<tr><td>${esc(zeit(a.eingegangen))}</td><td>${tag(a.kanal, "neutral", a.kanal === "web" ? "Webformular" : "E-Mail")}</td><td>${esc(a.name || "–")}<br><small>${esc(a.telefon || "")} ${esc(a.email || "")}</small></td>
+      <td>${a.betreff ? `<strong>${esc(a.betreff)}</strong><br>` : ""}<small>${esc((a.nachricht || "").slice(0, 200))}</small></td><td>${tag(a.status, a.status === "uebernommen" ? "aktuell" : a.status === "neu" ? "offen" : "neutral", ANFRAGESTATUS_TEXT[a.status])}</td>
+      <td>${a.servicefall_id ? `<button class="leise" data-fall="${esc(a.servicefall_id)}">Vorgang</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="6">Noch keine Anfragen. Webformular und Postfach richten Sie unter Einstellungen ein.</td></tr>`}
+    </tbody></table></div></div>`;
+  ziel.querySelectorAll("[data-fall]").forEach((b) => b.addEventListener("click", () => fallDetail(b.dataset.fall)));
+  $("#af-abrufen").addEventListener("click", async () => {
+    try { const e = await api("/posteingang/abrufen", { methode: "POST" }); $("#af-status").innerHTML = `<span class="hinweis">${e.gelesen} gelesen, ${e.uebernommen} Vorgänge, ${e.bekannt} bekannt, ${e.verworfen} verworfen</span>`; setTimeout(zeigen, 2000); }
+    catch (e) { $("#af-status").innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
+}
+
+// --- Auswertungen ----------------------------------------------------------------------------
+async function auswertungenAnsicht(ziel) {
+  const a = await api("/auswertungen?monate=12");
+  const max = Math.max(1, ...a.monate.map((m) => Math.max(Number(m.umsatz_netto), Number(m.zahlungen))));
+  const balken = (w, klasse) => `<div class="saeule-teil ${klasse}" style="height:${Math.round(Number(w) / max * 100)}%" title="${esc(EURO.format(w))}"></div>`;
+  ziel.innerHTML = `<h1>Auswertungen</h1><p class="unterzeile">Zeitraum ${esc(DATUM.format(new Date(a.von)))} bis ${esc(DATUM.format(new Date(a.bis)))}. Umsatz aus gestellten Rechnungen (netto), Zahlungseingang aus gebuchten Zahlungen, Material aus zugeordneten Belegen. Deckungsbeitrag je Monteur: Umsatz der rapportierten Aufträge abzüglich Material und interner Lohnkosten (Rapportzeiten × Stundensatz intern).</p>
+    <div class="kacheln"><div class="kachel"><div class="wert">${esc(EURO.format(a.umsatz_netto_gesamt))}</div><div class="bez">Umsatz netto (12 Monate)</div></div>
+      <div class="kachel"><div class="wert">${esc(EURO.format(a.offene_posten.summe))}</div><div class="bez">offene Posten (${a.offene_posten.anzahl}, davon ${esc(EURO.format(a.offene_posten.ueberfaellig))} überfällig)</div></div>
+      <div class="kachel"><div class="wert">${a.angebote.quote === null ? "–" : `${Math.round(a.angebote.quote * 100)} %`}</div><div class="bez">Angebotsquote (${a.angebote.angenommen} von ${a.angebote.entschieden} entschieden; ${esc(EURO.format(a.angebote.volumen_offen_netto))} offen)</div></div>
+      <div class="kachel"><div class="wert">${a.vertraege.aktive}</div><div class="bez">Wartungsverträge · ${esc(EURO.format(a.vertraege.jahresvolumen_netto))}/Jahr</div></div></div>
+    <div class="karte" style="margin:16px 0"><h2>Umsatz und Zahlungseingang je Monat</h2><div class="diagramm">${a.monate.map((m) => `<div class="saeule"><div class="saeule-balken">${balken(m.umsatz_netto, "umsatz")}${balken(m.zahlungen, "zahlung")}</div><div class="saeule-bez">${esc(m.monat.slice(5))}/${esc(m.monat.slice(2, 4))}</div></div>`).join("")}</div>
+      <p class="unterzeile"><span class="legende umsatz"></span> Umsatz netto <span class="legende zahlung"></span> Zahlungseingang</p>
+      <div class="tabelle-rahmen"><table><thead><tr><th>Monat</th><th style="text-align:right">Umsatz netto</th><th style="text-align:right">Zahlungen</th><th style="text-align:right">Material (Belege)</th></tr></thead><tbody>
+      ${a.monate.map((m) => `<tr><td>${esc(m.monat)}</td><td style="text-align:right">${esc(EURO.format(m.umsatz_netto))}</td><td style="text-align:right">${esc(EURO.format(m.zahlungen))}</td><td style="text-align:right">${esc(EURO.format(m.material_netto))}</td></tr>`).join("")}</tbody></table></div></div>
+    <div class="raster"><div class="karte"><h2>Deckungsbeitrag je Monteur</h2><table><thead><tr><th>Monteur</th><th>Rapporte</th><th>Stunden</th><th style="text-align:right">Umsatz</th><th style="text-align:right">Material</th><th style="text-align:right">Lohn</th><th style="text-align:right">DB</th></tr></thead><tbody>
+      ${a.monteure.map((m) => `<tr><td>${esc(m.name)}</td><td>${m.rapporte}</td><td>${esc(m.stunden)}</td><td style="text-align:right">${esc(EURO.format(m.umsatz_netto))}</td><td style="text-align:right">${esc(EURO.format(m.material_netto))}</td><td style="text-align:right">${esc(EURO.format(m.lohnkosten))}</td><td style="text-align:right"><strong>${esc(EURO.format(m.deckungsbeitrag))}</strong></td></tr>`).join("") || `<tr><td colspan="7">Keine Rapporte im Zeitraum.</td></tr>`}</tbody></table></div>
+    <div class="karte"><h2>Anfragen je Kanal</h2><table><tbody>${Object.entries(a.anfragen_je_kanal || {}).map(([k, n]) => `<tr><td>${esc(k)}</td><td style="text-align:right">${n}</td></tr>`).join("") || "<tr><td>Keine Anfragen.</td></tr>"}</tbody></table>
+      ${a.zeiteintraege ? `<h2 style="margin-top:16px">Erfasste Zeiten</h2><table><tbody>${Object.entries(a.zeiteintraege).map(([k, v]) => `<tr><td>${esc(ZEITART_TEXT[k] || k)}</td><td style="text-align:right">${esc(String(v))} h</td></tr>`).join("")}</tbody></table>` : ""}</div></div>`;
+}
+
+// --- Abwesenheiten in der Plantafel ----------------------------------------------------------
+const ABWESENHEIT_TEXT = { urlaub: "Urlaub", krank: "Krank", schulung: "Schulung", sonstiges: "Abwesend" };
+async function abwesenheitenVerwalten(ziel, ressourcen) {
+  const liste = await api("/abwesenheiten").catch(() => []);
+  const teil = document.createElement("div"); teil.className = "karte"; teil.style.marginTop = "16px";
+  teil.innerHTML = `<h2>Abwesenheiten</h2><p class="unterzeile">Urlaub, Krankheit und Schulung blockieren den Monteur ganztägig in der Disposition und im Sprachagenten.</p>
+    <table><thead><tr><th>Monteur</th><th>Von</th><th>Bis</th><th>Art</th><th></th></tr></thead><tbody>${liste.map((a) => `<tr><td>${esc(ressourcen.find((r) => r.id === a.ressource_id)?.name.split(" (")[0] || "–")}</td><td>${esc(DATUM.format(new Date(a.von)))}</td><td>${esc(DATUM.format(new Date(a.bis)))}</td><td>${esc(ABWESENHEIT_TEXT[a.art])}${a.notiz ? ` · ${esc(a.notiz)}` : ""}</td><td><button class="gefahr" data-al="${esc(a.id)}">×</button></td></tr>`).join("") || `<tr><td colspan="5">Keine Abwesenheiten eingetragen.</td></tr>`}</tbody></table>
+    <div class="zeile" style="margin-top:12px"><label>Monteur <select id="ab-ressource">${ressourcen.map((r) => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join("")}</select></label>
+      <label>Von <input id="ab-von" type="date"></label><label>Bis <input id="ab-bis" type="date"></label><label>Art <select id="ab-art">${Object.entries(ABWESENHEIT_TEXT).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></label>
+      <button id="ab-anlegen" class="leise">Eintragen</button></div><p id="ab-status"></p>`;
+  ziel.append(teil);
+  $("#ab-anlegen", teil).addEventListener("click", async () => {
+    try { await api("/abwesenheiten", { methode: "POST", daten: { ressource_id: $("#ab-ressource", teil).value, von: $("#ab-von", teil).value, bis: $("#ab-bis", teil).value || $("#ab-von", teil).value, art: $("#ab-art", teil).value } }); zeigen(); }
+    catch (e) { $("#ab-status", teil).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
+  teil.querySelectorAll("[data-al]").forEach((b) => b.addEventListener("click", async () => { try { await api(`/abwesenheiten/${b.dataset.al}`, { methode: "DELETE" }); zeigen(); } catch (e) { alert(e.message); } }));
+}
+
+// --- Einstellungen: Artikelstamm, Webformular, Postfach -------------------------------------
+const ARTIKELKATEGORIE_TEXT = { material: "Material", arbeit: "Arbeit", fahrt: "Fahrt", pauschale: "Pauschale" };
+async function einstellungenErgaenzen(ziel) {
+  const [artikel, web, post, betrieb] = await Promise.all([api("/artikel?alle=true"), api("/betrieb/webformular"), api("/betrieb/posteingang"), api("/betrieb")]);
+  const teil = document.createElement("div");
+  teil.innerHTML = `<div class="karte" style="margin-bottom:16px"><h2>Artikel- und Leistungsstamm</h2><p class="unterzeile">Material, Arbeitszeit, Fahrt und Pauschalen für Angebots- und Rechnungspositionen. Der Einkaufspreis dient der Nachkalkulation.</p>
+      <div class="tabelle-rahmen"><table><thead><tr><th>Nummer</th><th>Bezeichnung</th><th>Kategorie</th><th>Einheit</th><th style="text-align:right">Einkauf netto</th><th style="text-align:right">Verkauf netto</th><th>USt</th><th>Aktiv</th></tr></thead><tbody>
+      ${artikel.map((a) => `<tr><td>${esc(a.nummer)}</td><td>${esc(a.bezeichnung)}${a.lieferant ? `<br><small>${esc(a.lieferant)}</small>` : ""}</td><td>${esc(ARTIKELKATEGORIE_TEXT[a.kategorie])}</td><td>${esc(a.einheit)}</td><td style="text-align:right">${a.einkauf_netto ? esc(EURO.format(a.einkauf_netto)) : "–"}</td><td style="text-align:right">${esc(EURO.format(a.verkauf_netto))}</td><td>${esc(a.ust_satz)} %</td><td><input type="checkbox" data-aktiv="${esc(a.id)}" ${a.aktiv ? "checked" : ""}></td></tr>`).join("") || `<tr><td colspan="8">Noch keine Artikel.</td></tr>`}</tbody></table></div>
+      <form id="art-neu" class="zeile" style="margin-top:12px"><label>Nummer <input name="nummer" required style="width:6em"></label><label>Bezeichnung <input name="bezeichnung" required></label>
+        <label>Kategorie <select name="kategorie">${Object.entries(ARTIKELKATEGORIE_TEXT).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></label><label>Einheit <input name="einheit" value="Stk" style="width:4em"></label>
+        <label>Einkauf <input name="einkauf_netto" type="number" step="0.01" style="width:6em"></label><label>Verkauf <input name="verkauf_netto" type="number" step="0.01" required style="width:6em"></label><label>Lieferant <input name="lieferant"></label>
+        <button type="submit" class="leise">Anlegen</button></form><p id="art-status"></p></div>
+    <div class="karte" style="margin-bottom:16px"><h2>Kontaktformular der Website</h2><p class="unterzeile">Öffentlicher Endpunkt mit Token; Anfragen werden Vorgänge. Das Formular enthält ein unsichtbares Feld gegen Bots, der Endpunkt ist gedrosselt.</p>
+      <p>${web.aktiv ? `Aktiv: <code>${esc(web.url)}</code>` : "Nicht aktiv."}</p>${web.aktiv ? `<textarea readonly rows="7" style="width:100%;font-family:monospace;font-size:12px">${esc(web.snippet)}</textarea>` : ""}
+      <div class="zeile" style="margin-top:8px"><label>Danke-Seite (URL nach dem Absenden, optional) <input id="wf-danke" value="${esc(betrieb.stammdaten.webformular_danke_url || "")}"></label>
+        <button class="leise" id="wf-an">${web.aktiv ? "Token erneuern" : "Aktivieren"}</button>${web.aktiv ? `<button class="gefahr" id="wf-aus">Abschalten</button>` : ""}</div></div>
+    <div class="karte" style="margin-bottom:16px"><h2>E-Mail-Posteingang (IMAP)</h2><p class="unterzeile">Ungelesene Nachrichten des Anfragepostfachs werden täglich bzw. auf Knopfdruck zu Vorgängen; Autoreplies und Newsletter werden verworfen. Zugangsdaten werden verschlüsselt gespeichert.</p>
+      <form id="pe-form"><div class="raster"><label>IMAP-Server <input name="host" value="${esc(post.host || "")}"></label><label>Port <input name="port" type="number" value="${esc(post.port || 993)}"></label><label>Benutzer <input name="benutzer" value="${esc(post.benutzer || "")}"></label>
+        <label>Passwort <input name="passwort" type="password" autocomplete="new-password" value="${esc(post.passwort || "")}"></label><label>Ordner <input name="ordner" value="${esc(post.ordner || "INBOX")}"></label></div>
+      <div class="aktionen"><span id="pe-status"></span><button type="submit">Speichern</button></div></form></div>`;
+  ziel.append(teil);
+  $("#art-neu", teil).addEventListener("submit", async (ev) => {
+    ev.preventDefault(); const daten = {}; for (const [k, v] of new FormData(ev.target).entries()) if (v !== "") daten[k] = ["einkauf_netto", "verkauf_netto"].includes(k) ? Number(v) : v;
+    try { await api("/artikel", { methode: "POST", daten }); zeigen(); } catch (e) { $("#art-status", teil).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
+  teil.querySelectorAll("[data-aktiv]").forEach((c) => c.addEventListener("change", async () => { try { await api(`/artikel/${c.dataset.aktiv}`, { methode: "PATCH", daten: { aktiv: c.checked } }); } catch (e) { alert(e.message); } }));
+  $("#wf-an", teil).addEventListener("click", async () => { try { await api("/betrieb/webformular", { methode: "PUT", daten: { aktiv: true, erneuern: web.aktiv, danke_url: $("#wf-danke", teil).value || null } }); zeigen(); } catch (e) { alert(e.message); } });
+  $("#wf-aus", teil)?.addEventListener("click", async () => { try { await api("/betrieb/webformular", { methode: "PUT", daten: { aktiv: false } }); zeigen(); } catch (e) { alert(e.message); } });
+  $("#pe-form", teil).addEventListener("submit", async (ev) => {
+    ev.preventDefault(); const daten = Object.fromEntries(new FormData(ev.target).entries()); daten.port = Number(daten.port) || 993;
+    try { await api("/betrieb/posteingang", { methode: "PUT", daten }); $("#pe-status", teil).innerHTML = `<span class="hinweis">Gespeichert</span>`; } catch (e) { $("#pe-status", teil).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
   });
 }

@@ -39,6 +39,10 @@ RISIKOKLASSEN: dict[str, str] = {
     "rechnung_erstellen": "C",
     "storno": "C",
     "belegversand_kanzlei": "C",
+    "angebot_senden": "B",
+    "zahlungserinnerung_senden": "B",
+    "mahnung_senden": "C",
+    "bewertung_anfragen": "B",
 }
 
 AKTEURE = {"mensch", "ki", "system"}
@@ -158,6 +162,30 @@ def _ausfuehren(s: Session, f: Freigabe) -> None:
                        {"nummer": r.nummer, "brutto": r.brutto, "freigabe_id": f.id})
         outbox_schreiben(s, f.mandant_id, "finanz", "rechnung_uebermitteln", {"rechnung_id": r.id}, f"rechnung:{r.id}")
         outbox_schreiben(s, f.mandant_id, "endkunde", "rechnung_zustellen", {"rechnung_id": r.id}, f"rechnung_zustellen:{r.id}")
+        if p.get("angebot_id"):
+            from core.modelle import Angebot
+            a = s.get(Angebot, p["angebot_id"])
+            if a is not None and a.mandant_id == f.mandant_id:
+                a.rechnung_id = r.id
+    elif f.aktion == "angebot_senden":
+        from core import angebote
+        from core.modelle import Angebot
+        a = s.get(Angebot, p.get("angebot_id", ""))
+        if a is None or a.mandant_id != f.mandant_id:
+            raise Domaenenfehler("Angebot nicht gefunden")
+        angebote.versenden(s, a, jetzt().date())
+    elif f.aktion in ("zahlungserinnerung_senden", "mahnung_senden"):
+        from core import forderungen
+        mandant = s.get(Mandant, f.mandant_id)
+        r = s.get(Rechnung, p.get("rechnung_id", ""))
+        if r is None or r.mandant_id != f.mandant_id:
+            raise Domaenenfehler("Rechnung nicht gefunden")
+        if forderungen.offen(s, r) <= 0:
+            raise Domaenenfehler(f"Rechnung {r.nummer} ist inzwischen bezahlt")
+        forderungen.mahnung_erzeugen(s, mandant, r, int(p.get("stufe", 1)), jetzt().date(), str(p.get("gebuehr", "0.00")))
+    elif f.aktion == "bewertung_anfragen":
+        outbox_schreiben(s, f.mandant_id, "endkunde", "nachricht", {"kunde_id": p.get("kunde_id"), "servicefall_id": p.get("servicefall_id"),
+                         "betreff": p.get("betreff", "Wie zufrieden waren Sie?"), "text": p.get("text", "")}, f"bewertung:{p.get('servicefall_id', f.id)}")
     elif f.aktion == "storno":
         from core.rechnung import storno_erzeugen
 

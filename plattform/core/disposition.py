@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from core.domaene import als_utc
-from core.modelle import Mandant, Ressource, Termin
+from core.modelle import Abwesenheit, Mandant, Ressource, Termin
 
 ZEITZONE = ZoneInfo("Europe/Berlin")
 BLOCKIERENDE_STATUS = ("vorgeschlagen", "bestaetigt")
@@ -37,6 +37,11 @@ def _belegungen(s: Session, mandant_id: str, ressource_ids: list[str], von: date
     belegt: dict[str, list[tuple[datetime, datetime]]] = {r: [] for r in ressource_ids}
     for t in termine:
         belegt[t.ressource_id].append((als_utc(t.beginn) - puffer, als_utc(t.ende) + puffer))
+    von_tag, bis_tag = von.astimezone(ZEITZONE).date(), bis.astimezone(ZEITZONE).date()
+    for a in s.scalars(select(Abwesenheit).where(Abwesenheit.mandant_id == mandant_id, Abwesenheit.ressource_id.in_(ressource_ids),
+                                                 Abwesenheit.bis >= von_tag, Abwesenheit.von <= bis_tag)):
+        belegt[a.ressource_id].append((als_utc(datetime.combine(a.von, datetime.min.time(), ZEITZONE)),
+                                       als_utc(datetime.combine(a.bis + timedelta(days=1), datetime.min.time(), ZEITZONE))))
     return belegt
 
 

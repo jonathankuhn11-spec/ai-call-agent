@@ -24,8 +24,10 @@ def test_seed_ist_idempotent_und_vollstaendig():
     with db.sitzungen() as s:
         assert demodaten_anlegen(s, JETZT) == m
     assert [x["name"] for x in c.get("/mandanten").json()] == [DEMO_NAME]
-    assert len(c.get("/kunden", headers=h).json()) == 12
-    assert len(c.get("/freigaben", headers=h).json()) == 3   # 2 Termine (B) + 1 Rechnung (C)
+    assert len(c.get("/kunden", headers=h).json()) == 13   # 12 Stammkunden + Neukunde aus dem Webformular
+    assert len(c.get("/freigaben", headers=h).json()) == 4   # 2 Termine (B) + 1 Rechnung (C) + Auftragsbestätigung zum angenommenen Angebot (B)
+    assert len(c.get("/angebote", headers=h).json()) == 4 and len(c.get("/vertraege", headers=h).json()) == 4
+    assert len(c.get("/offene-posten", headers=h).json()) == 3 and len(c.get("/anfragen", headers=h).json()) == 2
 
 
 def test_termine_behalten_ortszeit_auch_in_sqlite():
@@ -47,7 +49,7 @@ def test_wartungsplanung_legt_faelle_und_freigaben_an_und_ist_wiederholbar():
 def test_kennzahlen_und_reaktionszeit():
     c, _, _, h = demo()
     k = c.get("/kennzahlen", headers=h).json()
-    assert k["offene_vorgaenge"] == 8 and k["anrufe_erfasst"] == 6 and k["median_stunden_bis_einplanung"] > 0
+    assert k["offene_vorgaenge"] == 11 and k["anrufe_erfasst"] == 6  # 8 Vorgänge + Auftrag aus Angebot + 2 Anfragen and k["median_stunden_bis_einplanung"] > 0
 
 
 def test_sparql_nur_lesend():

@@ -38,6 +38,11 @@ und wird je Lauf im Ereignisprotokoll nachgewiesen (`loeschung.lauf`).
 | Zeiteinträge ohne Vorgangsbezug | Beginn | 2 Jahre (§ 16 Abs. 2 ArbZG) | vollständig | `zeit_tage`; mit Vorgang: mit dem Vorgang |
 | Rapporte, Fotos, Unterschriften am Vorgang | Abschluss des Vorgangs | mit dem Vorgang (3 Jahre bzw. 10 Jahre mit Rechnung) | vollständig | `_vorgangsanhang_loeschen` |
 | Dokumente und Fotos am Kunden oder Objekt | Löschung des Kunden | mit dem Kundendatensatz | vollständig | `kunde_loeschen` |
+| Angebote ohne Auftrag (Entwurf, abgelehnt, abgelaufen) | Angebotsdatum | 3 Jahre (Geschäftsbrief, § 257 Abs. 4 HGB: 6 Jahre nur bei Zugang; angenommene Angebote 10 Jahre mit der Rechnung) | vollständig | `angebot_tage`; angenommene mit der Rechnung |
+| Zahlungen und Mahnungen | Rechnungsdatum | 10 Jahre mit der Rechnung (§ 147 AO) | mit der Rechnung | `rechnung_tage` |
+| Wartungsverträge (beendet oder gekündigt) | Vertragsende | 3 Jahre (§ 195 BGB), Kundendatensatz 3 Jahre nach Vertragsende | vollständig | `vertrag_tage`; aktive Verträge sperren die Löschung |
+| Abwesenheiten der Monteure | Ende der Abwesenheit | 2 Jahre (wie Zeiteinträge, § 16 Abs. 2 ArbZG) | vollständig | `zeit_tage` |
+| Schriftliche Anfragen (Webformular, Postfach) als Rohdaten | Eingang | 1 Jahr; der daraus entstandene Vorgang folgt den Vorgangsfristen | vollständig | `anfrage_tage`; Nachrichten verbleiben zusätzlich im Postfach des Betriebs |
 
 Hinweis zur Frist für Buchungsbelege: Das Vierte Bürokratieentlastungsgesetz verkürzt die Frist für
 Buchungsbelege ab 2025 auf 8 Jahre; Rechnungen nach § 14b UStG bleiben bei 10 Jahren. Die Plattform

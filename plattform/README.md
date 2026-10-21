@@ -67,6 +67,13 @@ Danach `http://localhost:8100/` öffnen (Oberfläche) bzw. `/docs` (OpenAPI). Oh
 | Zeiten | Stempel- und Nachtragszeiten je Monteur und Monat, Lohnexport (CSV mit Nacht- und Sonntagsminuten) |
 | Bereitschaft & Fristen | Bereitschaftsplan (vom Sprachagenten bei Notfällen genannt), Prüf-, Unterweisungs-, Zertifikats- und Vertragsfristen mit Folgefrist |
 | Vorgang (Detail) | zusätzlich Rapporte, Fotos und Nachkalkulation (Deckungsbeitrag aus Zeiten, Belegen und Rechnungen); Kunde: Dokumentenablage |
+| Anfragen | schriftlicher Eingang über Kontaktformular (öffentlicher Endpunkt mit Token, Honeypot, Drosselung) und IMAP-Postfach; Bestandskunden werden erkannt, aus Anfragen mit Rückkanal entstehen Vorgänge mit Dringlichkeitsbewertung |
+| Angebote | Positionen aus dem Artikelstamm oder frei, eigener Nummernkreis, PDF; Versand (Freigabe B), Annahme erzeugt den Auftrag als Vorgang mit Auftragsbestätigung, Rechnung aus dem Angebot (Freigabe C), Ablauf im Tageslauf |
+| Wartungsverträge | Laufzeit, Kündigungsfrist, Verlängerung, periodische Abrechnung als Freigabe C im Tageslauf, Kündigungsfrist als Frist, Kündigung zum nächstmöglichen Termin |
+| Offene Posten | Restbeträge und Überfälligkeit, Zahlung buchen (Teilzahlung, Skonto, Ausbuchung), CSV-Bankimport mit Zuordnung über die Rechnungsnummer, Mahnlauf (Erinnerung B, Mahnung mit Gebühr C), Mahnungs-PDF |
+| Auswertungen | Umsatz und Zahlungseingang je Monat, offene Posten, Angebotsquote, Vertragsbestand, Deckungsbeitrag je Monteur, Anfragen je Kanal |
+| Plantafel (Ergänzung) | Abwesenheiten (Urlaub, Krankheit, Schulung) sperren den Monteur ganztägig in Disposition und Sprachagent |
+| Einstellungen (Ergänzung) | Artikel- und Leistungsstamm, Kontaktformular (Token, Snippet, Danke-Seite), IMAP-Posteingang, Angebots- und Mahnparameter, Bewertungslink (Bewertungsanfrage nach erledigtem Rapport als Freigabe B) |
 
 Mit Docker: `cp .env.example .env`, Werte setzen, `docker compose up -d` (PostgreSQL, Migration,
 Core, Worker). Anmeldung über Keycloak mit `--profile auth` und `OIDC_ISSUER=http://localhost:8180/realms/shk`,
@@ -123,6 +130,11 @@ Fachendpunkte verlangen einen Mandantenkontext: bei Maschinen `X-Mandant`, bei P
 | Belege und Anhänge | `POST /belege` (Multipart: Datei und/oder Felder), `GET /belege`, `GET/PATCH/DELETE /belege/{id}`, `POST /anhaenge` (Multipart), `GET /anhaenge?bezug_typ=&bezug_id=`, `GET /anhaenge/{id}/inhalt`, `DELETE /anhaenge/{id}` |
 | Bereitschaft, Fristen | `GET/POST /bereitschaft`, `GET /bereitschaft/aktuell`, `DELETE /bereitschaft/{id}`, `GET/POST /fristen`, `POST /fristen/{id}/erledigt`, `DELETE /fristen/{id}` |
 | Voice-Tools | `POST /voice/kunde-suchen`, `/voice/zeitfenster`, `/voice/servicefall`, `/voice/notdienst`, `/voice/gespraech-beendet` |
+| Artikel, Angebote | `GET/POST /artikel`, `PATCH /artikel/{id}`, `GET/POST /angebote`, `GET/PATCH /angebote/{id}` (+ `/pdf`), `POST /angebote/{id}/senden`, `/annehmen`, `/ablehnen`, `/rechnung` |
+| Forderungen | `GET /offene-posten`, `GET/POST /zahlungen`, `POST /zahlungen/bankimport` (Multipart CSV), `POST /mahnlauf`, `GET /mahnungen`, `GET /mahnungen/{id}/pdf` |
+| Verträge, Abwesenheiten | `GET/POST /vertraege`, `GET /vertraege/{id}`, `POST /vertraege/{id}/kuendigen`, `GET/POST /abwesenheiten`, `DELETE /abwesenheiten/{id}` |
+| Anfragen | `GET /anfragen`, `POST /anfragen/web/{token}` (öffentlich, Formular oder JSON), `GET/PUT /betrieb/webformular`, `GET/PUT /betrieb/posteingang`, `POST /posteingang/abrufen` |
+| Auswertung, Tageslauf | `GET /auswertungen?monate=12`, `POST /tagesaufgaben` (auch `python -m core tagesaufgaben`, Cron 06:30; `python -m core posteingang` alle 15 Minuten) |
 
 Ontologie in Fuseki laden (Profil `ontologie`):
 `curl -X POST -H "X-Mandant: …" localhost:8100/ontologie/export?mit_tbox=true -o daten.ttl` und
@@ -163,6 +175,16 @@ XML), Text-Heuristik mit Konfidenz, manuell, Schutz übergebener Belege, Eingang
 ER-Buchungen im DATEV-Stapel, Löschfristen für Belege (10 Jahre) und Zeiten (2 Jahre), Rollen des
 Monteurs (nur eigene Ressource und Einsätze). Texterkennung für Fotos braucht Tesseract
 (`docker build --build-arg MIT_OCR=1`); ohne OCR bleibt der Beleg mit Hinweis zur Nacherfassung.
+
+Auftrags- und Forderungsmodule (`core/angebote.py`, `core/forderungen.py`, `core/vertraege.py`, `core/anfragen.py`,
+`core/tagesaufgaben.py`, Migration 0006): Angebote mit Artikelstamm und Nummernkreis, Versand/Annahme/Ablehnung/Ablauf,
+Auftrag und Rechnung aus dem Angebot; Zahlungen mit Teilzahlung und Statusfortschreibung, CSV-Bankimport (UTF-8 und
+cp1252, Trennzeichen automatisch, idempotent je Umsatz), dreistufiges Mahnwesen ausschließlich über Freigaben mit
+Karenz, Fristen und Gebühren aus den Stammdaten; Wartungsverträge mit Laufzeitlogik, Abrechnungslauf und
+Kündigungsfrist; Abwesenheiten in der Disposition; Anfrageeingang über Webformular (Token je Betrieb, Honeypot,
+60 Anfragen je Stunde) und IMAP mit Autoreply-Filter, Erkennung von Bestandskunden und Sicherheitsfall;
+Bewertungsanfrage nach erledigtem Rapport; Auswertungen; Löschfristen für Angebote (3 Jahre), beendete Verträge
+(3 Jahre), Anfragen (1 Jahr). Alles Finanz- und Kundenwirksame entsteht weiterhin nur als Freigabe.
 
 Zustellung und Anbindungen (`core/adapter/`): je Mandant und Ziel wählbar unter „Einstellungen“;
 ohne Konfiguration CSV-Degradierung (`fachsoftware`, `finanz`) bzw. Büro-Aufgabe „ohne Kanal“

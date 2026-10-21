@@ -21,17 +21,19 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from core import belege, domaene, einsatz, loeschung, management, twin
+from core import anfragen, angebote, belege, domaene, einsatz, forderungen, loeschung, management, tagesaufgaben, twin, vertraege
 from core.auth import Abgewiesen, Authentifizierung, Prinzipal
 from core.db import Datenbank, mandant_binden
 from core.disposition import freie_zeitfenster, kollidiert
 from core.adapter import ERLAUBT, ZIELE, konfiguration_pruefen
 from core.geheimnisse import GEHEIME_FELDER, konfiguration_maskieren, konfiguration_verschluesseln
-from core.modelle import (Anhang, Anlage, Beleg, Bereitschaft, Ereignis, Freigabe, Frist, Kommunikation, Kunde, Mandant,
-                          Objekt, OutboxEintrag, Rapport, Rechnung, Ressource, Servicefall, Termin, Zeiteintrag)
+from core.modelle import (Abwesenheit, Anfrage, Angebot, Anhang, Anlage, Artikel, Beleg, Bereitschaft, Ereignis, Freigabe, Frist,
+                          Kommunikation, Kunde, Mahnung, Mandant, Objekt, OutboxEintrag, Rapport, Rechnung, Ressource, Servicefall,
+                          Termin, Vertrag, Zahlung, Zeiteintrag)
 from core.ontologie import ANLAGENTYPEN, TBOX, anlagentyp, exportieren
 from core.regeln import dringlichkeit_bewerten, qualifikation_fuer, telefon_normalisieren
 from core.rechnung import pdf as rechnung_pdf
+from core.rechnung import positionen_aus_payload, summen
 from core.rechnung import xrechnung
 
 UI_VERZEICHNIS = Path(__file__).resolve().parent / "ui"
@@ -265,6 +267,15 @@ class Stammdaten(_Schema):
     stundensatz_kosten: float = Field(55, ge=0, le=500)
     stundensatz_verrechnung: float = Field(69, ge=0, le=500)
     materialaufschlag_prozent: float = Field(15, ge=0, le=200)
+    # Angebote, Mahnwesen, Bewertungen, Website (core/angebote.py, core/forderungen.py, core/einsatz.py)
+    angebotsnummer_praefix: str = Field("AN", max_length=10)
+    angebot_gueltig_tage: int = Field(30, ge=1, le=365)
+    mahn_karenz_tage: int = Field(7, ge=0, le=90)
+    mahn_frist_tage: int = Field(10, ge=1, le=60)
+    mahngebuehr_stufe2: float = Field(5.00, ge=0, le=100)
+    mahngebuehr_stufe3: float = Field(10.00, ge=0, le=100)
+    bewertungslink: str | None = None
+    basis_url: str | None = None
 
 
 class Integration(_Schema):
@@ -428,7 +439,7 @@ class BereitschaftAus(BereitschaftNeu):
 
 
 class FristNeu(_Schema):
-    bezug_typ: Literal["betrieb", "ressource", "anlage", "fahrzeug"] = "betrieb"
+    bezug_typ: Literal["betrieb", "ressource", "anlage", "fahrzeug", "vertrag"] = "betrieb"
     bezug_id: str | None = None
     art: Literal["pruefung", "unterweisung", "zertifikat", "garantie", "vertrag", "sonstiges"]
     bezeichnung: str = Field(..., min_length=2)
@@ -453,6 +464,171 @@ class VoiceGespraechBeendet(_Schema):
     zusammenfassung: str | None = None
     extraktion: dict[str, Any] = {}
     aufzeichnung_eingewilligt: bool = False
+
+
+class ArtikelNeu(_Schema):
+    nummer: str = Field(..., min_length=1, max_length=40)
+    bezeichnung: str = Field(..., min_length=2, max_length=200)
+    kategorie: Literal["material", "arbeit", "fahrt", "pauschale"] = "material"
+    einheit: str = Field("Stk", max_length=10)
+    einkauf_netto: float | None = None
+    verkauf_netto: float = Field(..., ge=0)
+    ust_satz: str = "19"
+    lieferant: str | None = None
+    aktiv: bool = True
+
+
+class ArtikelAenderung(_Schema):
+    bezeichnung: str | None = Field(None, min_length=2, max_length=200)
+    kategorie: Literal["material", "arbeit", "fahrt", "pauschale"] | None = None
+    einheit: str | None = None
+    einkauf_netto: float | None = None
+    verkauf_netto: float | None = Field(None, ge=0)
+    ust_satz: str | None = None
+    lieferant: str | None = None
+    aktiv: bool | None = None
+
+
+class ArtikelAus(_Schema):
+    id: str
+    nummer: str
+    bezeichnung: str
+    kategorie: str
+    einheit: str
+    einkauf_netto: str | None
+    verkauf_netto: str
+    ust_satz: str
+    lieferant: str | None
+    aktiv: bool
+
+
+class AngebotNeu(_Schema):
+    kunde_id: str
+    servicefall_id: str | None = None
+    titel: str | None = Field(None, max_length=200)
+    einleitung: str | None = None
+    gueltig_bis: date | None = None
+    positionen: list[dict[str, Any]] = Field(default_factory=list)  # {artikel_id|bezeichnung, menge, einheit, einzelpreis_netto, ust_satz}
+
+
+class AngebotAenderung(_Schema):
+    titel: str | None = Field(None, max_length=200)
+    einleitung: str | None = None
+    gueltig_bis: date | None = None
+    positionen: list[dict[str, Any]] | None = None
+
+
+class AngebotAus(_Schema):
+    id: str
+    nummer: str
+    kunde_id: str
+    servicefall_id: str | None
+    rechnung_id: str | None
+    titel: str
+    einleitung: str | None
+    datum: date
+    gueltig_bis: date
+    positionen: list[dict[str, Any]]
+    netto: str
+    umsatzsteuer: str
+    brutto: str
+    status: str
+    empfaenger: dict[str, Any]
+    entschieden_am: date | None
+
+
+class Ablehnung(_Schema):
+    grund: str | None = None
+
+
+class ZahlungNeu(_Schema):
+    rechnung_id: str
+    betrag: float
+    datum: date | None = None
+    art: Literal["ueberweisung", "bar", "karte", "skonto", "ausbuchung"] = "ueberweisung"
+    referenz: str | None = Field(None, max_length=200)
+
+
+class ZahlungAus(_Schema):
+    id: str
+    rechnung_id: str
+    rechnung_nummer: str | None = None
+    datum: date
+    betrag: str
+    art: str
+    referenz: str | None
+    quelle: str
+
+
+class MahnungAus(_Schema):
+    id: str
+    rechnung_id: str
+    stufe: int
+    datum: date
+    frist: date
+    gebuehr: str
+    offen: str
+
+
+class VertragNeu(_Schema):
+    kunde_id: str
+    bezeichnung: str = Field("Wartungsvertrag", max_length=200)
+    anlagen_ids: list[str] = Field(default_factory=list)
+    leistungen: str | None = None
+    beginn: date | None = None
+    laufzeit_monate: int = Field(12, ge=1, le=120)
+    kuendigungsfrist_monate: int = Field(3, ge=0, le=12)
+    verlaengerung_monate: int = Field(12, ge=0, le=60)
+    preis_jahr_netto: float = Field(..., ge=0)
+    ust_satz: str = "19"
+    abrechnung_monate: int = Field(12, ge=1, le=12)
+    naechste_abrechnung: date | None = None
+    notiz: str | None = None
+
+
+class Kuendigung(_Schema):
+    zum: date | None = None
+
+
+class AbwesenheitNeu(_Schema):
+    ressource_id: str
+    von: date
+    bis: date
+    art: Literal["urlaub", "krank", "schulung", "sonstiges"] = "urlaub"
+    notiz: str | None = Field(None, max_length=300)
+
+
+class AbwesenheitAus(AbwesenheitNeu):
+    id: str
+
+
+class AnfrageAus(_Schema):
+    id: str
+    kanal: str
+    externe_id: str
+    name: str | None
+    telefon: str | None
+    email: str | None
+    betreff: str | None
+    nachricht: str | None
+    kunde_id: str | None
+    servicefall_id: str | None
+    status: str
+    eingegangen: datetime
+
+
+class WebformularEinstellung(_Schema):
+    aktiv: bool = True
+    erneuern: bool = False
+    danke_url: str | None = None
+
+
+class Posteingang(_Schema):
+    host: str
+    port: int = Field(993, ge=1, le=65535)
+    benutzer: str = ""
+    passwort: str = ""
+    ordner: str = "INBOX"
 
 
 # --- App --------------------------------------------------------------------------------------
@@ -1415,5 +1591,354 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         s.commit()
         return {"kommunikation_id": c.id}
 
-    return app
+    # --- Artikelstamm und Angebote ------------------------------------------------------------
+    @app.get("/artikel", response_model=list[ArtikelAus])
+    def artikel_listen(q: str | None = None, alle: bool = False, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        """Standard: nur aktive Artikel (für Angebotspositionen); alle=true für die Stammdatenpflege."""
+        abfrage = select(Artikel).where(Artikel.mandant_id == m.id)
+        if not alle:
+            abfrage = abfrage.where(Artikel.aktiv.is_(True))
+        if q:
+            abfrage = abfrage.where(or_(Artikel.bezeichnung.ilike(f"%{q}%"), Artikel.nummer.ilike(f"%{q}%")))
+        return s.scalars(abfrage.order_by(Artikel.kategorie, Artikel.nummer)).all()
 
+    def _geld(wert: Any, feld: str) -> str:
+        from decimal import Decimal, InvalidOperation
+        try:
+            return f"{Decimal(str(wert).replace(',', '.')):.2f}"
+        except InvalidOperation as e:
+            raise HTTPException(422, f"{feld} ist keine Zahl") from e
+
+    @app.post("/artikel", response_model=ArtikelAus, status_code=201, dependencies=[Depends(recht("bearbeiten"))])
+    def artikel_anlegen(daten: ArtikelNeu, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        if s.scalar(select(Artikel).where(Artikel.mandant_id == m.id, Artikel.nummer == daten.nummer)):
+            raise HTTPException(409, f"Artikelnummer {daten.nummer} ist vergeben")
+        a = Artikel(mandant_id=m.id, **daten.model_dump(exclude={"einkauf_netto", "verkauf_netto"}),
+                    einkauf_netto=_geld(daten.einkauf_netto, "einkauf_netto") if daten.einkauf_netto is not None else None,
+                    verkauf_netto=_geld(daten.verkauf_netto, "verkauf_netto"))
+        s.add(a)
+        s.commit()
+        return a
+
+    @app.patch("/artikel/{artikel_id}", response_model=ArtikelAus, dependencies=[Depends(recht("bearbeiten"))])
+    def artikel_aendern(artikel_id: str, daten: ArtikelAenderung, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        a = holen(s, Artikel, artikel_id, m)
+        for feld, wert in daten.model_dump(exclude_unset=True).items():
+            setattr(a, feld, _geld(wert, feld) if feld in ("einkauf_netto", "verkauf_netto") and wert is not None else wert)
+        s.commit()
+        return a
+
+    @app.get("/angebote", response_model=list[AngebotAus])
+    def angebote_listen(status: str | None = None, kunde_id: str | None = None, limit: int = Query(200, le=2000),
+                        m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        abfrage = select(Angebot).where(Angebot.mandant_id == m.id)
+        if status:
+            abfrage = abfrage.where(Angebot.status == status)
+        if kunde_id:
+            abfrage = abfrage.where(Angebot.kunde_id == kunde_id)
+        return s.scalars(abfrage.order_by(Angebot.datum.desc(), Angebot.nummer.desc()).limit(limit)).all()
+
+    @app.post("/angebote", response_model=AngebotAus, status_code=201)
+    def angebot_anlegen(daten: AngebotNeu, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                        p: Prinzipal = Depends(recht("bearbeiten"))):
+        payload = daten.model_dump(exclude_none=True)
+        if "gueltig_bis" in payload:
+            payload["gueltig_bis"] = payload["gueltig_bis"].isoformat()
+        a = fachlich(lambda: angebote.angebot_erzeugen(s, m, payload, app.state.uhr().date(), p.name))
+        s.commit()
+        return a
+
+    @app.get("/angebote/{angebot_id}", response_model=AngebotAus)
+    def angebot_lesen(angebot_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        return holen(s, Angebot, angebot_id, m)
+
+    @app.patch("/angebote/{angebot_id}", response_model=AngebotAus, dependencies=[Depends(recht("bearbeiten"))])
+    def angebot_aendern(angebot_id: str, daten: AngebotAenderung, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        """Nur Entwürfe sind änderbar; versendete Angebote sind preisgebunden und werden neu erstellt."""
+        a = holen(s, Angebot, angebot_id, m)
+        if a.status != "entwurf":
+            raise HTTPException(409, f"Angebot {a.nummer} ist {a.status} und nicht mehr änderbar")
+        aenderung = daten.model_dump(exclude_unset=True)
+        if "positionen" in aenderung:
+            zeilen = fachlich(lambda: angebote.positionen_aus_artikeln(s, m, aenderung.pop("positionen") or []))
+            positionen = fachlich(lambda: positionen_aus_payload({"positionen": zeilen}, bool(m.stammdaten.get("kleinunternehmer")))) if zeilen else []
+            netto, ust, brutto, _ = summen(positionen)
+            a.positionen = [{**p.als_dict(), **({"artikel_id": z["artikel_id"]} if z.get("artikel_id") else {})} for p, z in zip(positionen, zeilen)]
+            a.netto, a.umsatzsteuer, a.brutto = str(netto), str(ust), str(brutto)
+        for feld, wert in aenderung.items():
+            setattr(a, feld, wert)
+        s.commit()
+        return a
+
+    @app.get("/angebote/{angebot_id}/pdf")
+    def angebot_pdf(angebot_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> Response:
+        a = holen(s, Angebot, angebot_id, m)
+        return Response(angebote.pdf(a, m), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{a.nummer}.pdf"'})
+
+    @app.post("/angebote/{angebot_id}/senden", response_model=FreigabeAus, status_code=201)
+    def angebot_senden(angebot_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                       p: Prinzipal = Depends(recht("bearbeiten"))):
+        a = holen(s, Angebot, angebot_id, m)
+        f = fachlich(lambda: angebote.versand_beantragen(s, m, a, p.name))
+        s.commit()
+        return f
+
+    @app.post("/angebote/{angebot_id}/annehmen", response_model=ServicefallAus)
+    def angebot_annehmen(angebot_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                         p: Prinzipal = Depends(recht("bearbeiten"))):
+        a = holen(s, Angebot, angebot_id, m)
+        fall = fachlich(lambda: angebote.annehmen(s, m, a, app.state.uhr().date(), p.name))
+        s.commit()
+        return fall
+
+    @app.post("/angebote/{angebot_id}/ablehnen", response_model=AngebotAus)
+    def angebot_ablehnen(angebot_id: str, daten: Ablehnung, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                         p: Prinzipal = Depends(recht("bearbeiten"))):
+        a = holen(s, Angebot, angebot_id, m)
+        fachlich(lambda: angebote.ablehnen(s, a, app.state.uhr().date(), daten.grund, p.name))
+        s.commit()
+        return a
+
+    @app.post("/angebote/{angebot_id}/rechnung", response_model=FreigabeAus, status_code=201)
+    def angebot_abrechnen(angebot_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                          p: Prinzipal = Depends(recht("bearbeiten"))):
+        a = holen(s, Angebot, angebot_id, m)
+        f = fachlich(lambda: angebote.rechnung_beantragen(s, m, a, p.name))
+        s.commit()
+        return f
+
+    # --- Offene Posten, Zahlungen, Bankimport, Mahnwesen ---------------------------------------
+    @app.get("/offene-posten", dependencies=[Depends(recht("finanzen"))])
+    def offene_posten(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> list[dict[str, Any]]:
+        return forderungen.offene_posten(s, m, app.state.uhr().date())
+
+    @app.get("/zahlungen", response_model=list[ZahlungAus], dependencies=[Depends(recht("finanzen"))])
+    def zahlungen(rechnung_id: str | None = None, limit: int = Query(200, le=2000), m: Mandant = Depends(mandant_kontext),
+                  s: Session = Depends(sitzung)):
+        abfrage = select(Zahlung).where(Zahlung.mandant_id == m.id)
+        if rechnung_id:
+            abfrage = abfrage.where(Zahlung.rechnung_id == rechnung_id)
+        return [{**ZahlungAus.model_validate(z).model_dump(), "rechnung_nummer": z.rechnung.nummer}
+                for z in s.scalars(abfrage.order_by(Zahlung.datum.desc(), Zahlung.erstellt.desc()).limit(limit))]
+
+    @app.post("/zahlungen", response_model=ZahlungAus, status_code=201)
+    def zahlung_anlegen(daten: ZahlungNeu, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                        p: Prinzipal = Depends(recht("finanzen"))):
+        r = holen(s, Rechnung, daten.rechnung_id, m)
+        z = fachlich(lambda: forderungen.zahlung_buchen(s, m, r, daten.betrag, daten.datum or app.state.uhr().date(), daten.art,
+                                                        daten.referenz, "manuell", p.name))
+        s.commit()
+        return z
+
+    @app.post("/zahlungen/bankimport")
+    async def zahlungen_bankimport(datei: UploadFile = File(...), buchen: bool = Form(True), m: Mandant = Depends(mandant_kontext),
+                                   s: Session = Depends(sitzung), p: Prinzipal = Depends(recht("finanzen"))) -> dict[str, Any]:
+        """CSV-Export des Online-Bankings (Buchungstag, Betrag, Verwendungszweck); Rechnungsnummern im Zweck werden zugeordnet."""
+        inhalt = await datei.read()
+        if len(inhalt) > 5_000_000:
+            raise HTTPException(413, "Datei größer als 5 MB")
+        ergebnis = fachlich(lambda: forderungen.bankimport(s, m, inhalt, app.state.uhr().date(), buchen, p.name))
+        s.commit()
+        return ergebnis
+
+    @app.post("/mahnlauf", dependencies=[Depends(recht("finanzen"))])
+    def mahnlauf(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> list[dict[str, Any]]:
+        """Erzeugt Freigaben je fälliger Mahnstufe (Erinnerung B, Mahnung C); verschickt selbst nichts."""
+        v = forderungen.mahnlauf(s, m, app.state.uhr().date(), "mensch")
+        s.commit()
+        return v
+
+    @app.get("/mahnungen", response_model=list[MahnungAus], dependencies=[Depends(recht("finanzen"))])
+    def mahnungen(rechnung_id: str | None = None, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        abfrage = select(Mahnung).where(Mahnung.mandant_id == m.id)
+        if rechnung_id:
+            abfrage = abfrage.where(Mahnung.rechnung_id == rechnung_id)
+        return s.scalars(abfrage.order_by(Mahnung.datum.desc(), Mahnung.stufe.desc())).all()
+
+    @app.get("/mahnungen/{mahnung_id}/pdf", dependencies=[Depends(recht("finanzen"))])
+    def mahnung_pdf(mahnung_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> Response:
+        mh = holen(s, Mahnung, mahnung_id, m)
+        return Response(forderungen.mahnung_pdf(mh, m), media_type="application/pdf",
+                        headers={"Content-Disposition": f'inline; filename="Mahnung-{mh.stufe}-{mh.rechnung.nummer}.pdf"'})
+
+    # --- Wartungsverträge ---------------------------------------------------------------------
+    def vertrag_aus(v: Vertrag, heute: date) -> dict[str, Any]:
+        return {"id": v.id, "kunde_id": v.kunde_id, "kunde": v.kunde.name, "bezeichnung": v.bezeichnung, "anlagen_ids": v.anlagen_ids,
+                "leistungen": v.leistungen, "beginn": v.beginn, "laufzeit_monate": v.laufzeit_monate, "kuendigungsfrist_monate": v.kuendigungsfrist_monate,
+                "verlaengerung_monate": v.verlaengerung_monate, "preis_jahr_netto": v.preis_jahr_netto, "ust_satz": v.ust_satz,
+                "abrechnung_monate": v.abrechnung_monate, "naechste_abrechnung": v.naechste_abrechnung, "status": v.status,
+                "gekuendigt_zum": v.gekuendigt_zum, "notiz": v.notiz, "laufzeitende": vertraege.laufzeitende(v, heute),
+                "kuendigungstermin": vertraege.kuendigungstermin(v, heute)}
+
+    @app.get("/vertraege")
+    def vertraege_listen(status: str | None = None, kunde_id: str | None = None, m: Mandant = Depends(mandant_kontext),
+                         s: Session = Depends(sitzung)) -> list[dict[str, Any]]:
+        abfrage = select(Vertrag).where(Vertrag.mandant_id == m.id)
+        if status:
+            abfrage = abfrage.where(Vertrag.status == status)
+        if kunde_id:
+            abfrage = abfrage.where(Vertrag.kunde_id == kunde_id)
+        heute = app.state.uhr().date()
+        return [vertrag_aus(v, heute) for v in s.scalars(abfrage.order_by(Vertrag.naechste_abrechnung))]
+
+    @app.post("/vertraege", status_code=201)
+    def vertrag_anlegen(daten: VertragNeu, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                        p: Prinzipal = Depends(recht("bearbeiten"))) -> dict[str, Any]:
+        heute = app.state.uhr().date()
+        v = fachlich(lambda: vertraege.vertrag_anlegen(s, m, daten.model_dump(exclude_none=True), heute, p.name))
+        s.commit()
+        return vertrag_aus(v, heute)
+
+    @app.get("/vertraege/{vertrag_id}")
+    def vertrag_lesen(vertrag_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        return vertrag_aus(holen(s, Vertrag, vertrag_id, m), app.state.uhr().date())
+
+    @app.post("/vertraege/{vertrag_id}/kuendigen")
+    def vertrag_kuendigen(vertrag_id: str, daten: Kuendigung, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                          p: Prinzipal = Depends(recht("bearbeiten"))) -> dict[str, Any]:
+        v = holen(s, Vertrag, vertrag_id, m)
+        heute = app.state.uhr().date()
+        fachlich(lambda: vertraege.kuendigen(s, v, heute, daten.zum, p.name))
+        s.commit()
+        return vertrag_aus(v, heute)
+
+    # --- Abwesenheiten ------------------------------------------------------------------------
+    @app.get("/abwesenheiten", response_model=list[AbwesenheitAus])
+    def abwesenheiten(ab: date | None = None, ressource_id: str | None = None, m: Mandant = Depends(mandant_kontext),
+                      s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)):
+        abfrage = select(Abwesenheit).where(Abwesenheit.mandant_id == m.id, Abwesenheit.bis >= (ab or app.state.uhr().date() - timedelta(days=30)))
+        eigene = eigene_ressourcen(p, s, m)
+        if eigene is not None:
+            abfrage = abfrage.where(Abwesenheit.ressource_id.in_(eigene))
+        if ressource_id:
+            abfrage = abfrage.where(Abwesenheit.ressource_id == ressource_id)
+        return s.scalars(abfrage.order_by(Abwesenheit.von)).all()
+
+    @app.post("/abwesenheiten", response_model=AbwesenheitAus, status_code=201, dependencies=[Depends(recht("bearbeiten"))])
+    def abwesenheit_anlegen(daten: AbwesenheitNeu, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        holen(s, Ressource, daten.ressource_id, m)
+        if daten.bis < daten.von:
+            raise HTTPException(422, "bis liegt vor von")
+        a = Abwesenheit(mandant_id=m.id, **daten.model_dump())
+        s.add(a)
+        s.commit()
+        return a
+
+    @app.delete("/abwesenheiten/{abwesenheit_id}", status_code=204, dependencies=[Depends(recht("bearbeiten"))])
+    def abwesenheit_loeschen(abwesenheit_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        s.delete(holen(s, Abwesenheit, abwesenheit_id, m))
+        s.commit()
+        return Response(status_code=204)
+
+    # --- Anfrageeingang: Webformular (öffentlich, Token) und Postfach -------------------------
+    @app.get("/anfragen", response_model=list[AnfrageAus], dependencies=[Depends(recht("bearbeiten"))])
+    def anfragen_listen(status: str | None = None, limit: int = Query(200, le=2000), m: Mandant = Depends(mandant_kontext),
+                        s: Session = Depends(sitzung)):
+        abfrage = select(Anfrage).where(Anfrage.mandant_id == m.id)
+        if status:
+            abfrage = abfrage.where(Anfrage.status == status)
+        return s.scalars(abfrage.order_by(Anfrage.eingegangen.desc()).limit(limit)).all()
+
+    @app.get("/betrieb/webformular", dependencies=[Depends(recht("verwalten"))])
+    def webformular_lesen(request: Request, m: Mandant = Depends(mandant_kontext)) -> dict[str, Any]:
+        token = m.stammdaten.get("webformular_token")
+        basis = m.stammdaten.get("basis_url") or str(request.base_url).rstrip("/")
+        return {"aktiv": bool(token), "url": f"{basis}/anfragen/web/{token}" if token else None,
+                "snippet": anfragen.webformular_snippet(basis, token) if token else None}
+
+    @app.put("/betrieb/webformular", dependencies=[Depends(recht("verwalten"))])
+    def webformular_setzen(request: Request, daten: WebformularEinstellung, m: Mandant = Depends(mandant_kontext),
+                           s: Session = Depends(sitzung)) -> dict[str, Any]:
+        """aktiv=true erzeugt (oder erneuert) den Token; aktiv=false schaltet das Formular ab."""
+        stamm = dict(m.stammdaten)
+        if daten.aktiv and (daten.erneuern or not stamm.get("webformular_token")):
+            stamm["webformular_token"] = f"{m.id}.{anfragen.formular_token_erzeugen()}"
+        if not daten.aktiv:
+            stamm.pop("webformular_token", None)
+        if daten.danke_url is not None:
+            stamm["webformular_danke_url"] = daten.danke_url
+        m.stammdaten = stamm
+        s.commit()
+        return webformular_lesen(request, m)
+
+    formular_zaehler: dict[str, list[float]] = {}
+
+    @app.post("/anfragen/web/{token}", include_in_schema=True)
+    async def anfrage_webformular(token: str, request: Request, s: Session = Depends(sitzung)):
+        """Öffentlich (kein Login): Ziel des Kontaktformulars auf der Website des Betriebs. Honeypot-Feld `website`,
+        Drosselung je Token, idempotent je Formularkennung. Antwortet mit JSON oder leitet auf die Danke-Seite um."""
+        import hmac
+        import time
+        mandant_id = token.split(".", 1)[0]
+        if not mandant_id or len(mandant_id) > 32:
+            raise HTTPException(404, "Formular unbekannt")
+        mandant_binden(s, mandant_id)
+        m = s.get(Mandant, mandant_id)
+        erwartet = (m.stammdaten.get("webformular_token") if m else None) or ""
+        if not erwartet or not hmac.compare_digest(erwartet, token):
+            raise HTTPException(404, "Formular unbekannt")
+        jetzt = time.monotonic()
+        fenster = [t for t in formular_zaehler.get(token, []) if jetzt - t < 3600]
+        if len(fenster) >= 60:
+            raise HTTPException(429, "Zu viele Anfragen, bitte rufen Sie uns an")
+        formular_zaehler[token] = fenster + [jetzt]
+        if "json" in (request.headers.get("content-type") or ""):
+            felder = await request.json()
+        else:
+            felder = dict(await request.form())
+        felder = {k: (str(v).strip() if v is not None else None) for k, v in felder.items()}
+        if felder.get("website"):  # Honeypot: Bots füllen das unsichtbare Feld
+            return {"status": "angenommen"}
+        kennung = felder.get("kennung") or f"web:{abs(hash((felder.get('telefon'), felder.get('email'), felder.get('nachricht'), app.state.uhr().strftime('%Y%m%d%H%M'))))}"
+        if not (felder.get("telefon") or felder.get("email")):
+            raise HTTPException(422, "Telefon oder E-Mail wird benötigt")
+        anfragen.anfrage_verarbeiten(s, m, "web", kennung, felder.get("name"), felder.get("telefon"), felder.get("email"), felder.get("betreff"),
+                                     felder.get("nachricht"), app.state.uhr(), felder.get("strasse"), felder.get("plz"), felder.get("ort"))
+        s.commit()
+        if m.stammdaten.get("webformular_danke_url") and "json" not in (request.headers.get("accept") or ""):
+            return RedirectResponse(m.stammdaten["webformular_danke_url"], status_code=303)
+        return {"status": "angenommen", "hinweis": "Vielen Dank, wir melden uns."}
+
+    @app.get("/betrieb/posteingang", dependencies=[Depends(recht("verwalten"))])
+    def posteingang_lesen(m: Mandant = Depends(mandant_kontext)) -> dict[str, Any]:
+        return konfiguration_maskieren(m.integrationen.get("posteingang") or {})
+
+    @app.put("/betrieb/posteingang", dependencies=[Depends(recht("verwalten"))])
+    def posteingang_setzen(daten: Posteingang, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        bisher = m.integrationen.get("posteingang") or {}
+        konfig = daten.model_dump()
+        if konfig.get("passwort") in ("", "••••", None) and bisher.get("passwort"):
+            konfig["passwort"] = bisher["passwort"]
+        else:
+            konfig = konfiguration_verschluesseln(konfig)
+        m.integrationen = {**m.integrationen, "posteingang": konfig}
+        s.commit()
+        return konfiguration_maskieren(konfig)
+
+    @app.post("/posteingang/abrufen", dependencies=[Depends(recht("bearbeiten"))])
+    def posteingang_abrufen(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, int]:
+        konfig = m.integrationen.get("posteingang")
+        if not konfig or not konfig.get("host"):
+            raise HTTPException(409, "Kein Postfach hinterlegt (Einstellungen → Posteingang)")
+        from core.geheimnisse import konfiguration_entschluesseln
+        k = konfiguration_entschluesseln(konfig)
+        try:
+            postfach = anfragen.ImapPostfach(k["host"], k.get("benutzer", ""), k.get("passwort", ""), k.get("ordner", "INBOX"), int(k.get("port", 993)))
+            ergebnis = anfragen.postfach_abrufen(s, m, postfach, app.state.uhr())
+        except OSError as e:
+            raise HTTPException(502, f"Postfach nicht erreichbar: {e}") from e
+        s.commit()
+        return ergebnis
+
+    # --- Auswertungen und Tageslauf -----------------------------------------------------------
+    @app.get("/auswertungen", dependencies=[Depends(recht("finanzen"))])
+    def auswertungen(monate: int = Query(12, ge=1, le=36), m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        return management.auswertungen(s, m, app.state.uhr(), monate)
+
+    @app.post("/tagesaufgaben", dependencies=[Depends(recht("bearbeiten"))])
+    def tagesaufgaben_ausfuehren(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        ergebnis = tagesaufgaben.tagesaufgaben(s, m, app.state.uhr())
+        s.commit()
+        return ergebnis
+
+    return app

@@ -42,6 +42,7 @@ class Mandant(Basis):
     # Geheimnisse liegen verschlüsselt (core.geheimnisse), nie im Klartext in der Datenbank
     integrationen: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     rechnungsnummer_zaehler: Mapped[int] = mapped_column(Integer, default=0)
+    angebotsnummer_zaehler: Mapped[int] = mapped_column(Integer, default=0)
     erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
 
 
@@ -356,3 +357,131 @@ class Frist(_Mandantenbezug, Basis):
     erledigt_am: Mapped[date | None] = mapped_column(Date)
     hinweis: Mapped[str | None] = mapped_column(String(300))
     erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
+
+
+# --- Zweite Runde Betriebsmodule: Angebote, Forderungen, Verträge, Abwesenheiten, Anfragen ----------
+class Artikel(_Mandantenbezug, Basis):
+    """Artikel- und Leistungsstamm für Angebots- und Rechnungspositionen (Material, Arbeit, Pauschalen)."""
+    __tablename__ = "artikel"
+    __table_args__ = (UniqueConstraint("mandant_id", "nummer"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    nummer: Mapped[str] = mapped_column(String(40))
+    bezeichnung: Mapped[str] = mapped_column(String(200))
+    kategorie: Mapped[str] = mapped_column(String(20), default="material")  # material, arbeit, fahrt, pauschale
+    einheit: Mapped[str] = mapped_column(String(10), default="Stk")
+    einkauf_netto: Mapped[str | None] = mapped_column(String(20))
+    verkauf_netto: Mapped[str] = mapped_column(String(20))
+    ust_satz: Mapped[str] = mapped_column(String(6), default="19")
+    lieferant: Mapped[str | None] = mapped_column(String(200))
+    aktiv: Mapped[bool] = mapped_column(default=True)
+
+
+class Angebot(_Mandantenbezug, Basis):
+    """Angebot mit eigenem Nummernkreis; Annahme erzeugt den Auftrag (Servicefall), Rechnung über Freigabe C."""
+    __tablename__ = "angebot"
+    __table_args__ = (UniqueConstraint("mandant_id", "nummer"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    nummer: Mapped[str] = mapped_column(String(40))
+    kunde_id: Mapped[str] = mapped_column(String(32), ForeignKey("kunde.id"), index=True)
+    servicefall_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("servicefall.id"))
+    rechnung_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("rechnung.id"))
+    titel: Mapped[str] = mapped_column(String(200))
+    einleitung: Mapped[str | None] = mapped_column(Text)
+    datum: Mapped[date] = mapped_column(Date)
+    gueltig_bis: Mapped[date] = mapped_column(Date)
+    positionen: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    netto: Mapped[str] = mapped_column(String(20))
+    umsatzsteuer: Mapped[str] = mapped_column(String(20))
+    brutto: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20), default="entwurf")  # entwurf, versendet, angenommen, abgelehnt, abgelaufen
+    empfaenger: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    entschieden_am: Mapped[date | None] = mapped_column(Date)
+    erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
+
+    kunde: Mapped[Kunde] = relationship()
+
+
+class Zahlung(_Mandantenbezug, Basis):
+    """Zahlungseingang zu einer Rechnung (manuell, Bankimport, Skonto, Ausbuchung)."""
+    __tablename__ = "zahlung"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    rechnung_id: Mapped[str] = mapped_column(String(32), ForeignKey("rechnung.id"), index=True)
+    datum: Mapped[date] = mapped_column(Date)
+    betrag: Mapped[str] = mapped_column(String(20))
+    art: Mapped[str] = mapped_column(String(20), default="ueberweisung")  # ueberweisung, bar, karte, skonto, ausbuchung
+    referenz: Mapped[str | None] = mapped_column(String(200))
+    quelle: Mapped[str] = mapped_column(String(20), default="manuell")  # manuell, bankimport
+    erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
+
+    rechnung: Mapped[Rechnung] = relationship()
+
+
+class Mahnung(_Mandantenbezug, Basis):
+    """Zahlungserinnerung (Stufe 1) und Mahnungen (Stufe 2, 3) zu einer Rechnung; entstehen über Freigaben."""
+    __tablename__ = "mahnung"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    rechnung_id: Mapped[str] = mapped_column(String(32), ForeignKey("rechnung.id"), index=True)
+    stufe: Mapped[int] = mapped_column(Integer)
+    datum: Mapped[date] = mapped_column(Date)
+    frist: Mapped[date] = mapped_column(Date)
+    gebuehr: Mapped[str] = mapped_column(String(20), default="0.00")
+    offen: Mapped[str] = mapped_column(String(20))  # offener Betrag zum Mahnzeitpunkt
+    erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
+
+    rechnung: Mapped[Rechnung] = relationship()
+
+
+class Vertrag(_Mandantenbezug, Basis):
+    """Wartungsvertrag: Laufzeit, Kündigungsfrist, Verlängerung, jährliche Abrechnung über Freigabe C."""
+    __tablename__ = "vertrag"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    kunde_id: Mapped[str] = mapped_column(String(32), ForeignKey("kunde.id"), index=True)
+    bezeichnung: Mapped[str] = mapped_column(String(200))
+    anlagen_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    leistungen: Mapped[str | None] = mapped_column(Text)
+    beginn: Mapped[date] = mapped_column(Date)
+    laufzeit_monate: Mapped[int] = mapped_column(Integer, default=12)
+    kuendigungsfrist_monate: Mapped[int] = mapped_column(Integer, default=3)
+    verlaengerung_monate: Mapped[int] = mapped_column(Integer, default=12)
+    preis_jahr_netto: Mapped[str] = mapped_column(String(20))
+    ust_satz: Mapped[str] = mapped_column(String(6), default="19")
+    abrechnung_monate: Mapped[int] = mapped_column(Integer, default=12)  # Abrechnungsintervall
+    naechste_abrechnung: Mapped[date] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(20), default="aktiv")  # aktiv, gekuendigt, beendet
+    gekuendigt_zum: Mapped[date | None] = mapped_column(Date)
+    notiz: Mapped[str | None] = mapped_column(Text)
+    erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
+
+    kunde: Mapped[Kunde] = relationship()
+
+
+class Abwesenheit(_Mandantenbezug, Basis):
+    """Urlaub, Krankheit, Schulung: blockiert die Disposition ganztägig."""
+    __tablename__ = "abwesenheit"
+    __table_args__ = (Index("ix_abwesenheit_ressource", "ressource_id", "von"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    ressource_id: Mapped[str] = mapped_column(String(32), ForeignKey("ressource.id"))
+    von: Mapped[date] = mapped_column(Date)
+    bis: Mapped[date] = mapped_column(Date)
+    art: Mapped[str] = mapped_column(String(20), default="urlaub")  # urlaub, krank, schulung, sonstiges
+    notiz: Mapped[str | None] = mapped_column(String(300))
+
+    ressource: Mapped[Ressource] = relationship()
+
+
+class Anfrage(_Mandantenbezug, Basis):
+    """Eingang über Webformular oder E-Mail-Postfach; wird zum Servicefall, Rohdaten bleiben zur Nachvollziehbarkeit."""
+    __tablename__ = "anfrage"
+    __table_args__ = (UniqueConstraint("mandant_id", "externe_id"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    kanal: Mapped[str] = mapped_column(String(20))  # web, email
+    externe_id: Mapped[str] = mapped_column(String(200))  # Message-ID bzw. Formularkennung
+    name: Mapped[str | None] = mapped_column(String(200))
+    telefon: Mapped[str | None] = mapped_column(String(32))
+    email: Mapped[str | None] = mapped_column(String(200))
+    betreff: Mapped[str | None] = mapped_column(String(300))
+    nachricht: Mapped[str | None] = mapped_column(Text)
+    kunde_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("kunde.id"))
+    servicefall_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("servicefall.id"))
+    status: Mapped[str] = mapped_column(String(20), default="neu")  # neu, uebernommen, verworfen
+    eingegangen: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)

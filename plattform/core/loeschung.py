@@ -26,12 +26,12 @@ from sqlalchemy import delete, exists, select
 from sqlalchemy.orm import Session
 
 from core.domaene import protokollieren
-from core.modelle import (Anhang, Anlage, Beleg, Ereignis, Kommunikation, Kunde, Mandant, Objekt, OutboxEintrag,
-                          Rapport, Rechnung, Servicefall, Termin, Zeiteintrag)
+from core.modelle import (Abwesenheit, Anfrage, Angebot, Anhang, Anlage, Beleg, Ereignis, Kommunikation, Kunde, Mandant, Objekt,
+                          OutboxEintrag, Rapport, Rechnung, Servicefall, Termin, Vertrag, Zeiteintrag)
 
 STANDARD_FRISTEN = {"transkript_tage": 90, "kommunikation_lose_tage": 30, "outbox_tage": 90, "outbox_tot_tage": 365,
                     "ereignis_tage": 1095, "vorgang_tage": 1095, "kunde_inaktiv_tage": 1095, "rechnung_tage": 3650,
-                    "beleg_tage": 3650, "zeit_tage": 730}
+                    "beleg_tage": 3650, "zeit_tage": 730, "angebot_tage": 1095, "vertrag_tage": 1095, "anfrage_tage": 365}
 ABGESCHLOSSEN = ("uebergeben", "storniert", "abgerechnet")
 DAUERHAFT = ("rechnung.", "freigabe.", "loeschung.", "kunde.geloescht")
 ANONYM = "Gelöschte Person"
@@ -46,7 +46,7 @@ def _sperrfrist(s: Session, kunde: Kunde, jetzt: datetime, f: dict[str, int]) ->
     offen = s.scalar(select(exists().where(Servicefall.kunde_id == kunde.id, Servicefall.status.notin_(ABGESCHLOSSEN))))
     if offen:
         return "offener Vorgang"
-    if kunde.vertragsstatus == "wartungsvertrag":
+    if kunde.vertragsstatus == "wartungsvertrag" or s.scalar(select(exists().where(Vertrag.kunde_id == kunde.id, Vertrag.status == "aktiv"))):
         return "laufender Wartungsvertrag"
     letzte = s.scalar(select(Rechnung.datum).where(Rechnung.kunde_id == kunde.id).order_by(Rechnung.datum.desc()).limit(1))
     if letzte and (jetzt.date() - letzte).days < f["rechnung_tage"]:
@@ -96,6 +96,9 @@ def kunde_loeschen(s: Session, kunde: Kunde, jetzt: datetime, akteur: str = "men
     _vorgangsanhang_loeschen(s, ids)
     s.execute(delete(Termin).where(Termin.servicefall_id.in_(ids)))
     s.execute(delete(Kommunikation).where((Kommunikation.kunde_id == kunde.id) | (Kommunikation.servicefall_id.in_(ids))))
+    s.execute(delete(Anfrage).where(Anfrage.kunde_id == kunde.id))
+    s.execute(delete(Angebot).where(Angebot.kunde_id == kunde.id))
+    s.execute(delete(Vertrag).where(Vertrag.kunde_id == kunde.id))
     s.execute(delete(Servicefall).where(Servicefall.id.in_(ids)))
     objekte = list(s.scalars(select(Objekt.id).where(Objekt.kunde_id == kunde.id)))
     s.execute(delete(Anhang).where(((Anhang.bezug_typ == "kunde") & (Anhang.bezug_id == kunde.id))
@@ -131,6 +134,12 @@ def auskunft(s: Session, kunde: Kunde) -> dict[str, Any]:
                           for k in s.scalars(select(Kommunikation).where(Kommunikation.kunde_id == kunde.id))],
         "rechnungen": [{"nummer": r.nummer, "datum": r.datum.isoformat(), "brutto": r.brutto, "status": r.status}
                        for r in s.scalars(select(Rechnung).where(Rechnung.kunde_id == kunde.id))],
+        "angebote": [{"nummer": a.nummer, "datum": a.datum.isoformat(), "titel": a.titel, "brutto": a.brutto, "status": a.status}
+                     for a in s.scalars(select(Angebot).where(Angebot.kunde_id == kunde.id))],
+        "vertraege": [{"bezeichnung": v.bezeichnung, "beginn": v.beginn.isoformat(), "preis_jahr_netto": v.preis_jahr_netto, "status": v.status}
+                      for v in s.scalars(select(Vertrag).where(Vertrag.kunde_id == kunde.id))],
+        "anfragen": [{"kanal": a.kanal, "eingegangen": a.eingegangen.isoformat(), "betreff": a.betreff, "status": a.status}
+                     for a in s.scalars(select(Anfrage).where(Anfrage.kunde_id == kunde.id))],
         "empfaenger_der_daten": ["Buchhaltungssoftware und Steuerkanzlei (Rechnungen)", "E-Mail-/SMS-Dienstleister (Benachrichtigungen)",
                                  "Sprach- und KI-Dienste während des Telefonats (keine dauerhafte Speicherung dort)"],
         "speicherdauer": STANDARD_FRISTEN,
@@ -190,6 +199,19 @@ def loeschlauf(s: Session, m: Mandant, jetzt: datetime | None = None, trocken: b
         if b.anhang_id:
             s.execute(delete(Anhang).where(Anhang.id == b.anhang_id))
         s.delete(b)
+
+    alte_angebote = select(Angebot.id).where(Angebot.mandant_id == mid, Angebot.status.in_(("entwurf", "abgelehnt", "abgelaufen")),
+                                             Angebot.rechnung_id.is_(None), Angebot.datum < vor(f["angebot_tage"]).date())
+    z["angebote_geloescht"] = len(list(s.scalars(alte_angebote)))
+    s.execute(delete(Angebot).where(Angebot.id.in_(alte_angebote)))
+    alte_vertraege = select(Vertrag.id).where(Vertrag.mandant_id == mid, Vertrag.status != "aktiv",
+                                              Vertrag.gekuendigt_zum < vor(f["vertrag_tage"]).date())
+    z["vertraege_geloescht"] = len(list(s.scalars(alte_vertraege)))
+    s.execute(delete(Vertrag).where(Vertrag.id.in_(alte_vertraege)))
+    alte_anfragen = select(Anfrage.id).where(Anfrage.mandant_id == mid, Anfrage.eingegangen < vor(f["anfrage_tage"]))
+    z["anfragen_geloescht"] = len(list(s.scalars(alte_anfragen)))
+    s.execute(delete(Anfrage).where(Anfrage.id.in_(alte_anfragen)))
+    s.execute(delete(Abwesenheit).where(Abwesenheit.mandant_id == mid, Abwesenheit.bis < vor(f["zeit_tage"]).date()))
 
     z["kunden_anonymisiert"] = 0
     for kunde in s.scalars(select(Kunde).where(Kunde.mandant_id == mid, Kunde.name != ANONYM, Kunde.vertragsstatus != "wartungsvertrag",

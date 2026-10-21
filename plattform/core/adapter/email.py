@@ -94,6 +94,36 @@ class EmailAdapter:
             if e.payload.get("xrechnung") or r.leitweg_id:
                 n.add_attachment(xrechnung(r, m), maintype="application", subtype="xml", filename=f"{r.nummer}.xml")
             return self._senden(n)
+        if e.aktion == "angebot_zustellen":
+            from core import angebote
+            from core.modelle import Angebot
+            a = s.get(Angebot, e.payload.get("angebot_id", ""))
+            if a is None or a.mandant_id != e.mandant_id:
+                raise Konfigurationsfehler("Angebot zur Outbox-Nachricht nicht gefunden")
+            an = a.empfaenger.get("email")
+            if not an:
+                return None  # Angebot geht per Post oder wird im Büro gedruckt
+            n = self._nachricht(an, f"Angebot {a.nummer}: {a.titel}", f"Guten Tag {a.empfaenger.get('name', '')},\n\nanbei erhalten Sie unser "
+                                f"Angebot {a.nummer} über {a.brutto.replace('.', ',')} € (gültig bis {a.gueltig_bis.strftime('%d.%m.%Y')}). "
+                                f"Für Rückfragen stehen wir gern zur Verfügung.{gruss}")
+            n.add_attachment(angebote.pdf(a, m), maintype="application", subtype="pdf", filename=f"{a.nummer}.pdf")
+            return self._senden(n)
+        if e.aktion == "mahnung_zustellen":
+            from core import forderungen
+            from core.modelle import Mahnung
+            mh = s.get(Mahnung, e.payload.get("mahnung_id", ""))
+            if mh is None or mh.mandant_id != e.mandant_id:
+                raise Konfigurationsfehler("Mahnung zur Outbox-Nachricht nicht gefunden")
+            r = mh.rechnung
+            an = r.empfaenger.get("email")
+            if not an:
+                return None
+            titel = forderungen.MAHNSTUFEN[mh.stufe][0]
+            n = self._nachricht(an, f"{titel} zur Rechnung {r.nummer}", f"Guten Tag {r.empfaenger.get('name', '')},\n\nzur Rechnung {r.nummer} "
+                                f"sind noch {mh.offen.replace('.', ',')} € offen. Die {titel} mit Zahlungsfrist {mh.frist.strftime('%d.%m.%Y')} "
+                                f"finden Sie im Anhang.{gruss}")
+            n.add_attachment(forderungen.mahnung_pdf(mh, m), maintype="application", subtype="pdf", filename=f"{titel}_{r.nummer}.pdf")
+            return self._senden(n)
         if e.aktion == "belegpaket":
             an = self.k.get("kanzlei_email") or e.payload.get("email")
             if not an:

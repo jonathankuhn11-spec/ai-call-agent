@@ -8,6 +8,8 @@
     python -m core migrate [--ziel head]   Datenbankmigrationen (MIGRATION_DATABASE_URL, Eigentümerrolle)
     python -m core schluessel              INTEGRATIONS_KEY für die Verschlüsselung von Zugangsdaten erzeugen
     python -m core loeschlauf [--trocken]  Löschkonzept anwenden (Fristen je Mandant), täglich per cron
+    python -m core tagesaufgaben           Angebotsablauf, Mahnvorschläge, Vertragsabrechnungen (Freigaben), täglich per cron
+    python -m core posteingang             E-Mail-Postfächer der Mandanten abrufen und Anfragen zu Vorgängen machen
 
 Verbindungen in PostgreSQL: DATABASE_URL (shk_app, unterliegt Row-Level Security) für den Core,
 SYSTEM_DATABASE_URL (shk_system) für Worker, Seed und Mandantenverwaltung. Ohne
@@ -43,6 +45,8 @@ def main() -> None:
     unter.add_parser("schluessel")
     lauf = unter.add_parser("loeschlauf")
     lauf.add_argument("--trocken", action="store_true")
+    unter.add_parser("tagesaufgaben")
+    unter.add_parser("posteingang")
     migrate = unter.add_parser("migrate")
     migrate.add_argument("--ziel", default="head")
     args = parser.parse_args()
@@ -78,6 +82,40 @@ def main() -> None:
         with db.sitzungen() as s:
             for m in s.scalars(select(Mandant)).all():
                 print(json.dumps({"mandant": m.name, **loeschlauf(s, m, trocken=args.trocken)}, ensure_ascii=False), flush=True)
+    elif args.befehl == "tagesaufgaben":
+        from datetime import datetime, timezone
+
+        from sqlalchemy import select
+
+        from core.modelle import Mandant
+        from core.tagesaufgaben import tagesaufgaben
+        db = system_datenbank()
+        db.schema_anlegen()
+        with db.sitzungen() as s:
+            for m in s.scalars(select(Mandant)).all():
+                print(json.dumps({"mandant": m.name, **tagesaufgaben(s, m, datetime.now(timezone.utc))}, ensure_ascii=False, default=str), flush=True)
+                s.commit()
+    elif args.befehl == "posteingang":
+        from datetime import datetime, timezone
+
+        from sqlalchemy import select
+
+        from core.anfragen import ImapPostfach, postfach_abrufen
+        from core.geheimnisse import konfiguration_entschluesseln
+        from core.modelle import Mandant
+        db = system_datenbank()
+        db.schema_anlegen()
+        with db.sitzungen() as s:
+            for m in s.scalars(select(Mandant)).all():
+                k = konfiguration_entschluesseln(m.integrationen.get("posteingang") or {})
+                if not k.get("host"):
+                    continue
+                postfach = ImapPostfach(k["host"], k["benutzer"], k["passwort"], k.get("ordner", "INBOX"), int(k.get("port", 993)))
+                try:
+                    print(json.dumps({"mandant": m.name, **postfach_abrufen(s, m, postfach, datetime.now(timezone.utc))}, ensure_ascii=False), flush=True)
+                    s.commit()
+                finally:
+                    postfach.schliessen()
     elif args.befehl == "schluessel":
         from core.geheimnisse import schluessel_erzeugen
         print(schluessel_erzeugen())

@@ -184,6 +184,15 @@ def rapport_erzeugen(s: Session, m: Mandant, fall: Servicefall, r: Ressource, da
                             "unterschrieben": bool(unterschrift_png)}, akteur_name)
     if rapport.ergebnis == "erledigt" and fall.status == "eingeplant":
         domaene.uebergang(s, fall, "durchgefuehrt", "mensch", f"Rapport {rapport.nummer}", akteur_name)
+    link = m.stammdaten.get("bewertungslink")
+    if link and daten.get("ergebnis") == "erledigt" and (fall.kunde.email or fall.kunde.telefon):
+        # Bewertungsanfrage (Klasse B, per Policy automatisierbar); Einwilligung zur Werbung ist nicht nötig,
+        # weil die Bitte um Bewertung im Nachgang einer Leistung als Kundenservice gilt (vgl. § 7 Abs. 3 UWG für E-Mail)
+        domaene.aktion_beantragen(s, m, "bewertung_anfragen", {"kunde_id": fall.kunde_id, "servicefall_id": fall.id,
+                                  "betreff": f"Wie zufrieden waren Sie mit {m.name}?",
+                                  "text": f"Guten Tag {fall.kunde.name},\n\nvielen Dank für Ihren Auftrag. Wenn Sie zufrieden waren, freuen wir uns "
+                                          f"über eine kurze Bewertung: {link}\nWenn etwas nicht in Ordnung war, rufen Sie uns bitte direkt an."},
+                                  "system", fall.id, f"Bewertungsanfrage nach Rapport {rapport.nummer}")
     return rapport
 
 

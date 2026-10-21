@@ -208,7 +208,10 @@ def xrechnung(r: Rechnung, m: Mandant) -> bytes:
 
 
 # --- PDF -------------------------------------------------------------------------------------
-def pdf(r: Rechnung, m: Mandant) -> bytes:
+def dokument_pdf(m: Mandant, titel: str, nummer: str, datum: date, empfaenger: dict[str, Any], positionen: list[Position],
+                 netto: Decimal, brutto: Decimal, kopfzeilen: list[str] = (), vortext: list[str] = (), schluss: list[str] = (),
+                 vorzeichen: int = 1) -> bytes:
+    """Gemeinsames Layout für Rechnung, Storno, Angebot und Mahnung: Absender, Empfänger, Positionen, Summen, Fußzeile."""
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
     from reportlab.pdfgen import canvas
@@ -216,14 +219,14 @@ def pdf(r: Rechnung, m: Mandant) -> bytes:
     st = m.stammdaten
     puffer = io.BytesIO()
     c = canvas.Canvas(puffer, pagesize=A4)
-    c.setTitle(f"{'Stornorechnung' if r.art == 'storno' else 'Rechnung'} {r.nummer}")
+    c.setTitle(f"{titel} {nummer}")
     breite, hoehe = A4
     y = hoehe - 20 * mm
     c.setFont("Helvetica-Bold", 12)
     c.drawString(20 * mm, y, m.name)
     c.setFont("Helvetica", 9)
     c.drawString(20 * mm, y - 5 * mm, f"{st.get('strasse', '')} · {st.get('plz', '')} {st.get('ort', '')} · {st.get('telefon', '')} · {st.get('email', '')}")
-    e = r.empfaenger
+    e = empfaenger
     y -= 25 * mm
     c.setFont("Helvetica", 10)
     for zeile in (e.get("name", ""), e.get("strasse") or "", f"{e.get('plz') or ''} {e.get('ort') or ''}".strip()):
@@ -231,47 +234,55 @@ def pdf(r: Rechnung, m: Mandant) -> bytes:
         y -= 5 * mm
     y -= 10 * mm
     c.setFont("Helvetica-Bold", 14)
-    c.drawString(20 * mm, y, f"{'Stornorechnung' if r.art == 'storno' else 'Rechnung'} {r.nummer}")
+    c.drawString(20 * mm, y, f"{titel} {nummer}")
     c.setFont("Helvetica", 10)
-    c.drawRightString(breite - 20 * mm, y, f"Datum: {r.datum.strftime('%d.%m.%Y')}")
-    y -= 6 * mm
-    if r.leistungsdatum:
-        c.drawRightString(breite - 20 * mm, y, f"Leistungsdatum: {r.leistungsdatum.strftime('%d.%m.%Y')}")
-    if r.art == "storno" and r.storno_von_id:
-        c.drawString(20 * mm, y, "Storno zur Rechnung mit der internen Kennung " + r.storno_von_id)
-    y -= 12 * mm
-    c.setFont("Helvetica-Bold", 9)
-    for x, text in ((20, "Pos."), (32, "Bezeichnung"), (120, "Menge"), (140, "Einzelpreis"), (165, "Netto")):
-        c.drawString(x * mm, y, text)
-    y -= 2 * mm
-    c.line(20 * mm, y, breite - 20 * mm, y)
-    c.setFont("Helvetica", 9)
-    for i, p in enumerate(_positionen(r), 1):
+    c.drawRightString(breite - 20 * mm, y, f"Datum: {datum.strftime('%d.%m.%Y')}")
+    for zeile in kopfzeilen:
         y -= 6 * mm
-        c.drawString(20 * mm, y, str(i))
-        c.drawString(32 * mm, y, p.bezeichnung[:60])
-        c.drawString(120 * mm, y, f"{p.menge} {p.einheit}")
-        c.drawRightString(160 * mm, y, f"{p.einzelpreis_netto:.2f} €".replace(".", ","))
-        c.drawRightString(190 * mm, y, f"{p.netto:.2f} €".replace(".", ","))
-    netto, ust, brutto, je_satz = summen(_positionen(r))
+        c.drawRightString(breite - 20 * mm, y, zeile)
     y -= 10 * mm
-    c.drawRightString(160 * mm, y, "Netto")
-    c.drawRightString(190 * mm, y, f"{Decimal(r.netto):.2f} €".replace(".", ","))
-    for satz, (_, steuer) in sorted(je_satz.items()):
+    for zeile in vortext:
+        c.drawString(20 * mm, y, zeile[:110])
         y -= 5 * mm
-        c.drawRightString(160 * mm, y, f"Umsatzsteuer {satz:.0f} %")
-        c.drawRightString(190 * mm, y, f"{(steuer if r.art != 'storno' else -steuer):.2f} €".replace(".", ","))
-    y -= 6 * mm
-    c.setFont("Helvetica-Bold", 10)
-    c.drawRightString(160 * mm, y, "Brutto")
-    c.drawRightString(190 * mm, y, f"{Decimal(r.brutto):.2f} €".replace(".", ","))
+    if positionen:
+        y -= 4 * mm
+        c.setFont("Helvetica-Bold", 9)
+        for x, text in ((20, "Pos."), (32, "Bezeichnung"), (120, "Menge"), (140, "Einzelpreis"), (165, "Netto")):
+            c.drawString(x * mm, y, text)
+        y -= 2 * mm
+        c.line(20 * mm, y, breite - 20 * mm, y)
+        c.setFont("Helvetica", 9)
+        for i, p in enumerate(positionen, 1):
+            y -= 6 * mm
+            if y < 40 * mm:
+                c.showPage()
+                c.setFont("Helvetica", 9)
+                y = hoehe - 25 * mm
+            c.drawString(20 * mm, y, str(i))
+            c.drawString(32 * mm, y, p.bezeichnung[:60])
+            c.drawString(120 * mm, y, f"{p.menge} {p.einheit}")
+            c.drawRightString(160 * mm, y, f"{p.einzelpreis_netto:.2f} €".replace(".", ","))
+            c.drawRightString(190 * mm, y, f"{p.netto:.2f} €".replace(".", ","))
+        _, _, _, je_satz = summen(positionen)
+        y -= 10 * mm
+        c.drawRightString(160 * mm, y, "Netto")
+        c.drawRightString(190 * mm, y, f"{netto:.2f} €".replace(".", ","))
+        for satz, (_, steuer) in sorted(je_satz.items()):
+            y -= 5 * mm
+            c.drawRightString(160 * mm, y, f"Umsatzsteuer {satz:.0f} %")
+            c.drawRightString(190 * mm, y, f"{(steuer * vorzeichen):.2f} €".replace(".", ","))
+        y -= 6 * mm
+        c.setFont("Helvetica-Bold", 10)
+        c.drawRightString(160 * mm, y, "Brutto")
+        c.drawRightString(190 * mm, y, f"{brutto:.2f} €".replace(".", ","))
     c.setFont("Helvetica", 9)
     y -= 14 * mm
-    if st.get("kleinunternehmer"):
+    if st.get("kleinunternehmer") and positionen:
         c.drawString(20 * mm, y, "Kein Ausweis von Umsatzsteuer, da Kleinunternehmer gemäß § 19 UStG.")
         y -= 5 * mm
-    if r.art != "storno":
-        c.drawString(20 * mm, y, f"Zahlbar bis {r.faellig.strftime('%d.%m.%Y')} ohne Abzug auf IBAN {st.get('iban', '')} ({st.get('bank', '')}).")
+    for zeile in schluss:
+        c.drawString(20 * mm, y, zeile[:110])
+        y -= 5 * mm
     c.setFont("Helvetica", 7)
     fuss = " · ".join(x for x in (m.name, st.get("inhaber"), f"USt-IdNr. {st['ust_id']}" if st.get("ust_id") else
                                    (f"Steuernummer {st['steuernummer']}" if st.get("steuernummer") else None),
@@ -280,3 +291,15 @@ def pdf(r: Rechnung, m: Mandant) -> bytes:
     c.showPage()
     c.save()
     return puffer.getvalue()
+
+
+def pdf(r: Rechnung, m: Mandant) -> bytes:
+    st = m.stammdaten
+    storno = r.art == "storno"
+    kopf = [f"Leistungsdatum: {r.leistungsdatum.strftime('%d.%m.%Y')}"] if r.leistungsdatum else []
+    vortext = [f"Storno zur Rechnung mit der internen Kennung {r.storno_von_id}"] if storno and r.storno_von_id else []
+    schluss = [] if storno else [f"Zahlbar bis {r.faellig.strftime('%d.%m.%Y')} ohne Abzug auf IBAN {st.get('iban', '')} ({st.get('bank', '')})."]
+    if st.get("rechnungshinweis"):
+        schluss.append(str(st["rechnungshinweis"]))
+    return dokument_pdf(m, "Stornorechnung" if storno else "Rechnung", r.nummer, r.datum, r.empfaenger, _positionen(r),
+                        Decimal(r.netto), Decimal(r.brutto), kopf, vortext, schluss, vorzeichen=-1 if storno else 1)
