@@ -4,9 +4,9 @@
 
 A voice agent that calls solar leads within minutes of their web inquiry, qualifies them in four questions
 and books a consultation.
-I built it the way I would run a customer deployment: scoping first, business rules in code, an acceptance
-test against simulated customers, and an integration layer against the public [telli](https://docs.telli.com)
-API so the agent can talk to a CRM, a calendar and a ticketing system.
+The repo contains a scoping document, the business rules in code, an acceptance test against simulated
+customers, and an integration layer built on the public [telli](https://docs.telli.com) API (CRM, calendar,
+ticketing).
 
 The customer (SonnenWerk Energie), the leads and all transcripts are made up. The agent speaks German.
 
@@ -28,9 +28,9 @@ Qwen 2.5 7B runs locally for both agent and simulated customer. In v5 the averag
 4.3 s per turn with zero tool errors, and the price asker never got a price. The one failure was the test's
 fault: the "aggressive" customer said "I don't have time, call me later" and the agent scheduled a callback.
 
-What the baseline showed is the reason the project looks the way it does. A 7B model told a tenant he
-qualified, announced appointments it had never looked up (29 blocked claims in one call) and printed tool
-names as text. Guardrails stop the damage but do not finish the call. So control flow moved into code.
+In the baseline the 7B model told a tenant he qualified, announced appointments it had never looked up
+(29 blocked claims in one call) and printed tool names as text. Guardrails blocked the wrong bookings but
+the calls still did not finish, so the call script moved into code.
 
 ## How it works
 
@@ -47,33 +47,33 @@ flowchart LR
     E --> C
 ```
 
-- **The model phrases, the code decides.** Whether a lead qualifies, whether a slot can be booked and how a
+- Whether a lead qualifies, whether a slot can be booked and how a
   call ends is checked against the CRM. `book_appointment` refuses tenants and slots that were never offered,
   whatever the prompt says.
-- **Every claim is checked against tool state.** A reply that mentions a booking without a successful
+- A reply that mentions a booking without a successful
   `book_appointment`, or a time without `check_slots`, is thrown away and the template is spoken instead.
-- **Classification instead of generation where possible.** [Jev](https://docs.litellm.ai/blog/typesafe_jev)
+- [Jev](https://docs.litellm.ai/blog/typesafe_jev)
   (TypeSafe AI) returns typed choices with confidences, not text. It routes intent before the LLM and can
   take over fact extraction (ownership, building type, chosen slot). Numbers come from rules. Below a
   confidence of 0.70 the agent asks again rather than disqualifying someone on a weak signal.
-- **No LLM at all, if you want.** `--no-llm` combines Jev extraction with template sentences. The agent then
-  makes zero LLM calls per turn. The tests prove it; a logged acceptance run in this mode is still to do.
+- `--no-llm` combines Jev extraction with template sentences. The agent then
+  makes zero LLM calls per turn. This is covered by tests; there is no logged acceptance run in this mode yet.
 
 ## Integration layer
 
-The conversation is half of a deployment. [`integrations/`](integrations) is the other half, built from
-telli's public documentation and tested against a platform simulator, since I have no account:
+[`integrations/`](integrations) connects the agent to the surrounding systems. It is built from telli's
+public documentation and tested against a platform simulator, because I have no account:
 
-- **CRM to dialer:** create contacts and schedule calls, idempotent and safe on 409.
-- **During the call:** custom tools (`lookup_lead`, `book_appointment`, `create_ticket`, …) and a custom
+- CRM to dialer: create contacts and schedule calls, idempotent and safe on 409.
+- During the call: custom tools (`lookup_lead`, `book_appointment`, `create_ticket`, …) and a custom
   calendar, all signature-checked, all running the same business rules as the agent.
-- **After the call:** the `call_ended` webhook derives the outcome from backend state, not from the agent's
+- After the call: the `call_ended` webhook derives the outcome from backend state, not from the agent's
   claim. "Booked" without a booking becomes a review task.
-- **Out to customer systems:** HubSpot, Salesforce and Cal.com adapters, and an outbox with retries and a
+- Customer systems: HubSpot, Salesforce and Cal.com adapters, and an outbox with retries and a
   dead letter queue.
-- **Operations:** KPIs as code, a daily transcript review, Prometheus metrics, retention rules with
+- Operations: KPIs as code, a daily transcript review, Prometheus metrics, retention rules with
   GDPR access and deletion per phone number, Docker, and a load test in CI (40 calls, 10 in parallel).
-- **Go/no-go check:** `python -m integrations check --url …` sends the platform's own requests to a staging
+- Acceptance check: `python -m integrations check --url …` sends the platform's own requests to a staging
   backend and writes an acceptance report.
 
 Two use cases share one backend: outbound solar qualification and an inbound telecom case with caller
