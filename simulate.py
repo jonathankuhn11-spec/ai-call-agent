@@ -5,6 +5,7 @@ Jede Persona hat ein erwartetes Ergebnis. Am Ende: Pass-Rate, Fehlerarten, KPIs.
 Start:  python simulate.py                 -> alle Personas, geführter Modus, je 1 Durchlauf
         python simulate.py --mode free     -> freier Modus: das LLM führt mit Tool-Calling
         python simulate.py --templates     -> geführt, nur Vorlagensätze (schnellster Lauf)
+        python simulate.py --no-llm        -> Agent ohne LLM: Jev extrahiert, Vorlagen sprechen
         python simulate.py --runs 3        -> jede Persona 3x (Varianz messen!)
         python simulate.py --persona mieter -v   -> eine Persona mit komplettem Gesprächsverlauf
 """
@@ -102,9 +103,21 @@ def main():
     ap.add_argument("--mode", choices=["guided", "free"], default="guided",
                     help="guided: Leitfaden im Code (Standard); free: das LLM führt mit Tool-Calling")
     ap.add_argument("--templates", action="store_true", help="geführter Modus ohne LLM-Formulierung, nur Vorlagensätze")
+    ap.add_argument("--extractor", choices=["llm", "jev"], default="llm",
+                    help="geführter Modus: wer die Kundenaussage auswertet (jev: Kategorien von Jev, Zahlen von Regeln)")
+    ap.add_argument("--no-llm", action="store_true",
+                    help="Agent ganz ohne LLM: Jev-Extraktion, Vorlagensätze, kein Fallback. Der simulierte Kunde bleibt ein LLM")
     a = ap.parse_args()
+    if a.no_llm:
+        if a.mode != "guided" or a.no_jev:
+            ap.error("--no-llm braucht den geführten Modus und Jev")
+        if not jev.available():
+            ap.error("--no-llm braucht TYPESAFE_API_KEY in .env")
+        a.templates, a.extractor = True, "jev"
+        guided.LLM_FALLBACK = False
     if a.templates:
         guided.FORMULATE = False
+    guided.EXTRACTOR = a.extractor
     runner = guided.run_guided_call if a.mode == "guided" else agent.run_call
     agent.VERBOSE = a.verbose
     global CUSTOMER_MODEL
@@ -115,7 +128,9 @@ def main():
     if a.no_jev:
         agent.USE_JEV = False
     print(f"Jev: {'aktiv' if agent.USE_JEV and jev.available() else 'aus (nur Regeln)'}")
-    print(f"Modus: {a.mode}{' (nur Vorlagen)' if a.templates else ''} | Agent-Modell: {agent.MODEL} | Kunden-Modell: {CUSTOMER_MODEL}")
+    agent_llm = "keins" if a.no_llm else agent.MODEL
+    print(f"Modus: {a.mode}{' (nur Vorlagen)' if a.templates else ''} | Extraktion: {a.extractor} | "
+          f"Agent-Modell: {agent_llm} | Kunden-Modell: {CUSTOMER_MODEL}")
 
     wanted = set(a.persona.split(",")) if a.persona else None
     personas = [p for p in PERSONAS if not wanted or p["id"] in wanted]
@@ -171,7 +186,8 @@ def main():
             history = json.load(f)
     history.append({"zeit": time.strftime("%Y-%m-%d %H:%M"), "label": a.label or f"Lauf {len(history) + 1}",
                     "modus": a.mode, "formulierung": guided.FORMULATE if a.mode == "guided" else None,
-                    "modell": agent.MODEL, "jev": agent.USE_JEV,
+                    "modell": "keins" if a.no_llm else agent.MODEL, "jev": agent.USE_JEV,
+                    "extraktion": a.extractor if a.mode == "guided" else None,
                     "gespraeche": n, "pass_rate": passed / n, "halluzinationen": halluz,
                     "tool_fehler": sum(r["tool_fehler"] for r in results),
                     "latenz": sum(r["latenz_avg"] for r in results) / n})
