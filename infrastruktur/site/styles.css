@@ -161,18 +161,44 @@ section.grau { background: var(--flaeche-2); }
 .paket.empfohlen { border: 2px solid var(--kupfer); box-shadow: var(--schatten); }
 .paket .etikett { position: absolute; top: -.75rem; left: 1.6rem; background: var(--kupfer); color: #fff; }
 .paket h3 { font-size: 1.25rem; }
-.paket .fuer { font-size: .93rem; color: var(--gedämpft); min-height: 2.9em; }
+.paket .fuer { font-size: .97rem; color: var(--text); min-height: 2.9em; }
+.paketname { font-size: .74rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--gedämpft); }
+.paket h3 { margin-top: -.6rem; }
+.groesse { font-size: .88rem; color: var(--kupfer); font-weight: 650; margin-top: -.4rem; }
+.tag { font-size: .92rem; color: var(--gedämpft); margin-top: -.5rem; }
 .preis { font-size: 2.5rem; font-weight: 800; letter-spacing: -.03em; line-height: 1; }
 .preis small { font-size: .95rem; font-weight: 500; color: var(--gedämpft); letter-spacing: 0; }
-.einrichtung { font-size: .9rem; color: var(--gedämpft); padding-bottom: 1rem; border-bottom: 1px solid var(--linie); }
+.einrichtung { font-size: .88rem; color: var(--gedämpft); padding-top: 1rem; border-top: 1px solid var(--linie); }
 .paket ul { list-style: none; margin: 0; padding: 0; display: grid; gap: .55rem; font-size: .95rem; flex: 1; }
 .paket li { padding-left: 1.6rem; position: relative; }
 .paket li::before { content: ""; position: absolute; left: .1rem; top: .5rem; width: .75rem; height: .4rem;
                     border-left: 2px solid var(--kupfer); border-bottom: 2px solid var(--kupfer); transform: rotate(-45deg); }
 .paket li.basis { font-weight: 650; }
 .paket li.basis::before { border-color: var(--gedämpft); }
-.paket .knopf { margin-top: .6rem; }
-.kleingedrucktes { margin-top: 1.8rem; font-size: .9rem; color: var(--gedämpft); display: grid; gap: .3rem; }
+.paket .knopf { margin-top: .2rem; }
+.kleingedrucktes { margin-top: 1.4rem; font-size: .84rem; color: var(--gedämpft); max-width: 60rem; }
+.versprechen { margin-top: 2rem; display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+.versprechen div { display: grid; gap: .2rem; padding: 1.1rem 1.3rem; border-radius: 12px; background: var(--flaeche-2); }
+.versprechen span { font-size: .93rem; color: var(--gedämpft); }
+@media (max-width: 760px) { .versprechen { grid-template-columns: 1fr; } }
+
+/* Rechner */
+.rechner { display: grid; gap: 1rem; padding: 1.6rem; border-radius: 18px; background: var(--flaeche);
+           border: 1px solid var(--linie); box-shadow: var(--schatten); }
+.rechner label { display: grid; gap: .35rem; font-size: .93rem; font-weight: 600; }
+.feld { display: flex; align-items: center; border: 1px solid var(--linie); border-radius: 10px; background: var(--flaeche-2); }
+.feld:focus-within { border-color: var(--kupfer); box-shadow: 0 0 0 3px var(--kupfer-zart); }
+.feld input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 1.05rem;
+              font-weight: 650; padding: .65rem .8rem; outline: none; }
+.feld span { padding: 0 .9rem; color: var(--gedämpft); font-weight: 500; }
+.ergebnis { display: grid; gap: .15rem; padding: 1.1rem 1.2rem; border-radius: 12px; background: var(--dunkel); color: var(--dunkel-text); }
+.ergebnis span, .ergebnis small { color: var(--dunkel-gedämpft); font-size: .88rem; }
+.ergebnis strong { font-size: 2.1rem; letter-spacing: -.02em; color: var(--kupfer-hell); }
+.hinweis-klein { font-size: .8rem; color: var(--gedämpft); }
+
+/* Wir */
+.wir { display: grid; gap: 1rem; justify-items: start; }
+.wir p { color: var(--gedämpft); font-size: 1.05rem; }
 @media (max-width: 900px) { .preise { grid-template-columns: 1fr; } .paket .fuer { min-height: 0; } }
 
 /* Einführung */

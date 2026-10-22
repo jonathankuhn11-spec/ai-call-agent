@@ -21,8 +21,10 @@ infrastruktur/
 
 Marke ist **KUHN** (`auftritt.marke`). Die Startseite ist eine vollständige Produktseite: Leistungen
 (Telefonagent, Kundenverwaltung/Disposition, Angebote/Rechnungen/Mahnwesen, Belegeingang/Steuertools),
-Ablauf, Freigabeklassen A/B/C, Preise (349/649/999 € netto zzgl. Einrichtung 1.490/2.990/4.990 €), Einführung,
-FAQ und Demo-Anfrage. Die Demo-Anfrage läuft bewusst über `mailto:` mit vorausgefülltem Text, nicht über ein
+Ablauf, Freigabeklassen A/B/C, Rechner „Was kostet ein verpasster Anruf?“ (läuft nur im Browser), Preise
+(Pakete „Erreichbar“, „Entlastet“, „Rundum“ = Basis/Pro/Premium, 349/649/999 € netto zzgl. Einrichtung
+1.490/2.990/4.990 €, mit Tagespreis, Betriebsgröße und Anrufen statt Minuten), „Wer hinter KUHN steht“,
+Einführung, FAQ und Demo-Anfrage. Die Demo-Anfrage läuft bewusst über `mailto:` mit vorausgefülltem Text, nicht über ein
 Formular: kein Backend, kein Cookie-Banner, keine zusätzliche Datenverarbeitung. Farben und Logo (Kupfer,
 Anthrazit, Bildmarke „K“ als Inline-SVG) stehen in `site/styles.css` bzw. im Kopf jeder Seite.
 

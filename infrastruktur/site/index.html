@@ -208,64 +208,118 @@
     </div>
   </section>
 
+  <section id="rechner" class="grau">
+    <div class="wrap zwei">
+      <div class="kopfzeile" style="margin:0">
+        <span class="eyebrow">Kurz nachgerechnet</span>
+        <h2>Was kostet Sie ein Anruf, den niemand annimmt?</h2>
+        <p class="lead">Tragen Sie Ihre eigenen Werte ein. Die Rechnung bleibt in Ihrem Browser, nichts wird übertragen.</p>
+      </div>
+      <form class="rechner" aria-label="Rechner für entgangene Aufträge" onsubmit="return false">
+        <label>Anrufe pro Woche, die ins Leere gehen
+          <span class="feld"><input id="r-anrufe" type="number" min="0" max="200" step="1" value="5" inputmode="numeric"><span>Anrufe</span></span></label>
+        <label>Davon wäre ein Auftrag geworden
+          <span class="feld"><input id="r-quote" type="number" min="0" max="100" step="5" value="20" inputmode="numeric"><span>%</span></span></label>
+        <label>Durchschnittlicher Auftragswert
+          <span class="feld"><input id="r-wert" type="number" min="0" max="100000" step="50" value="400" inputmode="numeric"><span>€</span></span></label>
+        <output class="ergebnis" for="r-anrufe r-quote r-wert" aria-live="polite">
+          <span>Entgangener Umsatz pro Monat</span>
+          <strong id="r-summe">1.732 €</strong>
+          <small id="r-text">rund 4 Aufträge im Monat</small>
+        </output>
+        <p class="hinweis-klein">Voreingestellt ist nur ein Beispiel. Ein Monat ist mit 4,33 Wochen gerechnet.</p>
+      </form>
+    </div>
+  </section>
+
   <section id="preise">
     <div class="wrap">
       <div class="kopfzeile">
         <span class="eyebrow">Preise</span>
-        <h2>Feste Monatspauschale. Keine versteckten Kosten.</h2>
-        <p class="lead">Alle Preise zuzüglich Umsatzsteuer. Lizenzen für Buchhaltungssoftware wie DATEV, Lexware Office
-          oder sevDesk schließen Sie wie bisher selbst ab.</p>
+        <h2>Ehrliche Preise, die mit Ihrem Betrieb mitwachsen.</h2>
+        <p class="lead">Ein fester Betrag im Monat, keine Überraschungen. Sie wissen nicht, was passt? Dann empfehlen wir
+          Ihnen im Gespräch das kleinste Paket, das reicht, und Sie wechseln später, wenn Sie mehr brauchen.</p>
       </div>
       <div class="preise">
         <article class="paket">
-          <h3>Basis</h3>
-          <p class="fuer">Für Betriebe, die vor allem keinen Anruf mehr verpassen wollen.</p>
-          <div class="preis">349 € <small>/ Monat</small></div>
-          <div class="einrichtung">Einrichtung einmalig 1.490 €</div>
+          <span class="paketname">Paket Basis</span>
+          <h3>Erreichbar</h3>
+          <p class="fuer">Sie wollen vor allem keinen Anruf mehr verpassen.</p>
+          <p class="groesse">Passt meist für 1 bis 3 Monteure</p>
+          <div class="preis">349 € <small>im Monat</small></div>
+          <p class="tag">Das sind rund 11,50 € am Tag.</p>
           <ul>
-            <li>KI-Telefonagent, 300 Gesprächsminuten inklusive</li>
-            <li>Kundenverwaltung mit Kontakthistorie</li>
-            <li>Terminvorschläge mit Kalenderabgleich</li>
-            <li>SMS-Terminerinnerung</li>
-            <li>Rückrufmanagement und Notfallweiterleitung</li>
+            <li>Ihr Telefonagent nimmt bis zu ca. 100 Anrufe im Monat an</li>
+            <li>Kundenkartei mit allem, was besprochen wurde</li>
+            <li>Terminvorschläge passend zu Ihrem Kalender</li>
+            <li>Ihre Kunden bekommen eine SMS-Erinnerung</li>
+            <li>Notfälle landen sofort bei Ihnen</li>
           </ul>
-          <a class="knopf zweit" href="#demo">Demo anfragen</a>
+          <p class="einrichtung">Einmalig 1.490 € für die Einrichtung: Wir übernehmen Rufumleitung, Kundendaten und Begrüßungstext.</p>
+          <a class="knopf zweit" href="#demo">Unverbindlich anhören</a>
         </article>
         <article class="paket empfohlen">
-          <span class="etikett">Empfehlung</span>
-          <h3>Pro</h3>
-          <p class="fuer">Für Betriebe, die Telefon und Büroarbeit gemeinsam entlasten wollen.</p>
-          <div class="preis">649 € <small>/ Monat</small></div>
-          <div class="einrichtung">Einrichtung einmalig 2.990 €</div>
+          <span class="etikett">Unsere Empfehlung</span>
+          <span class="paketname">Paket Pro</span>
+          <h3>Entlastet</h3>
+          <p class="fuer">Telefon und Büroarbeit sollen nicht mehr am Abend liegen bleiben.</p>
+          <p class="groesse">Passt meist für 4 bis 10 Monteure</p>
+          <div class="preis">649 € <small>im Monat</small></div>
+          <p class="tag">Das sind rund 21 € am Tag.</p>
           <ul>
-            <li class="basis">Alles aus Basis</li>
-            <li>600 Gesprächsminuten inklusive</li>
-            <li>Disposition und mobile Monteursansicht</li>
-            <li>Anfragen per E-Mail und Webformular</li>
-            <li>Angebote, Rapport mit Unterschrift, E-Rechnung</li>
-            <li>Offene Posten, Mahnwesen, Bewertungsanfrage</li>
+            <li class="basis">Alles aus „Erreichbar“</li>
+            <li>Bis zu ca. 200 Anrufe im Monat</li>
+            <li>Einsatzplanung und Handyansicht für Ihre Monteure</li>
+            <li>Anfragen aus E-Mail und Website landen automatisch im System</li>
+            <li>Angebot, Rapport mit Unterschrift und E-Rechnung ohne Abtippen</li>
+            <li>Freundliche Zahlungserinnerungen, erst nach Ihrem Okay</li>
           </ul>
-          <a class="knopf" href="#demo">Demo anfragen</a>
+          <p class="einrichtung">Einmalig 2.990 € für die Einrichtung, inklusive Anbindung Ihrer Software und Einweisung im Betrieb.</p>
+          <a class="knopf" href="#demo">Unverbindlich anhören</a>
         </article>
         <article class="paket">
-          <h3>Premium</h3>
-          <p class="fuer">Für größere Betriebe mit Kundendienst, Wartung und mehreren Teams.</p>
-          <div class="preis">999 € <small>/ Monat</small></div>
-          <div class="einrichtung">Einrichtung einmalig 4.990 €</div>
+          <span class="paketname">Paket Premium</span>
+          <h3>Rundum</h3>
+          <p class="fuer">Kundendienst, Wartung und mehrere Teams laufen über ein System.</p>
+          <p class="groesse">Passt meist ab 10 Monteuren</p>
+          <div class="preis">999 € <small>im Monat</small></div>
+          <p class="tag">Das sind rund 33 € am Tag.</p>
           <ul>
-            <li class="basis">Alles aus Pro</li>
-            <li>1.000 Gesprächsminuten inklusive</li>
-            <li>Belegeingang mit Übergabe an DATEV, Lexware Office oder sevDesk</li>
+            <li class="basis">Alles aus „Entlastet“</li>
+            <li>Bis zu ca. 330 Anrufe im Monat</li>
+            <li>Belege per Foto oder Scanner direkt zu DATEV, Lexware Office oder sevDesk</li>
             <li>Wartungsverträge, Bereitschaftsplan, Zeiterfassung</li>
-            <li>Auswertungen und Nachkalkulation</li>
-            <li>Mehrere Standorte, bevorzugter Support</li>
+            <li>Zahlen, die zeigen, welche Aufträge sich lohnen</li>
+            <li>Mehrere Standorte, Sie werden zuerst zurückgerufen</li>
           </ul>
-          <a class="knopf zweit" href="#demo">Demo anfragen</a>
+          <p class="einrichtung">Einmalig 4.990 € für die Einrichtung, inklusive Übernahme von Wartungsverträgen und Steuertool.</p>
+          <a class="knopf zweit" href="#demo">Unverbindlich anhören</a>
         </article>
       </div>
-      <div class="kleingedrucktes">
-        <p>Weitere Gesprächsminuten 0,25 € je Minute. Mindestlaufzeit 12 Monate, danach monatlich kündbar.</p>
-        <p>Angebot ausschließlich für Unternehmer im Sinne von § 14 BGB. Für Pilotbetriebe vereinbaren wir die Einrichtung individuell.</p>
+      <div class="versprechen">
+        <div><strong>Klare Laufzeit</strong><span>12 Monate, danach monatlich kündbar.</span></div>
+        <div><strong>Mehr Anrufe?</strong><span>Kein Problem: jede weitere Minute 0,25 €. Wir melden uns, bevor es teuer wird.</span></div>
+        <div><strong>Ein Ansprechpartner</strong><span>Sie erreichen dieselben Menschen, die Ihr System eingerichtet haben.</span></div>
+      </div>
+      <p class="kleingedrucktes">Alle Preise netto zuzüglich Umsatzsteuer; Angebot für Unternehmer im Sinne von § 14 BGB.
+        Anrufzahlen gerechnet mit durchschnittlich drei Minuten je Gespräch. Lizenzen für Buchhaltungssoftware schließen Sie wie bisher selbst ab.
+        Für Pilotbetriebe vereinbaren wir die Einrichtung individuell.</p>
+    </div>
+  </section>
+
+  <section id="wir">
+    <div class="wrap zwei">
+      <div class="kopfzeile" style="margin:0">
+        <span class="eyebrow">Wer hinter {{auftritt.marke}} steht</span>
+        <h2>Keine Hotline. Zwei Menschen aus der Region.</h2>
+      </div>
+      <div class="wir">
+        <p>Hinter {{auftritt.marke}} stehen {{anbieter.gesellschafter_1}} und {{anbieter.gesellschafter_2}}. Wir sprechen
+          laufend mit Sanitär-, Heizungs- und Klimabetrieben im Raum Köln und bauen {{auftritt.marke}} so,
+          wie es dort im Alltag gebraucht wird.</p>
+        <p>Wir richten Ihr System selbst ein, kommen dafür in Ihren Betrieb und bleiben Ihre Ansprechpartner,
+          wenn etwas nicht passt.</p>
+        <a class="knopf zweit" href="tel:{{kontakt.telefon_e164}}">Direkt anrufen: {{kontakt.telefon}}</a>
       </div>
     </div>
   </section>
@@ -355,5 +409,20 @@
     </nav>
   </div>
 </footer>
+<script>
+  // Rechner läuft nur im Browser; keine Übertragung.
+  (function () {
+    var f = function (id) { var v = parseFloat(document.getElementById(id).value); return isFinite(v) && v > 0 ? v : 0; };
+    var euro = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 });
+    function rechnen() {
+      var auftraege = f("r-anrufe") * 4.33 * Math.min(f("r-quote"), 100) / 100;
+      document.getElementById("r-summe").textContent = euro.format(auftraege * f("r-wert")) + " €";
+      var n = Math.round(auftraege);
+      document.getElementById("r-text").textContent = n === 1 ? "rund 1 Auftrag im Monat" : "rund " + euro.format(n) + " Aufträge im Monat";
+    }
+    ["r-anrufe", "r-quote", "r-wert"].forEach(function (id) { document.getElementById(id).addEventListener("input", rechnen); });
+    rechnen();
+  })();
+</script>
 </body>
 </html>
