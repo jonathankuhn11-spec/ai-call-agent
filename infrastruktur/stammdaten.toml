@@ -7,7 +7,7 @@
 # ladungsfähige Geschäftsadresse (c/o-Service, kein Postfach) verwenden.
 
 [auftritt]
-marke = ""                 # Arbeitstitel des Vorhabens, z. B. für Seitentitel und Signatur
+marke = "KUHN"             # Marke, erscheint in Seitentitel, Logo, Signatur und Einseiter
 domain = ""                # ohne Protokoll, z. B. "beispiel.de"
 stand = ""                 # Datum der Rechtstexte, z. B. "20. Oktober 2026"
 

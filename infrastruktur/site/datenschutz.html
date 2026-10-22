@@ -5,11 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Datenschutz · {{auftritt.marke}}</title>
   <meta name="robots" content="noindex">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23b25a26'/%3E%3Cpath d='M11 8v16M22 8l-9 8 9 8' stroke='%23fff' stroke-width='3.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<header><a class="marke" href="./">{{auftritt.marke}}</a></header>
-<main>
+<header class="kopf">
+  <div class="wrap">
+    <a class="marke" href="./" aria-label="{{auftritt.marke}} Startseite">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" style="fill:var(--kupfer)"/><path d="M11 8v16M22 8l-9 8 9 8" stroke="#fff" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      {{auftritt.marke}}
+    </a>
+    <nav class="nav" aria-label="Hauptnavigation">
+      <a href="./#leistungen">Leistungen</a>
+      <a href="./#preise">Preise</a>
+    </nav>
+    <a class="knopf klein" href="./#demo">Demo anfragen</a>
+  </div>
+</header>
+<main class="wrap rechtstext">
   <h1>Datenschutzerklärung</h1>
   <p>Informationen nach Art. 13 Datenschutz-Grundverordnung (DSGVO) zur Verarbeitung
     personenbezogener Daten beim Besuch dieser Website und bei der Kontaktaufnahme.</p>
@@ -38,7 +51,8 @@
   <p>Wenn Sie uns kontaktieren, verarbeiten wir Ihre Angaben (Name, Betrieb, Kontaktdaten, Inhalt der
     Nachricht oder des Gesprächs), um Ihr Anliegen zu bearbeiten. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b
     DSGVO, soweit es um die Anbahnung einer Zusammenarbeit geht, im Übrigen Art. 6 Abs. 1 lit. f DSGVO
-    (berechtigtes Interesse an der Beantwortung von Anfragen).</p>
+    (berechtigtes Interesse an der Beantwortung von Anfragen). Das gilt auch für Demo-Anfragen; ein
+    Kontaktformular setzen wir nicht ein, die Anfrage läuft über Ihr eigenes E-Mail-Programm.</p>
   <p>Für E-Mail und Telefonie setzen wir folgende Auftragsverarbeiter nach Art. 28 DSGVO ein:<br>
     E-Mail: {{dienstleister.email_anbieter}}<br>
     Telefonie: {{dienstleister.telefon_anbieter}}</p>
@@ -71,9 +85,14 @@
 
   <p><small>Stand: {{auftritt.stand}}</small></p>
 </main>
-<footer>
-  <a href="./">Startseite</a>
-  <a href="impressum.html">Impressum</a>
+<footer class="fuss">
+  <div class="wrap">
+    <span>{{auftritt.marke}} · Digitales Backoffice für SHK-Betriebe</span>
+    <nav aria-label="Rechtliches">
+      <a href="./">Startseite</a>
+      <a href="impressum.html">Impressum</a>
+    </nav>
+  </div>
 </footer>
 </body>
 </html>
