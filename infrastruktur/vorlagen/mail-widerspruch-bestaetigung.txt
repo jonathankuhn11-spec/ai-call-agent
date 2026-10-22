@@ -1,0 +1,11 @@
+Betreff: Bestätigung: keine weitere Kontaktaufnahme
+
+Guten Tag [ANREDE NACHNAME],
+
+wir bestätigen Ihren Widerspruch (Art. 21 DSGVO). Wir haben die Daten Ihres Betriebs
+aus unserer Kontaktliste gelöscht und lediglich einen Sperrvermerk mit Firmenname
+und Telefonnummer behalten, damit wir Sie nicht erneut ansprechen.
+
+Mit freundlichen Grüßen
+{{anbieter.gesellschafter_1}}
+{{auftritt.marke}} · {{kontakt.email}}

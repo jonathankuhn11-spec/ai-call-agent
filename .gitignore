@@ -14,3 +14,7 @@ eval_7b.json
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Build-Ausgabe des Außenauftritts
+infrastruktur/dist/
+infrastruktur/dist-vorlagen/

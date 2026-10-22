@@ -1,0 +1,28 @@
+/* Systemschriften, keine externen Ressourcen: keine Übermittlung an Dritte beim Seitenaufruf. */
+:root {
+  --text: #1c2430; --gedämpft: #5a6675; --flaeche: #ffffff; --flaeche-2: #f3f5f8;
+  --akzent: #0b5cad; --linie: #dde2e8;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --text: #e6eaf0; --gedämpft: #a3adba; --flaeche: #12161c; --flaeche-2: #1b212a;
+          --akzent: #6aaef5; --linie: #2b333e; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--flaeche); color: var(--text);
+       font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main, header, footer { max-width: 46rem; margin: 0 auto; padding: 0 16px; }
+header { padding-top: 2.5rem; }
+.marke { font-weight: 700; letter-spacing: .01em; color: var(--text); text-decoration: none; }
+h1 { font-size: clamp(1.7rem, 4vw, 2.3rem); line-height: 1.2; margin: 2rem 0 1rem; }
+h2 { font-size: 1.25rem; margin: 2.2rem 0 .6rem; }
+h3 { font-size: 1.05rem; margin: 1.4rem 0 .3rem; }
+p, li { color: var(--text); }
+.lead { font-size: 1.12rem; color: var(--gedämpft); }
+a { color: var(--akzent); }
+.hinweis { background: var(--flaeche-2); border-left: 3px solid var(--akzent); padding: .8rem 1rem; border-radius: 4px; }
+.kontakt { background: var(--flaeche-2); padding: 1.2rem 1.4rem; border-radius: 8px; margin: 2rem 0; }
+.kontakt a { font-weight: 600; overflow-wrap: anywhere; }
+footer { border-top: 1px solid var(--linie); margin-top: 3rem; padding-top: 1rem; padding-bottom: 2rem;
+         font-size: .9rem; color: var(--gedämpft); }
+footer a { color: var(--gedämpft); margin-right: 1rem; }
+mark.offen { background: #ffd54a; color: #000; padding: 0 .2em; }
