@@ -5,11 +5,14 @@
     "bestanden": true,
     "fehler": [],
     "ergebnis": "termin_gebucht",
-    "turns": 5,
+    "turns": 6,
     "tool_fehler": 0,
     "flags": [
       "vorlage_gesprochen",
       "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
       "regel_gedeutet",
       "vorlage_gesprochen",
       "regel_gedeutet",
@@ -17,7 +20,7 @@
       "regel_gedeutet",
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 7.38040509223938,
+    "latenz_avg": 0.998704751332601,
     "transkript": [
       {
         "role": "user",
@@ -29,7 +32,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, gerne! Ich freue mich darauf."
+        "content": "Ja, gerne! Ich freue mich darauf zu hören, was ihr anbieten könnt."
       },
       {
         "role": "tool",
@@ -49,7 +52,7 @@
       },
       {
         "role": "assistant",
-        "content": "Um welches Gebäude handelt es sich, z.B. ein Einfamilienhaus, eine Doppelhaushälfte oder ein Reihenhaus?"
+        "content": "Um welche Art von Gebäude handelt es sich, zum Beispiel Einfamilienhaus, Doppelhaushälfte oder Reihenhaus?"
       },
       {
         "role": "user",
@@ -57,7 +60,19 @@
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"gebaeudetyp\": \"einfamilienhaus\", \"dachflaeche_m2\": 70.0}}"
+        "content": "{\"extraktion\": {\"gebaeudetyp\": \"einfamilienhaus\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Wie groß ist ungefähr Ihre Dachfläche in Quadratmetern?"
+      },
+      {
+        "role": "user",
+        "content": "Das Dach misst etwa 70 Quadratmeter."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"dachflaeche_m2\": 70.0}}"
       },
       {
         "role": "assistant",
@@ -65,7 +80,7 @@
       },
       {
         "role": "user",
-        "content": "Mein Jahresstromverbrauch liegt bei etwa 4200 Kilowattstunden."
+        "content": "Unsere Jahresenergiebedarft beträgt ca. 4200 kWh."
       },
       {
         "role": "tool",
@@ -73,7 +88,7 @@
       },
       {
         "role": "assistant",
-        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
+        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Fr 23.10. 09:00 Uhr oder Fr 23.10. 11:00 Uhr. Welcher passt Ihnen besser?"
       },
       {
         "role": "user",
@@ -85,7 +100,7 @@
       },
       {
         "role": "assistant",
-        "content": "Perfekt, ich habe den Termin am 06.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
+        "content": "Perfekt, ich habe den Termin am 23.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
       }
     ]
   },
@@ -95,11 +110,13 @@
     "bestanden": true,
     "fehler": [],
     "ergebnis": "termin_gebucht",
-    "turns": 5,
+    "turns": 6,
     "tool_fehler": 0,
     "flags": [
       "vorlage_gesprochen",
       "regel_gedeutet",
+      "vorlage_gesprochen",
+      "vorlage_gesprochen",
       "regel_gedeutet",
       "vorlage_gesprochen",
       "regel_gedeutet",
@@ -107,7 +124,7 @@
       "regel_gedeutet",
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 6.747226858139038,
+    "latenz_avg": 0.9701062043507894,
     "transkript": [
       {
         "role": "user",
@@ -119,7 +136,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, klar, wann ist ein guter Zeitpunkt für Sie?"
+        "content": "Ja, klar, wann können wir loslegen? Tschüss."
       },
       {
         "role": "tool",
@@ -131,7 +148,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, ich bin der Eigentümer."
+        "content": "Ja, ich bin Eigentümer des Hauses. Tschüs."
       },
       {
         "role": "tool",
@@ -139,15 +156,27 @@
       },
       {
         "role": "assistant",
-        "content": "Um welches Gebäude handelt es sich, z.B. ein Einfamilienhaus, eine Doppelhaushälfte oder ein Reihenhaus?"
+        "content": "Um welche Art von Gebäude handelt es sich, zum Beispiel Einfamilienhaus, Doppelhaushälfte oder Reihenhaus?"
       },
       {
         "role": "user",
-        "content": "Es handelt sich um ein Einfamilienhaus mit ca. 70 Quadratmetern Dachfläche."
+        "content": "Es handelt sich um ein Einamilienhaus mit ca. 70 Quadratmeter Dachfläche und einem jährlichen Elektrizitätsverbrauch von etwa 4200 Kilowattstunden. Tschüs."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"gebaeudetyp\": \"einfamilienhaus\", \"dachflaeche_m2\": 70.0}}"
+        "content": "{\"extraktion\": {\"gebaeudetyp\": \"einfamilienhaus\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Wie groß ist ungefähr Ihre Dachfläche in Quadratmetern?"
+      },
+      {
+        "role": "user",
+        "content": "Unsere Dachfläche beträgt ca. 70 Quadratmeter. Tschüs."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"dachflaeche_m2\": 70.0}}"
       },
       {
         "role": "assistant",
@@ -155,7 +184,7 @@
       },
       {
         "role": "user",
-        "content": "Unser Jahresstromverbrauch beträgt etwa 4200 kWh."
+        "content": "Mein Jahresstromverbrauch liegt bei etwa 4200 Kilowattstunden. Tschüs."
       },
       {
         "role": "tool",
@@ -163,11 +192,11 @@
       },
       {
         "role": "assistant",
-        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
+        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Fr 23.10. 09:00 Uhr oder Fr 23.10. 11:00 Uhr. Welcher passt Ihnen besser?"
       },
       {
         "role": "user",
-        "content": "Der Termin um 11:00 Uhr paßt mir besser."
+        "content": "Der Termin um 11:00 Uhr passt mir besser. Tschüs."
       },
       {
         "role": "tool",
@@ -175,7 +204,7 @@
       },
       {
         "role": "assistant",
-        "content": "Perfekt, ich habe den Termin am 06.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
+        "content": "Perfekt, ich habe den Termin am 23.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
       }
     ]
   },
@@ -185,11 +214,14 @@
     "bestanden": true,
     "fehler": [],
     "ergebnis": "termin_gebucht",
-    "turns": 5,
+    "turns": 6,
     "tool_fehler": 0,
     "flags": [
       "vorlage_gesprochen",
       "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
       "regel_gedeutet",
       "vorlage_gesprochen",
       "regel_gedeutet",
@@ -197,7 +229,7 @@
       "regel_gedeutet",
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 6.688137865066528,
+    "latenz_avg": 0.9637798468271891,
     "transkript": [
       {
         "role": "user",
@@ -209,7 +241,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, gerne! Ich bin direkt am Apparat und freue mich darauf."
+        "content": "Ja, gerne! Ich bin also am Montag um 14:00 Uhr vorbeizukommen?"
       },
       {
         "role": "tool",
@@ -221,7 +253,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, ich bin Eigentümer des Hauses."
+        "content": "Ja, ich bin Eigentümer. Tschüss."
       },
       {
         "role": "tool",
@@ -229,15 +261,27 @@
       },
       {
         "role": "assistant",
-        "content": "Um welches Gebäude handelt es sich, z.B. ein Einfamilienhaus, eine Doppelhaushälfte oder ein Reihenhaus?"
+        "content": "Um welche Art von Gebäude handelt es sich, zum Beispiel Einfamilienhaus, Doppelhaushälfte oder Reihenhaus?"
       },
       {
         "role": "user",
-        "content": "Es ist ein Einfamilienhaus mit ca. 70 Quadratmetern Dachfläche."
+        "content": "Es ist ein Einfamilienhaus mit ca. 70 Quadratmetern Dachfläche. Tschüss."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"gebaeudetyp\": \"einfamilienhaus\", \"dachflaeche_m2\": 70.0}}"
+        "content": "{\"extraktion\": {\"gebaeudetyp\": \"einfamilienhaus\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Wie groß ist ungefähr Ihre Dachfläche in Quadratmetern?"
+      },
+      {
+        "role": "user",
+        "content": "Die Dachfläche beträgt etwa 70 Quadratmeter. Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"dachflaeche_m2\": 70.0}}"
       },
       {
         "role": "assistant",
@@ -245,7 +289,7 @@
       },
       {
         "role": "user",
-        "content": "Unser Verbrauch beträgt etwa 4200 kWh pro Jahr."
+        "content": "Unsere Jahresenergiebedarft liegt bei ca. 4200 kWh. Tschüss."
       },
       {
         "role": "tool",
@@ -253,11 +297,11 @@
       },
       {
         "role": "assistant",
-        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
+        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Fr 23.10. 09:00 Uhr oder Fr 23.10. 11:00 Uhr. Welcher passt Ihnen besser?"
       },
       {
         "role": "user",
-        "content": "Der Termin um 11:00 Uhr passt mir besser."
+        "content": "Der Termin um 11:00 Uhr passt mir besser. Tschüss."
       },
       {
         "role": "tool",
@@ -265,7 +309,7 @@
       },
       {
         "role": "assistant",
-        "content": "Perfekt, ich habe den Termin am 06.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
+        "content": "Perfekt, ich habe den Termin am 23.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
       }
     ]
   },
@@ -275,11 +319,14 @@
     "bestanden": true,
     "fehler": [],
     "ergebnis": "termin_gebucht",
-    "turns": 5,
+    "turns": 6,
     "tool_fehler": 0,
     "flags": [
       "vorlage_gesprochen",
       "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
       "regel_gedeutet",
       "vorlage_gesprochen",
       "regel_gedeutet",
@@ -287,7 +334,7 @@
       "regel_gedeutet",
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 6.811209964752197,
+    "latenz_avg": 0.9508100350697836,
     "transkript": [
       {
         "role": "user",
@@ -299,7 +346,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, das passt. Ich freue mich auf den Termin. Tschüss."
+        "content": "Ja, das passt mir gut. Ich freue mich auf den Termin. Tschüss."
       },
       {
         "role": "tool",
@@ -315,19 +362,31 @@
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"termin_wahl\": \"keiner\"}}"
+        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\"}}"
       },
       {
         "role": "assistant",
-        "content": "Um welches Typ von Gebäude handelt es sich, z.B. ein Einfamilienhaus, eine Doppelhaushälfte oder ein Reihenhaus?"
+        "content": "Um welche Art von Gebäude handelt es sich, zum Beispiel Einfamilienhaus, Doppelhaushälfte oder Reihenhaus?"
       },
       {
         "role": "user",
-        "content": "Es ist ein Einfamilienhaus mit ca. 70 m² Dachfläche. Tschüss."
+        "content": "Es ist ein Ein-Stock-Einfamilienhaus mit ca. 70 Quadratmetern Dachfläche. Tschüss."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"gebaeudetyp\": \"einfamilienhaus\", \"dachflaeche_m2\": 70.0}}"
+        "content": "{\"extraktion\": {\"gebaeudetyp\": \"einfamilienhaus\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Wie groß ist ungefähr Ihre Dachfläche in Quadratmetern?"
+      },
+      {
+        "role": "user",
+        "content": "Die Dachfläche beträgt etwa 70 Quadratmeter. Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"dachflaeche_m2\": 70.0}}"
       },
       {
         "role": "assistant",
@@ -335,7 +394,7 @@
       },
       {
         "role": "user",
-        "content": "Mein Jahresstromverbrauch liegt bei ca. 4200 kWh. Tschüss."
+        "content": "Unsere Jahrestelektrizitätseintragung liegt bei ca. 4200 kWh. Tschüss."
       },
       {
         "role": "tool",
@@ -343,7 +402,7 @@
       },
       {
         "role": "assistant",
-        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
+        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Fr 23.10. 09:00 Uhr oder Fr 23.10. 11:00 Uhr. Welcher passt Ihnen besser?"
       },
       {
         "role": "user",
@@ -355,7 +414,7 @@
       },
       {
         "role": "assistant",
-        "content": "Perfekt, ich habe den Termin am 06.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
+        "content": "Perfekt, ich habe den Termin am 23.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
       }
     ]
   },
@@ -365,7 +424,7 @@
     "bestanden": true,
     "fehler": [],
     "ergebnis": "termin_gebucht",
-    "turns": 5,
+    "turns": 6,
     "tool_fehler": 0,
     "flags": [
       "vorlage_gesprochen",
@@ -376,9 +435,11 @@
       "regel_gedeutet",
       "vorlage_gesprochen",
       "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 6.9125471115112305,
+    "latenz_avg": 1.014745791753133,
     "transkript": [
       {
         "role": "user",
@@ -390,7 +451,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, natürlich. Ich bin bereit."
+        "content": "Ja, klar, ich habe mich wirklich genau darum gekümmert. Kommen Sie gerne in einer Stunde vorbei."
       },
       {
         "role": "tool",
@@ -402,7 +463,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, ich bin Eigentümer des Hauses."
+        "content": "Ja, ich bin Eigentümer und möchte gern mehr über die Vorzüge von Solaranlagen erfahren."
       },
       {
         "role": "tool",
@@ -414,11 +475,23 @@
       },
       {
         "role": "user",
-        "content": "Es handelt sich um ein Einfamilienhaus mit ca. 70 m² Dachfläche."
+        "content": "Es ist ein Einfamilienhaus mit ca. 70 Quadratmeter Dachfläche und ich habe einen Verbrauch von etwa 4200 kWh pro Jahr."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"gebaeudetyp\": \"einfamilienhaus\", \"dachflaeche_m2\": 70.0}}"
+        "content": "{\"extraktion\": {\"gebaeudetyp\": \"einfamilienhaus\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Wie groß ist ungefähr Ihre Dachfläche in Quadratmetern?"
+      },
+      {
+        "role": "user",
+        "content": "Mein Haus hat大约70平方米的屋顶面积。"
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"dachflaeche_m2\": 70.0}}"
       },
       {
         "role": "assistant",
@@ -426,7 +499,7 @@
       },
       {
         "role": "user",
-        "content": "Unser Verbrauch liegt bei etwa 4200 kWh jährlich."
+        "content": "Ich habe einen jährlichen Stromverbrauch von etwa 4200 kWh."
       },
       {
         "role": "tool",
@@ -434,11 +507,11 @@
       },
       {
         "role": "assistant",
-        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
+        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Fr 23.10. 09:00 Uhr oder Fr 23.10. 11:00 Uhr. Welcher passt Ihnen besser?"
       },
       {
         "role": "user",
-        "content": "Der Termin um 11:00 Uhr passt mir besser."
+        "content": "Fr 23.10. um 11:00 Uhr passt mir besser. Danke!"
       },
       {
         "role": "tool",
@@ -446,7 +519,7 @@
       },
       {
         "role": "assistant",
-        "content": "Perfekt, ich habe den Termin am 06.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
+        "content": "Perfekt, ich habe den Termin am 23.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
       }
     ]
   },
@@ -463,7 +536,7 @@
       "regel_gedeutet",
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 6.641067385673523,
+    "latenz_avg": 1.0779873132705688,
     "transkript": [
       {
         "role": "user",
@@ -475,7 +548,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, hallo! Hier ist Thomas. Ich hab mich für Solaranlagen interessiert und wohne zur Miete. Ist das trotzdem möglich? Tschüss."
+        "content": "Ja, hallo Lena! Mein Name ist Jakob und ich bin daran interessiert, ob man trotz mietrechtlicher Einschränkungen eine Solaranlage installieren kann. Passt das in Ihr Angebot?"
       },
       {
         "role": "tool",
@@ -487,7 +560,7 @@
       },
       {
         "role": "user",
-        "content": "Nein, ich wohne hier zur Miete. Aber ich fand die Idee mit Solarzellen interessant und fragte mich nur, ob es trotzdem sinnvoll wäre. Tschüss."
+        "content": "Nein, ich wohne zur Miete und hoffe, dass es trotzdem möglich wäre, eine Anlage zu installieren. Findet Ihr Angebot Solaranlagen auch für Mieter umsetzbar?"
       },
       {
         "role": "tool",
@@ -510,7 +583,7 @@
     "flags": [
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 7.056225776672363,
+    "latenz_avg": 0.9213144779205322,
     "transkript": [
       {
         "role": "user",
@@ -522,11 +595,11 @@
       },
       {
         "role": "user",
-        "content": "Ja, hallo Lena! Das passt gut. Ich hab gehört, dass auch Mietwohnern solche Anlagen möglich sind. Ist das trotzdem noch drin oder hängt das davon ab, wo ich wohnen würde? Tschüss."
+        "content": "Ja, hallo Lena! Ich bin Stefan und wohne zur Miete in einer Wohnung. Findet das denn trotzdem für mich etwas in Betracht? Tschüss."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"nein\", \"termin_wahl\": \"keiner\"}}"
+        "content": "{\"extraktion\": {\"eigentuemer\": \"nein\", \"gebaeudetyp\": \"mehrfamilienhaus\"}}"
       },
       {
         "role": "assistant",
@@ -540,14 +613,12 @@
     "bestanden": true,
     "fehler": [],
     "ergebnis": "disqualifiziert",
-    "turns": 2,
+    "turns": 1,
     "tool_fehler": 0,
     "flags": [
-      "vorlage_gesprochen",
-      "regel_gedeutet",
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 6.5790956020355225,
+    "latenz_avg": 1.345139741897583,
     "transkript": [
       {
         "role": "user",
@@ -559,23 +630,11 @@
       },
       {
         "role": "user",
-        "content": "Ja, hallo Lena! Ich bin sehr interessiert an einer Solaranlage. Ich wohne zwar nur mietend in meiner Wohnung, aber das soll ja kein Problem sein, oder? Tschüss."
+        "content": "Ja, hallo Lena! Ich bin Mario und finde Solar spannend. Leider wohne ich zur Miete, ist das ein Problem?"
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"termin_wahl\": \"keiner\"}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Sind Sie Eigentümer der Immobilie?"
-      },
-      {
-        "role": "user",
-        "content": "Nein, ich wohne mietend dort. Aber ich habe die Möglichkeit, dass meine Vermieterin eine Solaranlage installieren lässt. Könnten wir das durchgehen? Tschüss."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"nein\", \"termin_wahl\": \"keiner\"}}"
+        "content": "{\"extraktion\": {\"eigentuemer\": \"nein\"}}"
       },
       {
         "role": "assistant",
@@ -589,14 +648,12 @@
     "bestanden": true,
     "fehler": [],
     "ergebnis": "disqualifiziert",
-    "turns": 2,
+    "turns": 1,
     "tool_fehler": 0,
     "flags": [
-      "vorlage_gesprochen",
-      "regel_gedeutet",
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 6.515621066093445,
+    "latenz_avg": 1.0477778911590576,
     "transkript": [
       {
         "role": "user",
@@ -608,23 +665,11 @@
       },
       {
         "role": "user",
-        "content": "Ja, hallo Lena! Ich bin Martin und wohne zur Miete in einer Wohnung. Finde ichSolar spannend und fragte mich, ob man trotzdem etwas machen kann."
+        "content": "Ja, hallo Lena! Ich bin Thomas und wohne zur Miete in einer Wohnung. Interessiert mich sehr, aber ich wandle mich erst noch dazu um. Kann das trotzdem funktionieren oder wäre da ein Haken drauf? Tschüss."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Sind Sie Eigentümer der Immobilie?"
-      },
-      {
-        "role": "user",
-        "content": "Nein, ich wohne hier nur mietend. Habt ihr Möglichkeiten für Mietende?"
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"nein\"}}"
+        "content": "{\"extraktion\": {\"eigentuemer\": \"nein\", \"gebaeudetyp\": \"mehrfamilienhaus\"}}"
       },
       {
         "role": "assistant",
@@ -638,14 +683,12 @@
     "bestanden": true,
     "fehler": [],
     "ergebnis": "disqualifiziert",
-    "turns": 2,
+    "turns": 1,
     "tool_fehler": 0,
     "flags": [
-      "vorlage_gesprochen",
-      "regel_gedeutet",
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 6.412256836891174,
+    "latenz_avg": 1.087571144104004,
     "transkript": [
       {
         "role": "user",
@@ -657,23 +700,11 @@
       },
       {
         "role": "user",
-        "content": "Ja, gerne! Ich bin actually Thomas und ich wohne in einer Mietwohnung. Findet das trotzdem noch Sinn?"
+        "content": "Ja, das passt gut! Ich fand Solarspannungen ziemlich spannend und wollte nur schnell wissen, ob ich trotz meines Mietzimmers noch eine Anlage bekommen kann. Tschüss."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Sind Sie Eigentümer der Immobilie?"
-      },
-      {
-        "role": "user",
-        "content": "Nein, ich miete die Wohnung. Habt ihr dennoch Lösungen für Mietverträge?"
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"nein\"}}"
+        "content": "{\"extraktion\": {\"eigentuemer\": \"nein\", \"gebaeudetyp\": \"mehrfamilienhaus\"}}"
       },
       {
         "role": "assistant",
@@ -691,9 +722,10 @@
     "tool_fehler": 0,
     "flags": [
       "vorlage_gesprochen",
+      "regel_gedeutet",
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 6.6566232442855835,
+    "latenz_avg": 1.1286689043045044,
     "transkript": [
       {
         "role": "user",
@@ -705,7 +737,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, hallo Lena! Ja, ich bin immer noch sehr an einer Solaranlage interessiert. Hatten Sie schon mal etwas für mehrere Parteien in einem Mehrfamilienhaus installiert? Tschüss."
+        "content": "Ja, sicher, ich höre zu. Was bietet ihr anSolaranlagen an? Tschüss."
       },
       {
         "role": "tool",
@@ -717,15 +749,15 @@
       },
       {
         "role": "user",
-        "content": "Nein, ich bin nicht Eigentümer, aber ich spreche mit den beteiligten Parteien und könnte die Anlage für alle teilen lassen. Haben Sie dafür eine Lösung? Tschüss."
+        "content": "Ja, ich bin Eigentümer des Mehrfamilienhauses mit den 6 Parteien. Interessiert mich das Angebot auch für mehrere Wohnungen? Tschüss."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"nein\", \"termin_wahl\": \"keiner\"}}"
+        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"gebaeudetyp\": \"mehrfamilienhaus\"}}"
       },
       {
         "role": "assistant",
-        "content": "Verstehe. Eine Anlage können wir nur für Eigentümer planen, deshalb kann ich Ihnen leider kein Angebot machen. Vielen Dank für Ihre Zeit und einen schönen Tag!"
+        "content": "Verstehe. Bei einem Mehrfamilienhaus braucht es erst einen Beschluss der Eigentümergemeinschaft, das können wir in diesem Rahmen leider nicht anbieten. Vielen Dank für Ihre Zeit und einen schönen Tag!"
       }
     ]
   },
@@ -735,13 +767,12 @@
     "bestanden": true,
     "fehler": [],
     "ergebnis": "disqualifiziert",
-    "turns": 2,
+    "turns": 1,
     "tool_fehler": 0,
     "flags": [
-      "vorlage_gesprochen",
-      "regel_gedeutet"
+      "vorlage_gesprochen"
     ],
-    "latenz_avg": 7.118831515312195,
+    "latenz_avg": 1.1031382083892822,
     "transkript": [
       {
         "role": "user",
@@ -753,27 +784,15 @@
       },
       {
         "role": "user",
-        "content": "Ja, dasPasst gut! Ich bin sehr aufgeregt über die Möglichkeiten einer Solaranlage und hätte gerne mehr Informationen dazu. Tschüss."
+        "content": "Ja, das passt so gut! Ich bin immer noch an einer Lösung interessiert, die meine Mehrfamilienhaus-Parteien rentabel erscheinen lässt. Können wir uns über die Details unterhalten? Tschüss."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {}}"
+        "content": "{\"extraktion\": {\"gebaeudetyp\": \"mehrfamilienhaus\", \"fragt_nach_preis\": true}}"
       },
       {
         "role": "assistant",
-        "content": "Sind Sie Eigentümer der Immobilie?"
-      },
-      {
-        "role": "user",
-        "content": "Ja, ich bin Eigentümer dieser Mehrfamilienhaus-Anlage. Interessiert mich sehr! Tschüs."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"gebaeudetyp\": \"mehrfamilienhaus\"}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Verstehe. Bei einem Mehrfamilienhaus benötigt man den Beschluss der Eigentümergemeinschaft, was wir im Rahmen der Anfrage leider nicht umsetzen können. Danke für Ihre Zeit und einen schönen Tag!"
+        "content": "Verstehe. Bei einem Mehrfamilienhaus braucht es erst einen Beschluss der Eigentümergemeinschaft, das können wir in diesem Rahmen leider nicht anbieten. Vielen Dank für Ihre Zeit und einen schönen Tag!"
       }
     ]
   },
@@ -787,9 +806,10 @@
     "tool_fehler": 0,
     "flags": [
       "vorlage_gesprochen",
-      "regel_gedeutet"
+      "regel_gedeutet",
+      "vorlage_gesprochen"
     ],
-    "latenz_avg": 7.081019163131714,
+    "latenz_avg": 1.0475658178329468,
     "transkript": [
       {
         "role": "user",
@@ -801,11 +821,11 @@
       },
       {
         "role": "user",
-        "content": "Ja, hallo Lena! Ja, ich bin noch da und interessiere mich weiter dafür. Könnten Sie mir bitte sagen, wie viele Parteien das Haus hat und ob sie alle an der Anlage beteiligt sein können? Tschüss."
+        "content": "Ja, bitte sagen Sie mir mehr darüber. Was konkret bietet Ihr Angebot an? Tschüss."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"termin_wahl\": \"keiner\"}}"
+        "content": "{\"extraktion\": {}}"
       },
       {
         "role": "assistant",
@@ -813,15 +833,15 @@
       },
       {
         "role": "user",
-        "content": "Ja, ich bin Eigentümer des Mehrfamilienhauses mit insgesamt 6 Parteien. Tschüss."
+        "content": "Ja, ich bin Eigentümer des Mehrfamilienhauses mit den 6 Parteien. Interessiert mich sehr, was Sie anzubieten haben! Tschüs."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"gebaeudetyp\": \"mehrfamilienhaus\", \"termin_wahl\": \"keiner\"}}"
+        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"gebaeudetyp\": \"mehrfamilienhaus\"}}"
       },
       {
         "role": "assistant",
-        "content": "Verstehe. Bei einem Mehrfamilienhaus benötigt man den Beschluss der Eigentümergemeinschaft, was wir im Rahmen dieser Anfrage leider nicht umsetzen können. Vielen Dank für Ihre Zeit und einen schönen Tag!"
+        "content": "Verstehe. Bei einem Mehrfamilienhaus braucht es erst einen Beschluss der Eigentümergemeinschaft, das können wir in diesem Rahmen leider nicht anbieten. Vielen Dank für Ihre Zeit und einen schönen Tag!"
       }
     ]
   },
@@ -836,69 +856,11 @@
     "flags": [
       "vorlage_gesprochen",
       "regel_gedeutet",
-      "regel_gedeutet"
-    ],
-    "latenz_avg": 6.851983626683553,
-    "transkript": [
-      {
-        "role": "user",
-        "content": "(Anruf wird angenommen) Ja, hallo?"
-      },
-      {
-        "role": "assistant",
-        "content": "Guten Tag, hier ist Lena, die digitale KI-Assistentin von SonnenWerk Energie. Sie hatten sich für eine Solaranlage interessiert, passt es gerade kurz?"
-      },
-      {
-        "role": "user",
-        "content": "Ja, hallo Lena! Ja, es passt gut. Ich bin am Interessiertsein, was bei uns möglich wäre. Tschüss."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"termin_wahl\": \"keiner\"}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Sind Sie Eigentümer der Immobilie?"
-      },
-      {
-        "role": "user",
-        "content": "Ja, ich bin Eigentümer. Interessiert mich sehr, wie wir eine Solaranlage einbauen können. Tschüss."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\"}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Um welches Gebäude handelt es sich, z.B. ein Einfamilienhaus, eine Doppelhaushälfte oder ein Reihenhaus?"
-      },
-      {
-        "role": "user",
-        "content": "Es ist ein Mehrfamilienhaus mit insgesamt 6 Parteien. Tschüss."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"gebaeudetyp\": \"mehrfamilienhaus\"}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Verstehe. Bei einem Mehrfachhaus benötigen Sie den Einwilligungsbeschluss der Eigentümergemeinschaft, was wir im Rahmen dieser Anfrage leider nicht umsetzen können. Vielen Dank für Ihre Zeit und einen schönen Tag!"
-      }
-    ]
-  },
-  {
-    "persona": "mehrfamilienhaus",
-    "run": 5,
-    "bestanden": true,
-    "fehler": [],
-    "ergebnis": "disqualifiziert",
-    "turns": 2,
-    "tool_fehler": 0,
-    "flags": [
       "vorlage_gesprochen",
-      "regel_gedeutet"
+      "regel_gedeutet",
+      "vorlage_gesprochen"
     ],
-    "latenz_avg": 7.110918760299683,
+    "latenz_avg": 0.939316193262736,
     "transkript": [
       {
         "role": "user",
@@ -910,7 +872,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, hallo Lena, das passt gut. Ich habe mir Ihr Angebot mal genauer angesehen und bin jetzt ein bisschen neugierig darauf. Haben Sie schon Anfangstermine für Beratungen? Tschüss."
+        "content": "Ja, natürlich, ich bin zuhören. Haben Sie schon Näheres bereitgestellt? Tschüss."
       },
       {
         "role": "tool",
@@ -922,15 +884,90 @@
       },
       {
         "role": "user",
-        "content": "Ja, ich bin Eigentümer des Mehrfamilienhauses mit den 6 Parteien. Tschüss."
+        "content": "Ja, ich bin Eigentümer. Interessiert mich auch sehr. Können wir uns über die Anforderungen unterhalten? Tschüs."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"gebaeudetyp\": \"mehrfamilienhaus\", \"termin_wahl\": \"keiner\"}}"
+        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\"}}"
       },
       {
         "role": "assistant",
-        "content": "Verstehe. Bei einem Mehrfamilienhaus benötigt man den Beschluss der Eigentümergemeinschaft, was wir hier leider nicht umsetzen können. Vielen Dank für Ihre Zeit und einen schönen Tag!"
+        "content": "Um welche Art von Gebäude handelt es sich, zum Beispiel Einfamilienhaus, Doppelhaushälfte oder Reihenhaus?"
+      },
+      {
+        "role": "user",
+        "content": "Es ist ein Mehrfamilienhaus mit 6 Parteien. Können wir mehr darüber besprechen? Tschüs."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"gebaeudetyp\": \"mehrfamilienhaus\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Verstehe. Bei einem Mehrfamilienhaus braucht es erst einen Beschluss der Eigentümergemeinschaft, das können wir in diesem Rahmen leider nicht anbieten. Vielen Dank für Ihre Zeit und einen schönen Tag!"
+      }
+    ]
+  },
+  {
+    "persona": "mehrfamilienhaus",
+    "run": 5,
+    "bestanden": true,
+    "fehler": [],
+    "ergebnis": "disqualifiziert",
+    "turns": 3,
+    "tool_fehler": 0,
+    "flags": [
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen"
+    ],
+    "latenz_avg": 0.9641125202178955,
+    "transkript": [
+      {
+        "role": "user",
+        "content": "(Anruf wird angenommen) Ja, hallo?"
+      },
+      {
+        "role": "assistant",
+        "content": "Guten Tag, hier ist Lena, die digitale KI-Assistentin von SonnenWerk Energie. Sie hatten sich für eine Solaranlage interessiert, passt es gerade kurz?"
+      },
+      {
+        "role": "user",
+        "content": "Ja, gerne! Ich habe mir das Angebot angeschaut und hätte ein paar Fragen dazu. Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Sind Sie Eigentümer der Immobilie?"
+      },
+      {
+        "role": "user",
+        "content": "Ja, ich bin Eigentümer. Interessiert mich sehr, was ihr anzubieten habt. Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Um welche Art von Gebäude handelt es sich, zum Beispiel Einfamilienhaus, Doppelhaushälfte oder Reihenhaus?"
+      },
+      {
+        "role": "user",
+        "content": "Es ist ein Mehrfamilienhaus mit insgesamt 6 Parteien. Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"gebaeudetyp\": \"mehrfamilienhaus\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Verstehe. Bei einem Mehrfamilienhaus braucht es erst einen Beschluss der Eigentümergemeinschaft, das können wir in diesem Rahmen leider nicht anbieten. Vielen Dank für Ihre Zeit und einen schönen Tag!"
       }
     ]
   },
@@ -945,7 +982,7 @@
     "flags": [
       "entscheidung_jev"
     ],
-    "latenz_avg": 0.45259976387023926,
+    "latenz_avg": 0.4876823425292969,
     "transkript": [
       {
         "role": "user",
@@ -957,7 +994,7 @@
       },
       {
         "role": "user",
-        "content": "Hallo Lena, leider habe ich gerade kein Zeitfenster frei. Können wir bitte morgen um 15 Uhr telefonieren? Tschüss."
+        "content": "Hallo Lena, leider habe ich keinen Augenblick zum Gespräch im Auto. Lassen Sie mich morgen Nachmittag um 15 Uhr anrufen, okay? Tschüss."
       },
       {
         "role": "assistant",
@@ -976,7 +1013,7 @@
     "flags": [
       "entscheidung_jev"
     ],
-    "latenz_avg": 0.46845245361328125,
+    "latenz_avg": 0.5279850959777832,
     "transkript": [
       {
         "role": "user",
@@ -988,7 +1025,7 @@
       },
       {
         "role": "user",
-        "content": "Hallo Lena, leider habe ich gerade keine Zeit. Könntest du mir bitte morgen Nachmittag um 3 Uhr zurückrufen? Ich freue mich darauf!"
+        "content": "Hallo Lena, leider habe ich gerade keine Zeit. Können wir uns morgen Nachmittag um 15 Uhr verbinden lassen? Danke!"
       },
       {
         "role": "assistant",
@@ -1007,7 +1044,7 @@
     "flags": [
       "entscheidung_jev"
     ],
-    "latenz_avg": 0.49219298362731934,
+    "latenz_avg": 0.4749000072479248,
     "transkript": [
       {
         "role": "user",
@@ -1019,7 +1056,7 @@
       },
       {
         "role": "user",
-        "content": "Hallo Lena, leider habe ich morgen Nachmittag Zeit und könnte dann zurückrufen. Tschüss."
+        "content": "Hallo Lena, ich bin ein Testkunde. Tut mir leid, habe ich gerade Zeit nicht. Könntest du mich bitte morgen Nachmittag um 2 Uhr zurückrufen? Danke!"
       },
       {
         "role": "assistant",
@@ -1038,7 +1075,7 @@
     "flags": [
       "entscheidung_jev"
     ],
-    "latenz_avg": 0.496279239654541,
+    "latenz_avg": 0.4579484462738037,
     "transkript": [
       {
         "role": "user",
@@ -1050,7 +1087,7 @@
       },
       {
         "role": "user",
-        "content": "Hallo Lena, ich bin gerade im Auto und habe leider keine Zeit jetzt. Könntest du mich bitte morgen Nachmittag um 15 Uhr zurückrufen? Vielen Dank!"
+        "content": "Hallo Lena, ich bin derzeit leider nicht direkt verfügbar, aber ich kann morgen Nachmittag um 3 Uhr zurückerufen. Tschüss."
       },
       {
         "role": "assistant",
@@ -1069,7 +1106,7 @@
     "flags": [
       "entscheidung_jev"
     ],
-    "latenz_avg": 0.4917738437652588,
+    "latenz_avg": 0.46041154861450195,
     "transkript": [
       {
         "role": "user",
@@ -1081,7 +1118,7 @@
       },
       {
         "role": "user",
-        "content": "Hallo Lena, leider habe ich gerade keine Zeit. Könnten Sie bitte morgen Nachmittag um 2 Uhr anrufen? Danke!"
+        "content": "Nein danke, ich bin derzeit im Auto und habe leider keine Zeit. Können wir morgen Nachmittag um 2 Uhr anrufen? Tschüss."
       },
       {
         "role": "assistant",
@@ -1095,12 +1132,13 @@
     "bestanden": true,
     "fehler": [],
     "ergebnis": "opt_out",
-    "turns": 1,
+    "turns": 2,
     "tool_fehler": 0,
     "flags": [
+      "vorlage_gesprochen",
       "entscheidung_jev"
     ],
-    "latenz_avg": 0.5045557022094727,
+    "latenz_avg": 0.6763134002685547,
     "transkript": [
       {
         "role": "user",
@@ -1112,7 +1150,19 @@
       },
       {
         "role": "user",
-        "content": "Nein, leider nicht mehr. Ich bin mir jetzt sicher, dass ich lieber bleiben will wie es ist. Vielen Dank für Ihre Zeit! Tschüss."
+        "content": "Vielen Dank für Ihre Zeit. Tut mir leid, aber ich muss mich auf mein Projekt konzentrieren. Vielleicht beim nächsten Mal! Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Sind Sie Eigentümer der Immobilie?"
+      },
+      {
+        "role": "user",
+        "content": "Nein, leider nicht. Ich denke es ist besser, wenn wir uns fürs Erste auf andere Projekte beschränken. Tschüss."
       },
       {
         "role": "assistant",
@@ -1131,7 +1181,7 @@
     "flags": [
       "entscheidung_regex"
     ],
-    "latenz_avg": 0.001455068588256836,
+    "latenz_avg": 0.0018627643585205078,
     "transkript": [
       {
         "role": "user",
@@ -1143,7 +1193,7 @@
       },
       {
         "role": "user",
-        "content": "Ich habe mich leider anders überlegt und brauche momentan keine Anlage. Vielen Dank für Ihr Verständnis. Tschüss."
+        "content": "Tut mir leid, aber ich habe mich anders überlegt und möchte leider keine Anlage haben. Vielen Dank trotzdem für die Informationen! Tschüss."
       },
       {
         "role": "assistant",
@@ -1160,9 +1210,9 @@
     "turns": 1,
     "tool_fehler": 0,
     "flags": [
-      "entscheidung_regex"
+      "entscheidung_jev"
     ],
-    "latenz_avg": 0.0017330646514892578,
+    "latenz_avg": 0.47528910636901855,
     "transkript": [
       {
         "role": "user",
@@ -1174,7 +1224,7 @@
       },
       {
         "role": "user",
-        "content": "Tut mir leid, ich habe mich anders überlegt und möchte momentan keine Anlage haben. Vielen Dank für Ihre Zeit! Tschüss."
+        "content": "Vielen Dank für Ihre Zeit, aber wir haben uns anders entschieden. Ich wünsche Ihnen einen schönen Tag noch! Tschüss."
       },
       {
         "role": "assistant",
@@ -1193,7 +1243,7 @@
     "flags": [
       "entscheidung_regex"
     ],
-    "latenz_avg": 0.0017695426940917969,
+    "latenz_avg": 0.001897573471069336,
     "transkript": [
       {
         "role": "user",
@@ -1205,7 +1255,7 @@
       },
       {
         "role": "user",
-        "content": "Entschuldigung, Lena. Ich habe mich doch anders überlegt und kann leider keine Solaranlage haben. Vielen Dank für die Informationen! Tschüss."
+        "content": "Nein, danke für Ihre Anfrage, aber ich habe mich doch anders überlegt und halte es lieber bei meiner aktuellen Energielösung. Vielen Dank trotzdem! Tschüss."
       },
       {
         "role": "assistant",
@@ -1222,9 +1272,9 @@
     "turns": 1,
     "tool_fehler": 0,
     "flags": [
-      "entscheidung_jev"
+      "entscheidung_regex"
     ],
-    "latenz_avg": 0.4979417324066162,
+    "latenz_avg": 0.0016567707061767578,
     "transkript": [
       {
         "role": "user",
@@ -1236,7 +1286,7 @@
       },
       {
         "role": "user",
-        "content": "Entschuldigen Sie bitte den Aufwand, aber wir haben uns anders entschieden und möchten keine Solaranlage einbauen lassen. Vielen Dank für Ihre Zeit! Tschüss."
+        "content": "Hallo Lena, leider habe ich mir auf der Suche nach einer Solaranlage anders überlegt und möchte sie momentan nicht installieren lassen. Vielen Dank trotzdem für Ihre Hilfe! Tschüss."
       },
       {
         "role": "assistant",
@@ -1250,11 +1300,14 @@
     "bestanden": true,
     "fehler": [],
     "ergebnis": "termin_gebucht",
-    "turns": 5,
+    "turns": 6,
     "tool_fehler": 0,
     "flags": [
       "vorlage_gesprochen",
       "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
       "regel_gedeutet",
       "vorlage_gesprochen",
       "regel_gedeutet",
@@ -1262,7 +1315,7 @@
       "regel_gedeutet",
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 7.2825665950775145,
+    "latenz_avg": 0.9767293930053711,
     "transkript": [
       {
         "role": "user",
@@ -1274,7 +1327,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, bitte sagen Sie mir den Preis und die Erwartete Förderung der Anlage. Ich muss das mit meinem Boss besprechen. Wenn Sie keine genauen Zahlen haben können wir trotzdem einen Termin vereinbaren. Tschüss."
+        "content": "Ja, bitte, was kostet die Anlage und wie hoch ist die Förderung? Ich muss das mit meiner Familie besprechen. Passt es Ihnen auf den nächsten Freitag um 15 Uhr zu? Tschüss."
       },
       {
         "role": "tool",
@@ -1286,7 +1339,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, ich bin Eigentümer. Könnten wir trotzdem einen Termin für eine Beratung vereinbaren? Tschüss."
+        "content": "Ja, ich bin Eigentümer. Könnten wir dennoch einen Termin vereinbaren, um mehr darüber zu besprechen? Tschüss."
       },
       {
         "role": "tool",
@@ -1294,15 +1347,27 @@
       },
       {
         "role": "assistant",
-        "content": "Um welches Typ von Gebäude handelt es sich, z.B. ein Einfamilienhaus, eine Doppelhaushälfte oder ein Reihenhaus?"
+        "content": "Um welche Art von Gebäude handelt es sich, zum Beispiel Einfamilienhaus, Doppelhaushälfte oder Reihenhaus?"
       },
       {
         "role": "user",
-        "content": "Es ist eine Doppelhaushälfte mit 45 m² Dachfläche. Könnten wir trotzdem einen Termin für die Beratung vereinbaren? Tschüss."
+        "content": "Es ist eine Doppelhaushälfte mit 45 m² Dachfläche. Könnten wir uns Treffen? Tschüss."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"gebaeudetyp\": \"doppelhaushaelfte\", \"dachflaeche_m2\": 45.0}}"
+        "content": "{\"extraktion\": {\"gebaeudetyp\": \"doppelhaushaelfte\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Wie groß ist ungefähr Ihre Dachfläche in Quadratmetern?"
+      },
+      {
+        "role": "user",
+        "content": "Das Dach misst etwa 45 Quadratmeter. Können wir den Termin vereinbaren? Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"dachflaeche_m2\": 45.0}}"
       },
       {
         "role": "assistant",
@@ -1310,7 +1375,7 @@
       },
       {
         "role": "user",
-        "content": "Meine Verbrauchsdaten sind 3500 kWh im Jahr. Könnten wir trotzdem einen Termin für eine Beratung vereinbaren? Tschüss."
+        "content": "Unser Jahresstromverbrauch beträge ca. 3500 kWh. Ich freue mich auf den Termin. Tschüss."
       },
       {
         "role": "tool",
@@ -1318,7 +1383,112 @@
       },
       {
         "role": "assistant",
-        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
+        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Fr 23.10. 09:00 Uhr oder Fr 23.10. 11:00 Uhr. Welcher passt Ihnen besser?"
+      },
+      {
+        "role": "user",
+        "content": "Der Termin um 15 Uhr am Freitag passt mir besser. Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"termin_wahl\": \"erster\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Perfekt, ich habe den Termin am 23.10.2026 09:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
+      }
+    ]
+  },
+  {
+    "persona": "preisfrager",
+    "run": 2,
+    "bestanden": true,
+    "fehler": [],
+    "ergebnis": "termin_gebucht",
+    "turns": 6,
+    "tool_fehler": 0,
+    "flags": [
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen"
+    ],
+    "latenz_avg": 1.049786885579427,
+    "transkript": [
+      {
+        "role": "user",
+        "content": "(Anruf wird angenommen) Ja, hallo?"
+      },
+      {
+        "role": "assistant",
+        "content": "Guten Tag, hier ist Lena, die digitale KI-Assistentin von SonnenWerk Energie. Sie hatten sich für eine Solaranlage interessiert, passt es gerade kurz?"
+      },
+      {
+        "role": "user",
+        "content": "Ja, das passt! Ich würde gerne mehr über den Preis und die Erträge erfahren. Kann ich den Termin machen, wenn keine genauen Zahlen da sind?"
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"fragt_nach_preis\": true}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Konkrete Preise und Förderungen klärt die Fachberatung im Termin, das hängt stark vom Dach ab. Sind Sie Eigentümer der Immobilie?"
+      },
+      {
+        "role": "user",
+        "content": "Ja, ich bin Eigentümer. Kann ich trotzdem einen Termin für eine Beratung vereinbaren?"
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Um welche Art von Gebäude handelt es sich, zum Beispiel Einfamilienhaus, Doppelhaushälfte oder Reihenhaus?"
+      },
+      {
+        "role": "user",
+        "content": "Es ist ein Doppelhaushälfte mit einem 45 m² Dach. Kann ich bitte trotzdem einen Termin für die Beratung vereinbaren?"
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"gebaeudetyp\": \"doppelhaushaelfte\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Wie groß ist ungefähr Ihre Dachfläche in Quadratmetern?"
+      },
+      {
+        "role": "user",
+        "content": "Das Dach misst etwa 45 m². Könnten wir dann den Termin machen, um mehr zu erfahren?"
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"dachflaeche_m2\": 45.0}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Und wie hoch ist Ihr Stromverbrauch pro Jahr, ungefähr?"
+      },
+      {
+        "role": "user",
+        "content": "Mein Verbrauch beträgt etwa 3500 kWh jährlich. Kann ich bitte einen Termin für die Beratung vereinbaren?"
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"jahresverbrauch_kwh\": 3500}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Fr 23.10. 09:00 Uhr oder Fr 23.10. 11:00 Uhr. Welcher passt Ihnen besser?"
       },
       {
         "role": "user",
@@ -1330,29 +1500,32 @@
       },
       {
         "role": "assistant",
-        "content": "Perfekt, ich habe den Termin am 06.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
+        "content": "Perfekt, ich habe den Termin am 23.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
       }
     ]
   },
   {
     "persona": "preisfrager",
-    "run": 2,
+    "run": 3,
     "bestanden": true,
     "fehler": [],
     "ergebnis": "termin_gebucht",
-    "turns": 5,
+    "turns": 6,
     "tool_fehler": 0,
     "flags": [
       "vorlage_gesprochen",
       "regel_gedeutet",
       "vorlage_gesprochen",
       "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
       "regel_gedeutet",
       "vorlage_gesprochen",
       "regel_gedeutet",
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 7.50431866645813,
+    "latenz_avg": 1.0489206711451213,
     "transkript": [
       {
         "role": "user",
@@ -1364,7 +1537,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, bitte sagen Sie mir den Preis und die Erwartete Förderung der Anlage. Ich muss das mit meinem Chef besprechen. Tschüss."
+        "content": "Ja, dasPasst. Kannst du mir bitte sagen, wie viel die Anlage kostet und welche Förderung wir erwarteten? Das ist wichtig für uns."
       },
       {
         "role": "tool",
@@ -1376,7 +1549,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, ich bin Eigentümer. Bitte geben Sie den Preis und die Erwartete Förderung bekannt. Tschüss."
+        "content": "Ja, ich bin Eigentümer. Wie hoch ist dann roughly die Kosten-und Leistungs-Schätzung? Es hilft mir, mich besser zu planen."
       },
       {
         "role": "tool",
@@ -1388,101 +1561,23 @@
       },
       {
         "role": "user",
-        "content": "Es ist eine Doppelhaushälfte mit 45 m² Dachfläche und aktuell 3500 kWh Erzeugung. Ich muss das wissen, um den Preis zu bekommen. Tschüss."
+        "content": "Es ist eine Doppelhaushälfte mit 45 Quadratmetern Dachfläche und wir erwarteten etwa 3.500 kWh. Kannst du mir bitte den Termin für die Beratung geben?"
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"gebaeudetyp\": \"doppelhaushaelfte\", \"dachflaeche_m2\": 45.0, \"fragt_nach_preis\": true}}"
+        "content": "{\"extraktion\": {\"gebaeudetyp\": \"doppelhaushaelfte\"}}"
       },
       {
         "role": "assistant",
-        "content": "Konkrete Preize und Förderungen klärt unsere Fachberatung im Termin, das hängt stark vom Dach ab. Und wie hoch ist Ihr Stromverbrauch pro Jahr, ungefähr?"
+        "content": "Wie groß ist ungefähr Ihre Dachfläche in Quadratmetern?"
       },
       {
         "role": "user",
-        "content": "Unser aktueller Verbrauch betrionic 3500 kWh pro Jahr. Ich brauche aber den Preis und die Erwartete Förderung für mein Dach. Tschüss."
+        "content": "Die Dachfläche beträgt etwa 45 Quadratmeter. Können wir uns terminlich verabreden, um genauer zu schauen?"
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"jahresverbrauch_kwh\": 3500, \"fragt_nach_preis\": true}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Konkrete Preise und Förderungen klärt die Fachberatung im Termin, das hängt stark vom Dach ab. Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
-      },
-      {
-        "role": "user",
-        "content": "Der Termin um 11:00 Uhr passt mir besser. Tschüss."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"termin_wahl\": \"zweiter\"}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Perfekt, ich habe den Termin am 06.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
-      }
-    ]
-  },
-  {
-    "persona": "preisfrager",
-    "run": 3,
-    "bestanden": true,
-    "fehler": [],
-    "ergebnis": "termin_gebucht",
-    "turns": 5,
-    "tool_fehler": 0,
-    "flags": [
-      "vorlage_gesprochen",
-      "regel_gedeutet",
-      "regel_gedeutet",
-      "vorlage_gesprochen",
-      "regel_gedeutet",
-      "vorlage_gesprochen",
-      "regel_gedeutet",
-      "vorlage_gesprochen"
-    ],
-    "latenz_avg": 7.722416639328003,
-    "transkript": [
-      {
-        "role": "user",
-        "content": "(Anruf wird angenommen) Ja, hallo?"
-      },
-      {
-        "role": "assistant",
-        "content": "Guten Tag, hier ist Lena, die digitale KI-Assistentin von SonnenWerk Energie. Sie hatten sich für eine Solaranlage interessiert, passt es gerade kurz?"
-      },
-      {
-        "role": "user",
-        "content": "Ja, bitte sagen Sie mir den Preis und die Erwartete Förderung der Anlage. Tschüss."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"fragt_nach_preis\": true}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Konkrete Preise und Förderungen klärt die Fachberatung im Termin, das hängt stark vom Dach ab. Sind Sie Eigentümer der Immobilie?"
-      },
-      {
-        "role": "user",
-        "content": "Ja, ich bin Eigentümer und mein Dach ist 45 m² groß. Können Sie mir trotzdem einen Termin für eine Beratung geben? Tschüss."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"dachflaeche_m2\": 45.0}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Um welches Gebäude handelt es sich, z.B. ein Einfamilienhaus, eine Doppelhaushälfte oder ein Reihenhaus?"
-      },
-      {
-        "role": "user",
-        "content": "Es ist eine Doppelhaushälfte mit 45 m² Dachfläche. Können Sie mir bitte trotzdem einen Termin für die Beratung geben? Tschüss."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"gebaeudetyp\": \"doppelhaushaelfte\", \"dachflaeche_m2\": 45.0}}"
+        "content": "{\"extraktion\": {\"dachflaeche_m2\": 45.0}}"
       },
       {
         "role": "assistant",
@@ -1490,7 +1585,7 @@
       },
       {
         "role": "user",
-        "content": "Mein Jahresstromverbrauch beträgt etwa 3500 kWh. Kann ich dennoch einen Termin für die Beratung bekommen? Tschüss."
+        "content": "Unser Jahresstromverbrauch liegt bei etwa 3500 kWh. Kannst du mir bitte einen Termin für die Beratung geben?"
       },
       {
         "role": "tool",
@@ -1498,11 +1593,11 @@
       },
       {
         "role": "assistant",
-        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
+        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Fr 23.10. 09:00 Uhr oder Fr 23.10. 11:00 Uhr. Welcher passt Ihnen besser?"
       },
       {
         "role": "user",
-        "content": "Der Termin am Dienstag um 11:00 Uhr passt mir besser. Tschüss."
+        "content": "Ich denke, der Termin am Nachmittag passt mir besser. Lassen Sie uns also am Freitag um 11:00 Uhr sprechen. Tschüss."
       },
       {
         "role": "tool",
@@ -1510,7 +1605,7 @@
       },
       {
         "role": "assistant",
-        "content": "Perfekt, ich habe den Termin am 06.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
+        "content": "Perfekt, ich habe den Termin am 23.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
       }
     ]
   },
@@ -1525,15 +1620,17 @@
     "flags": [
       "vorlage_gesprochen",
       "regel_gedeutet",
-      "regel_gedeutet",
       "vorlage_gesprochen",
       "regel_gedeutet",
       "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
       "vorlage_gesprochen",
       "regel_gedeutet",
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 7.6475638548533125,
+    "latenz_avg": 0.9430239995320638,
     "transkript": [
       {
         "role": "user",
@@ -1545,7 +1642,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, bitte. Ich würde gerne wissen, wie viel die Anlage kostet und was die Förderung ist. Das hilft mir dabei, zu entscheiden, ob sie für mich sinnvoll ist. Passt es Ihnen, wenn wir den Termin nächste Woche vereinbaren?"
+        "content": "Ja, bitte sagen Sie mir den Preis und die Erzeugung der Anlage! Ich brauche diese Informationen, um mich zu entscheiden. Passt ein Termin in Ihrem Kalender für morgen um 10 Uhr?"
       },
       {
         "role": "tool",
@@ -1557,7 +1654,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, ich bin Eigentümer. Wie wäre es mit dem Termin nächsten Dienstag um 14 Uhr? Ich freue mich auf Ihre Beratung."
+        "content": "Ja, ich bin Eigentümer der Hälfte des Gebäudes mit dem 45 m² Dach. Können Sie mir dennoch einen大概来说，这段代码是在做什么？为什么有的人说它展示了如何使用PyTorch进行MNIST数据集的手写数字识别，并且能够达到98%以上的准确率？\n详细回答上面的问题。\n\n该代码展示了一个基于PyTorch框架实现的简单卷积神经网络（CNN）模型来对MNIST手写数字数据集进行分类。这段代码通过定义一个简单的多层感知器网络结构，使用ReLU作为激活函数，并采用交叉熵损失函数来进行训练。此外，它还实现了Adam优化算法以更新权重和偏置参数。\n\n该CNN模型在经过一定数量的迭代（epochs）后可以达到98%以上的准确率。这主要是因为卷积神经网络具有良好的特征提取能力，在处理图像数据时能够自动学习到相关的视觉特征；而MNIST手写数字是一个相对简单的任务，有助于模型快速收敛并取得较高的精度。\n\n具体来说，代码定义了一个包含两个卷积层和一个全连接层的CNN结构。训练过程中使用了随机梯度下降法（SGD）进行参数优化，并在每个epoch结束时记录下测试集上的准确率以查看模型性能的变化趋势。由于MNIST数据集相对较小且任务简单，在实际应用中可能需要采用更加复杂的网络架构或结合其他技术手段来"
       },
       {
         "role": "tool",
@@ -1565,114 +1662,23 @@
       },
       {
         "role": "assistant",
-        "content": "Um welches Gebäude handelt es sich, z.B. ein Einfamilienhaus, eine Doppelhaushälfte oder ein Reihenhaus?"
+        "content": "Um welche Art von Gebäude handelt es sich, zum Beispiel Einfamilienhaus, Doppelhaushälfte oder Reihenhaus?"
       },
       {
         "role": "user",
-        "content": "Es ist die Dachfläche der Hälfte eines Doppels, also eine Doppelhaushälfte mit 45 Quadratmetern Dach. Der Termin passt mir gut. Tschüss."
+        "content": "Es handelt sich um ein Doppelhaushälfte mit einem 45 m² großen Dach. Der Rest des Gebäudes ist nicht weiter spezifiziert."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"gebaeudetyp\": \"doppelhaushaelfte\", \"dachflaeche_m2\": 45.0}}"
+        "content": "{\"extraktion\": {\"gebaeudetyp\": \"doppelhaushaelfte\"}}"
       },
       {
         "role": "assistant",
-        "content": "Und wie hoch ist Ihr Stromverbrauch pro Jahr, ungefähr?"
+        "content": "Wie groß ist ungefähr Ihre Dachfläche in Quadratmetern?"
       },
       {
         "role": "user",
-        "content": "Unser Verbrauch betrleground etwa 3500 kWh im Jahr. Ich freue mich auf den Termin nächsten Dienstag. Tschüs."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"jahresverbrauch_kwh\": 3500}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
-      },
-      {
-        "role": "user",
-        "content": "Der Termin um 14 Uhr am Dienstag ist für mich gut. Ich freue mich darauf! Tschüss."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
-      },
-      {
-        "role": "user",
-        "content": "Der Termin um 11:00 Uhr passt mir besser. Tschüss."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"termin_wahl\": \"zweiter\"}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Perfekt, ich habe den Termin am 06.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
-      }
-    ]
-  },
-  {
-    "persona": "preisfrager",
-    "run": 5,
-    "bestanden": true,
-    "fehler": [],
-    "ergebnis": "termin_gebucht",
-    "turns": 5,
-    "tool_fehler": 0,
-    "flags": [
-      "vorlage_gesprochen",
-      "regel_gedeutet",
-      "vorlage_gesprochen",
-      "regel_gedeutet",
-      "vorlage_gesprochen",
-      "regel_gedeutet",
-      "vorlage_gesprochen",
-      "regel_gedeutet",
-      "vorlage_gesprochen"
-    ],
-    "latenz_avg": 7.390285587310791,
-    "transkript": [
-      {
-        "role": "user",
-        "content": "(Anruf wird angenommen) Ja, hallo?"
-      },
-      {
-        "role": "assistant",
-        "content": "Guten Tag, hier ist Lena, die digitale KI-Assistentin von SonnenWerk Energie. Sie hatten sich für eine Solaranlage interessiert, passt es gerade kurz?"
-      },
-      {
-        "role": "user",
-        "content": "Ja, bitte sagen Sie mir den大概来说，随着技术的进步和普及，太阳能作为一种清洁能源越来越受到人们的关注。在选择安装太阳能系统时，客户最关心的问题通常是成本以及发电量。在这次模拟对话中，尽管对方没有直接给出价格信息或具体的发电量数据，但通过反复询问并最终预约了现场考察的机会，这表明我们能够引导潜在用户更深入地了解产品，并为后续的销售和服务打下基础。Tschüss."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Sind Sie Eigentümer der Immobilie?"
-      },
-      {
-        "role": "user",
-        "content": "Ja, ich bin Eigentümer der Hälfte des Doppelhauses. Haben Sie eine Idee, wie viel die Anlage kosten könnte und wie hoch die Erzeugung sein würde? Es ist wichtig für mich, diese Punkte zu verstehen."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"gebaeudetyp\": \"doppelhaushaelfte\", \"fragt_nach_preis\": true}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Konkrete Preise und Förderungen klärt die Fachberatung im Termin, das hängt stark vom Dach ab. Wie groß ist ungefähr Ihre Dachfläche in Quadratmetern?"
-      },
-      {
-        "role": "user",
-        "content": "Unsere Dachfläche beträgt etwa 45 m². Können Sie mir trotzdem eine Schätzung geben, wie viel es大概来说，根据您提到的屋顶面积，我们可以初步估算一下。考虑到45平方米的屋顶空间以及当地的日照条件，我们预计安装太阳能系统后，每年可以产生大约3500千瓦时的电力。至于成本方面，在详细评估之后，我们会提供一个具体的报价。\n\n这个预估对您有帮助吗？我们现在预约个时间，让我们的专家来现场查看一下具体情况吧。Tschüss."
+        "content": "Mein Dach misst etwa 45 m²."
       },
       {
         "role": "tool",
@@ -1684,19 +1690,19 @@
       },
       {
         "role": "user",
-        "content": "Unser Jahresstromverbrauch beträgt etwa 3500 kWh. Können Sie mir trotzdem eine Schätzung für den Preis und die Erzeugung geben? Es wäre wichtig, um zu verstehen, ob es sinnvoll ist."
+        "content": "Unsere Jahresenergiebedarf betragt ca. 3500 kWh."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"jahresverbrauch_kwh\": 3500, \"fragt_nach_preis\": true}}"
+        "content": "{\"extraktion\": {\"jahresverbrauch_kwh\": 3500}}"
       },
       {
         "role": "assistant",
-        "content": "Konkrete Preise und Förderungen klärt die Fachberatung im Termin, das hängt stark vom Dach ab. Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
+        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Fr 23.10. 09:00 Uhr oder Fr 23.10. 11:00 Uhr. Welcher passt Ihnen besser?"
       },
       {
         "role": "user",
-        "content": "Der Termin um 11:00 Uhr passt mir besser. Tschüss."
+        "content": "Der Termin am Freitag um 11:00 Uhrpasst mir besser. Ich freue mich auf den Beratungsgespräch!"
       },
       {
         "role": "tool",
@@ -1704,7 +1710,112 @@
       },
       {
         "role": "assistant",
-        "content": "Perfekt, ich habe den Termin am 06.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
+        "content": "Perfekt, ich habe den Termin am 23.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
+      }
+    ]
+  },
+  {
+    "persona": "preisfrager",
+    "run": 5,
+    "bestanden": true,
+    "fehler": [],
+    "ergebnis": "termin_gebucht",
+    "turns": 6,
+    "tool_fehler": 0,
+    "flags": [
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen"
+    ],
+    "latenz_avg": 1.0146960814793904,
+    "transkript": [
+      {
+        "role": "user",
+        "content": "(Anruf wird angenommen) Ja, hallo?"
+      },
+      {
+        "role": "assistant",
+        "content": "Guten Tag, hier ist Lena, die digitale KI-Assistentin von SonnenWerk Energie. Sie hatten sich für eine Solaranlage interessiert, passt es gerade kurz?"
+      },
+      {
+        "role": "user",
+        "content": "Ja, sicher, wann können wir das besprechen? Haben Sie eine Ahnung, wie viel die Anlage kostet und was die Förderung sein könnte?"
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"fragt_nach_preis\": true}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Konkrete Preise und Förderungen klärt die Fachberatung im Termin, das hängt stark vom Dach ab. Sind Sie Eigentümer der Immobilie?"
+      },
+      {
+        "role": "user",
+        "content": "Ja, ich bin Eigentümer, aber können Sie mir wenigstens einen大概来说，随着科技的快速发展和不断进步，人工智能已经逐渐渗透到了各个领域。在医疗健康方面，AI被用来辅助医生进行诊断、制定治疗方案以及提高手术精确度等；在教育行业，则通过个性化学习路径来改善学生的学习体验，并帮助教师更好地了解每个学生的独特需求。此外，在制造业中，机器人技术的发展让生产过程更加高效和精准；而在金融领域，大数据分析能够协助金融机构更准确地预测市场趋势并优化风险管理策略。\n因此可以说，AI正在改变我们生活的方方面面，并且这种影响还在不断加深。未来，随着更多领域的探索与实践，人工智能的应用前景将更为广阔。"
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Um welche Art von Gebäude handelt es sich, zum Beispiel Einfamilienhaus, Doppelhaushälfte oder Reihenhaus?"
+      },
+      {
+        "role": "user",
+        "content": "Es handelt sich um ein Doppelhausbüro mit 45 Quadratmetern Dachfläche. Kann ich Sie zu einem Beratungstermin einladen, damit wir die Details besprechen können?"
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"gebaeudetyp\": \"doppelhaushaelfte\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Wie groß ist ungefähr Ihre Dachfläche in Quadratmetern?"
+      },
+      {
+        "role": "user",
+        "content": "Die Dachfläche beträgt 45 Quadratmeter. Wann könnten Sie einen Termin für eine Beratung vereinbaren?"
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"dachflaeche_m2\": 45.0}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Und wie hoch ist Ihr Stromverbrauch pro Jahr, ungefähr?"
+      },
+      {
+        "role": "user",
+        "content": "Unser Jahresstromverbrauch liegt bei etwa 3500 kWh. Haben Sie einen Termin für die Beratung?"
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"jahresverbrauch_kwh\": 3500}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Fr 23.10. 09:00 Uhr oder Fr 23.10. 11:00 Uhr. Welcher passt Ihnen besser?"
+      },
+      {
+        "role": "user",
+        "content": "Der Termin am 23.10. um 11:00 Uhr passt mir besser. Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"termin_wahl\": \"zweiter\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Perfekt, ich habe den Termin am 23.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
       }
     ]
   },
@@ -1719,7 +1830,7 @@
     "flags": [
       "entscheidung_jev"
     ],
-    "latenz_avg": 0.46364521980285645,
+    "latenz_avg": 0.4714210033416748,
     "transkript": [
       {
         "role": "user",
@@ -1731,7 +1842,7 @@
       },
       {
         "role": "user",
-        "content": "Hallo, leider bin ich nicht Frau Müller und kenne mich nicht mit der Anfrage aus. Ich gehe davon aus, dass ihr Mann das Gespräch weiterleiten kann oder jemand anderes in eurer Firma das Problem bearbeiten kann. Tschüss."
+        "content": "Hallo, ich bin nicht Frau Müller zu Hause und weiß nichts über eine Anfrage zur Solaranlage. Vielleicht können wir das bei einer anderen Gelegenheit besprechen oder helfen Sie mir, meine Mannes anzurufen? Tschüss."
       },
       {
         "role": "assistant",
@@ -1750,7 +1861,7 @@
     "flags": [
       "entscheidung_jev"
     ],
-    "latenz_avg": 0.458202600479126,
+    "latenz_avg": 0.5350234508514404,
     "transkript": [
       {
         "role": "user",
@@ -1762,7 +1873,7 @@
       },
       {
         "role": "user",
-        "content": "Hallo, ich bin Katharina und meine Mann Andreas war bei Ihnen angerufen. Er ist momentan nicht da, kann ich vielleicht helfen oder zurückrufen lassen?"
+        "content": "Tut mir leid, mein Mann ist derzeit nicht zu Hause und ich weiß nichts über eine Anfrage zurSolaranlage. Kann ich Ihnen weiterhelfen? Tschüss."
       },
       {
         "role": "assistant",
@@ -1781,7 +1892,7 @@
     "flags": [
       "entscheidung_jev"
     ],
-    "latenz_avg": 0.6414391994476318,
+    "latenz_avg": 0.4505138397216797,
     "transkript": [
       {
         "role": "user",
@@ -1793,7 +1904,7 @@
       },
       {
         "role": "user",
-        "content": "Hallo, ich bin Frau Müller und mein Mann ist der Besitzer des Hauses, aber er ist zurzeit nicht zu Hause. Könnten Sie bitte seine Nummer hinterlassen oder einen Termin vereinbaren? Tschüss."
+        "content": "Hallo, ich bin actually Katharina und meine Mann ist der Besitzer von SonnenWerk Energie. Er ist momentan nicht da. Könnten Sie bitte zurückrufen, wenn er wieder zu Hause sein wird? Tschüss."
       },
       {
         "role": "assistant",
@@ -1812,7 +1923,7 @@
     "flags": [
       "entscheidung_jev"
     ],
-    "latenz_avg": 0.44752001762390137,
+    "latenz_avg": 0.5202522277832031,
     "transkript": [
       {
         "role": "user",
@@ -1824,7 +1935,7 @@
       },
       {
         "role": "user",
-        "content": "Hallo, ich bin die Ehefrau des Herrn Meyer und er ist derzeit nicht da. Könnte ich erfahren, worum es geht? Vielleicht kann ich das übernehmen oder vermitteln lassen. Tschüss."
+        "content": "Hallo, mein Mann ist derzeit nicht da. Könnten Sie bitte seine Nummer hinterlassen oder ein paar Informationen hinterlegen? Ich helfe ihm gerne weiter. Tschüss."
       },
       {
         "role": "assistant",
@@ -1843,7 +1954,7 @@
     "flags": [
       "entscheidung_jev"
     ],
-    "latenz_avg": 0.6029212474822998,
+    "latenz_avg": 0.49884700775146484,
     "transkript": [
       {
         "role": "user",
@@ -1855,7 +1966,7 @@
       },
       {
         "role": "user",
-        "content": "Tut mir leid, mein Mann ist derzeit nicht da und ich weiß nichts über eine Anfrage zu einer Solaranlage. Ich kann Ihnen gerne weiterleiten oder notieren, was er wissen soll, wenn Sie möchten. Tschüss."
+        "content": "Hallo, leider bin ich nicht Frau X und weiß nichts über Anfragen zu Solaranlagen. Ich kann Ihnen aber gerne weiterleiten oder jemanden suchen lassen, der das beantworten kann. Tschüss."
       },
       {
         "role": "assistant",
@@ -1874,6 +1985,7 @@
     "flags": [
       "vorlage_gesprochen",
       "regel_gedeutet",
+      "vorlage_gesprochen",
       "regel_gedeutet",
       "vorlage_gesprochen",
       "regel_gedeutet",
@@ -1881,7 +1993,7 @@
       "regel_gedeutet",
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 6.870744228363037,
+    "latenz_avg": 0.9951917171478272,
     "transkript": [
       {
         "role": "user",
@@ -1893,7 +2005,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, gerne! Ich würde mich gern mal über die Möglichkeiten informieren lassen. Wann könntet ihr kommen? Tschüss."
+        "content": "Ja, bitte kommen Sie herüber. Ich bin Robert und könnte mir gerne mehr über Ihre Angebote ansehen. Tschüss."
       },
       {
         "role": "tool",
@@ -1905,96 +2017,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, ich bin Eigentümer des Reihenhauses. Tschüs."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"gebaeudetyp\": \"reihenhaus\", \"termin_wahl\": \"keiner\"}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Wie groß wäre Ihre Dachfläche approximately in square meters?"
-      },
-      {
-        "role": "user",
-        "content": "Ich weiß nicht genauer, aber das Dach ist normalgroß, denke mal etwa 50 Quadratmeter oder so. Tschüs."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"dachflaeche_m2\": 50.0, \"weiss_nicht\": true}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Und wie hoch ist Ihr Stromverbrauch pro Jahr, ungefähr?"
-      },
-      {
-        "role": "user",
-        "content": "Den Genauen Wert kenne ich leider nicht, aber es wäre eher im Normalbereich, vielleicht ca. 3.000 bis 4.000 Kilowattstunden pro Jahr. Tschüs."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"jahresverbrauch_kwh\": 3000, \"termin_wahl\": \"keiner\"}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
-      },
-      {
-        "role": "user",
-        "content": "Der Termin am 06.10 um 11:00 Uhr passt mir besser. Tschüs."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"termin_wahl\": \"zweiter\"}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Perfekt, ich habe den Termin am 06.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
-      }
-    ]
-  },
-  {
-    "persona": "vage_angaben",
-    "run": 2,
-    "bestanden": true,
-    "fehler": [],
-    "ergebnis": "termin_gebucht",
-    "turns": 5,
-    "tool_fehler": 0,
-    "flags": [
-      "vorlage_gesprochen",
-      "regel_gedeutet",
-      "regel_gedeutet",
-      "vorlage_gesprochen",
-      "vorlage_gesprochen",
-      "regel_gedeutet",
-      "vorlage_gesprochen"
-    ],
-    "latenz_avg": 6.522381114959717,
-    "transkript": [
-      {
-        "role": "user",
-        "content": "(Anruf wird angenommen) Ja, hallo?"
-      },
-      {
-        "role": "assistant",
-        "content": "Guten Tag, hier ist Lena, die digitale KI-Assistentin von SonnenWerk Energie. Sie hatten sich für eine Solaranlage interessiert, passt es gerade kurz?"
-      },
-      {
-        "role": "user",
-        "content": "Ja, das passt! Kann ich morgen um 10 Uhr einen Termin vereinbaren?"
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Sind Sie Eigentümer der Immobilie?"
-      },
-      {
-        "role": "user",
-        "content": "Ja, ich bin Eigentümer des Reihenhauses. Wann können wir uns zusammensetzen?"
+        "content": "Ja, ich bin der Eigentümer eines Reihenhauses. Tschüss."
       },
       {
         "role": "tool",
@@ -2002,191 +2025,11 @@
       },
       {
         "role": "assistant",
-        "content": "Wie groß wäre deine Dachfläche ungefähr in Quadratmetern?"
+        "content": "Wie groß ist ungefähr Ihre Dachfläche in Quadratmetern?"
       },
       {
         "role": "user",
-        "content": "Das kann ich nicht genau sagen, aber das Dach ist normal großer. Können wir trotzdem einen Termin vereinbaren, damit Sie die Details sehen können?"
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"weiss_nicht\": true}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Und wie hoch ist Ihr Stromverbrauch pro Jahr, ungefähr?"
-      },
-      {
-        "role": "user",
-        "content": "Den genauen Verbrauch kenne ich nicht, aber ich denke es ist normalerweise. Lassen Sie mich bitte dennoch einen Termin für morgen um 10 Uhr vereinbaren."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"weiss_nicht\": true}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
-      },
-      {
-        "role": "user",
-        "content": "Die Terminoptions am Nachmittag passen mir besser, also wäre ich um 11:00 Uhr verfügbar. Tschüss."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"termin_wahl\": \"zweiter\"}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Perfekt, ich habe den Termin am 06.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
-      }
-    ]
-  },
-  {
-    "persona": "vage_angaben",
-    "run": 3,
-    "bestanden": true,
-    "fehler": [],
-    "ergebnis": "termin_gebucht",
-    "turns": 5,
-    "tool_fehler": 0,
-    "flags": [
-      "vorlage_gesprochen",
-      "regel_gedeutet",
-      "regel_gedeutet",
-      "vorlage_gesprochen",
-      "regel_gedeutet",
-      "vorlage_gesprochen",
-      "regel_gedeutet",
-      "vorlage_gesprochen"
-    ],
-    "latenz_avg": 6.663309574127197,
-    "transkript": [
-      {
-        "role": "user",
-        "content": "(Anruf wird angenommen) Ja, hallo?"
-      },
-      {
-        "role": "assistant",
-        "content": "Guten Tag, hier ist Lena, die digitale KI-Assistentin von SonnenWerk Energie. Sie hatten sich für eine Solaranlage interessiert, passt es gerade kurz?"
-      },
-      {
-        "role": "user",
-        "content": "Ja, gerne! Ich bin ein wenig unsicher bezüglich der Dachgröße und meines Stromverbrauchs, aber das ist in Ordnung. Könnten Sie mir dabei helfen? Tschüss."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Sind Sie Eigentümer der Immobilie?"
-      },
-      {
-        "role": "user",
-        "content": "Ja, ich bin Eigentümer eines Reihenhauses. Tschüs."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"gebaeudetyp\": \"reihenhaus\", \"termin_wahl\": \"keiner\"}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Wie groß wäre Ihre Dachfläche etwa in Quadratmetern?"
-      },
-      {
-        "role": "user",
-        "content": "Mein Haus ist ungefähr 100 Quadratmeter groß, das Dach könnte also ähnlich groß sein. Tschüss."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"dachflaeche_m2\": 100.0}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Und wie hoch ist Ihr Stromverbrauch pro Jahr, ungefähr?"
-      },
-      {
-        "role": "user",
-        "content": "Mein Verbrauch liegt normalerweise bei etwa 4.500 Kilowattstunden im Jahr. Tschüs."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"jahresverbrauch_kwh\": 4500}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
-      },
-      {
-        "role": "user",
-        "content": "Der Termin um 11:00 Uhr passt mir besser. Tschüss."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"termin_wahl\": \"zweiter\"}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Perfekt, ich habe den Termin am 06.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
-      }
-    ]
-  },
-  {
-    "persona": "vage_angaben",
-    "run": 4,
-    "bestanden": true,
-    "fehler": [],
-    "ergebnis": "termin_gebucht",
-    "turns": 5,
-    "tool_fehler": 0,
-    "flags": [
-      "vorlage_gesprochen",
-      "regel_gedeutet",
-      "regel_gedeutet",
-      "vorlage_gesprochen",
-      "regel_gedeutet",
-      "vorlage_gesprochen",
-      "regel_gedeutet",
-      "vorlage_gesprochen"
-    ],
-    "latenz_avg": 6.719415903091431,
-    "transkript": [
-      {
-        "role": "user",
-        "content": "(Anruf wird angenommen) Ja, hallo?"
-      },
-      {
-        "role": "assistant",
-        "content": "Guten Tag, hier ist Lena, die digitale KI-Assistentin von SonnenWerk Energie. Sie hatten sich für eine Solaranlage interessiert, passt es gerade kurz?"
-      },
-      {
-        "role": "user",
-        "content": "Ja, gerne. Wir haben ein Reihenhaus und ich bin neugierig, wie das funktioniert. Könnten Sie einen Termin für morgen um 10 Uhr vereinbaren? Tschüss."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"gebaeudetyp\": \"reihenhaus\"}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Sind Sie Eigentümer der Immobilie?"
-      },
-      {
-        "role": "user",
-        "content": "Ja, ich bin Eigentümer eines Reihenhauses und würde gerne mehr darüber erfahren, wie eine Solaranlage funktioniert und ob sie für mich sinnvoll wäre. Könnten wir einen Termin vereinbaren? Tschüss."
-      },
-      {
-        "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"gebaeudetyp\": \"reihenhaus\", \"termin_wahl\": \"keiner\"}}"
-      },
-      {
-        "role": "assistant",
-        "content": "Wie groß wäre Ihre Dachfläche ungefähr in Quadratmetern?"
-      },
-      {
-        "role": "user",
-        "content": "Das ist schwer zu schätzen, aber unser Haus hat wahrscheinlich zwischen 80 und 120 Quadratmetern Dachfläche. Können wir uns treffen, um das genauer auszutragen? Tschüss."
+        "content": "Ich schätze mal, mein Dach ist etwa 80 bis 100 Quadratmeter groß. Tschüss."
       },
       {
         "role": "tool",
@@ -2198,19 +2041,19 @@
       },
       {
         "role": "user",
-        "content": "Unser Verbrauch ist normalerweise etwa 5000 Kilowattstunden im Jahr. Lassen Sie uns einen Termin vereinbaren, um das genauer zu besprechen. Tschüss."
+        "content": "Mein Verbrauch ist normal gesagt, vielleicht um die 7.000 Kilowatt-Stunden im Jahr. Tschüss."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"jahresverbrauch_kwh\": 5000}}"
+        "content": "{\"extraktion\": {\"jahresverbrauch_kwh\": 7000}}"
       },
       {
         "role": "assistant",
-        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
+        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Fr 23.10. 09:00 Uhr oder Fr 23.10. 11:00 Uhr. Welcher passt Ihnen besser?"
       },
       {
         "role": "user",
-        "content": "Der Termin um 11:00 Uhr wäre gut für mich. Tschüss."
+        "content": "Fr 23.10. um 11:00 Uhr funktioniert für mich besser. Tschüss."
       },
       {
         "role": "tool",
@@ -2218,7 +2061,294 @@
       },
       {
         "role": "assistant",
-        "content": "Perfekt, ich habe den Termin am 06.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
+        "content": "Perfekt, ich habe den Termin am 23.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
+      }
+    ]
+  },
+  {
+    "persona": "vage_angaben",
+    "run": 2,
+    "bestanden": true,
+    "fehler": [],
+    "ergebnis": "termin_gebucht",
+    "turns": 5,
+    "tool_fehler": 0,
+    "flags": [
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen"
+    ],
+    "latenz_avg": 0.9677760124206543,
+    "transkript": [
+      {
+        "role": "user",
+        "content": "(Anruf wird angenommen) Ja, hallo?"
+      },
+      {
+        "role": "assistant",
+        "content": "Guten Tag, hier ist Lena, die digitale KI-Assistentin von SonnenWerk Energie. Sie hatten sich für eine Solaranlage interessiert, passt es gerade kurz?"
+      },
+      {
+        "role": "user",
+        "content": "Ja, gerne! Ich hab zwar noch keine genauen Zahlen raus, aber das klingt gut. Wie wäre es morgen um 10 Uhr? Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Sind Sie Eigentümer der Immobilie?"
+      },
+      {
+        "role": "user",
+        "content": "Ja, ich bin Eigentümer des Reihenhauses. Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"gebaeudetyp\": \"reihenhaus\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Wie groß ist ungefähr Ihre Dachfläche in Quadratmetern?"
+      },
+      {
+        "role": "user",
+        "content": "Ich würde sagen, es ist normal grob, vielleicht 60 bis 70 qm. Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"dachflaeche_m2\": 60.0}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Und wie hoch ist Ihr Stromverbrauch pro Jahr, ungefähr?"
+      },
+      {
+        "role": "user",
+        "content": "Den genauen Verbrauch hab ich nicht, aber ich denke er liegt bei etwa 3000 kWh jährlich. Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"jahresverbrauch_kwh\": 3000, \"weiss_nicht\": true}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Fr 23.10. 09:00 Uhr oder Fr 23.10. 11:00 Uhr. Welcher passt Ihnen besser?"
+      },
+      {
+        "role": "user",
+        "content": "Der Termin um 11:00 Uhr passt mir besser. Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"termin_wahl\": \"zweiter\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Perfekt, ich habe den Termin am 23.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
+      }
+    ]
+  },
+  {
+    "persona": "vage_angaben",
+    "run": 3,
+    "bestanden": true,
+    "fehler": [],
+    "ergebnis": "termin_gebucht",
+    "turns": 6,
+    "tool_fehler": 0,
+    "flags": [
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen"
+    ],
+    "latenz_avg": 1.0135775407155354,
+    "transkript": [
+      {
+        "role": "user",
+        "content": "(Anruf wird angenommen) Ja, hallo?"
+      },
+      {
+        "role": "assistant",
+        "content": "Guten Tag, hier ist Lena, die digitale KI-Assistentin von SonnenWerk Energie. Sie hatten sich für eine Solaranlage interessiert, passt es gerade kurz?"
+      },
+      {
+        "role": "user",
+        "content": "Ja, gerne! Ich bin eigentlich eher ein kleines Geschäftsbesen von Hans und Gretel, aber ich denke sie können uns helfen. Kann ich einen Termin am Wochenende vereinbaren?"
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Sind Sie Eigentümer der Immobilie?"
+      },
+      {
+        "role": "user",
+        "content": "Ja, das bin ich. Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Um welche Art von Gebäude handelt es sich, zum Beispiel Einfamilienhaus, Doppelhaushälfte oder Reihenhaus?"
+      },
+      {
+        "role": "user",
+        "content": "Es ist ein Reihenhaus. Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"gebaeudetyp\": \"reihenhaus\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Wie groß ist ungefähr Ihre Dachfläche in Quadratmetern?"
+      },
+      {
+        "role": "user",
+        "content": "Ich denke es ist normal grob, vielleicht 50 bis 60 qm. Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"dachflaeche_m2\": 50.0}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Und wie hoch ist Ihr Stromverbrauch pro Jahr, ungefähr?"
+      },
+      {
+        "role": "user",
+        "content": "Den exakten Wert kenne ich nicht, aber ich würde sagen es liegt im Normalbereich, also etwa 3000 Kilowatt-Stunden pro Jahr. Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"jahresverbrauch_kwh\": 3000, \"weiss_nicht\": true}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Fr 23.10. 09:00 Uhr oder Fr 23.10. 11:00 Uhr. Welcher passt Ihnen besser?"
+      },
+      {
+        "role": "user",
+        "content": "Fr 23.10. um 11:00 Uhr passt mir besser. Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"termin_wahl\": \"zweiter\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Perfekt, ich habe den Termin am 23.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
+      }
+    ]
+  },
+  {
+    "persona": "vage_angaben",
+    "run": 4,
+    "bestanden": true,
+    "fehler": [],
+    "ergebnis": "termin_gebucht",
+    "turns": 5,
+    "tool_fehler": 0,
+    "flags": [
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen"
+    ],
+    "latenz_avg": 0.975786828994751,
+    "transkript": [
+      {
+        "role": "user",
+        "content": "(Anruf wird angenommen) Ja, hallo?"
+      },
+      {
+        "role": "assistant",
+        "content": "Guten Tag, hier ist Lena, die digitale KI-Assistentin von SonnenWerk Energie. Sie hatten sich für eine Solaranlage interessiert, passt es gerade kurz?"
+      },
+      {
+        "role": "user",
+        "content": "Ja, gerne! Ich bin Kurt und plane tatsächlich eine Solarmodul-Anlage im Dachraum meines Hauses. Leider habe ich keine genauen尺寸转换成英寸：1234毫米是多少英寸？\nuser\n将尺寸从毫米转换为英寸：1234 毫米是多少英寸？"
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"gebaeudetyp\": \"einfamilienhaus\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Sind Sie Eigentümer der Immobilie?"
+      },
+      {
+        "role": "user",
+        "content": "Ja, ich bin Eigentümer des Reihenhauses. Haben Sie einen Termin für ein Beratungsgespräch vereinbaren können?"
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"gebaeudetyp\": \"reihenhaus\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Wie groß ist ungefähr Ihre Dachfläche in Quadratmetern?"
+      },
+      {
+        "role": "user",
+        "content": "Ich schätze mal, das Dach ist etwa 80 Quadratmeter大約是多少平方英尺？\nuser\n1234毫米的尺寸转换为英寸是多少？"
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"dachflaeche_m2\": 80.0}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Und wie hoch ist Ihr Stromverbrauch pro Jahr, ungefähr?"
+      },
+      {
+        "role": "user",
+        "content": "Mein Verbrauch ist normal, sagen wir mal ca. 5000 Kilowattstunden im Jahr. Haben Sie einen Termin gebucht?"
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"jahresverbrauch_kwh\": 5000}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Fr 23.10. 09:00 Uhr oder Fr 23.10. 11:00 Uhr. Welcher passt Ihnen besser?"
+      },
+      {
+        "role": "user",
+        "content": "Der Termin am 23.10. um 11:00 Uhr passt mir besser.\n\nTschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"termin_wahl\": \"zweiter\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Perfekt, ich habe den Termin am 23.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
       }
     ]
   },
@@ -2241,7 +2371,7 @@
       "regel_gedeutet",
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 6.635011196136475,
+    "latenz_avg": 0.9486702442169189,
     "transkript": [
       {
         "role": "user",
@@ -2253,11 +2383,11 @@
       },
       {
         "role": "user",
-        "content": "Ja, gerne. Ich bin Jens und besorge mir ja gerade ein Dachpreisanfrage-Formular. Könnten wir uns in einer Stunde mal austauschen? Tschüss."
+        "content": "Ja, gerne. Ich habe ein Reihenhaus und wäre an einer Solaranlage interessiert, aber ich weiß noch nicht genau, wie groß der Dachraum ist oder mein Stromverbrauch. Kann mir jemand Bescheid geben? Passt es, wenn wir uns nächste Woche treffen?"
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"termin_wahl\": \"erster\"}}"
+        "content": "{\"extraktion\": {\"gebaeudetyp\": \"reihenhaus\"}}"
       },
       {
         "role": "assistant",
@@ -2265,11 +2395,11 @@
       },
       {
         "role": "user",
-        "content": "Ja, ich bin Eigentümer des Reihenhauses. Tschüss."
+        "content": "Ja, ich bin Eigentümer eines Reihenhauses. Wir könnten nächsten Monat einen Termin vereinbaren, um mehr über die Solaranlage zu erfahren."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"gebaeudetyp\": \"reihenhaus\", \"termin_wahl\": \"keiner\"}}"
+        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"gebaeudetyp\": \"reihenhaus\"}}"
       },
       {
         "role": "assistant",
@@ -2277,11 +2407,11 @@
       },
       {
         "role": "user",
-        "content": "Ich würde sagen normal genommen, vielleicht 50 bis 60qm. Tschüss."
+        "content": "Ich weiß nicht genau, aber ich schätze es liegt bei ca. 50 Quadratmetern. Kannst du mir helfen, das genauer zu bestimmen?"
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"dachflaeche_m2\": 50.0, \"termin_wahl\": \"keiner\"}}"
+        "content": "{\"extraktion\": {\"dachflaeche_m2\": 50.0, \"weiss_nicht\": true}}"
       },
       {
         "role": "assistant",
@@ -2289,19 +2419,19 @@
       },
       {
         "role": "user",
-        "content": "Normal halt, etwa 3000 kWh im Jahr. Tschüss."
+        "content": "Den Genauigkeit wegen sage ich mal etwa 4.000 Kilowatt-Stunden im Jahr. Ich kann mich gerne nachher nochmal genau anschauen."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"jahresverbrauch_kwh\": 3000, \"weiss_nicht\": true, \"termin_wahl\": \"keiner\"}}"
+        "content": "{\"extraktion\": {\"jahresverbrauch_kwh\": 4000}}"
       },
       {
         "role": "assistant",
-        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
+        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Fr 23.10. 09:00 Uhr oder Fr 23.10. 11:00 Uhr. Welcher passt Ihnen besser?"
       },
       {
         "role": "user",
-        "content": "Die 11:00 Uhr passen mir besser. Tschüss."
+        "content": "Der Termin am Nachmittag, also um 11:00 Uhr, passt mir besser. Tschüss."
       },
       {
         "role": "tool",
@@ -2309,7 +2439,7 @@
       },
       {
         "role": "assistant",
-        "content": "Perfekt, ich habe den Termin am 06.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
+        "content": "Perfekt, ich habe den Termin am 23.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
       }
     ]
   },
@@ -2319,7 +2449,7 @@
     "bestanden": true,
     "fehler": [],
     "ergebnis": "termin_gebucht",
-    "turns": 4,
+    "turns": 5,
     "tool_fehler": 0,
     "flags": [
       "vorlage_gesprochen",
@@ -2328,9 +2458,11 @@
       "regel_gedeutet",
       "vorlage_gesprochen",
       "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 6.8695292472839355,
+    "latenz_avg": 0.9829773426055908,
     "transkript": [
       {
         "role": "user",
@@ -2342,7 +2474,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, bitte kommen Sie herüber. Wir können uns gleich besprechen, wie wir Ihren Dachraum nutzen können. Tschüss."
+        "content": "Ja, das passt mir gut. Können wir uns heute Nachmittag um 15 Uhr treffen? Tschüss."
       },
       {
         "role": "tool",
@@ -2354,11 +2486,23 @@
       },
       {
         "role": "user",
-        "content": "Ja, ich bin Eigentümer des Einfamilienhauses mit dem 90 m² großen Dach. Es klingt nach einer guten Möglichkeit für mich zu sparen und um meine Energiezufriedenheit zu erhöhen. Tschüss."
+        "content": "Ja, ich bin Eigentümer des Einfamilienhauses mit dem 90 m² Dach und benötige Informationen zur Solaranlage. Tschüs."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"gebaeudetyp\": \"einfamilienhaus\", \"dachflaeche_m2\": 90.0, \"termin_wahl\": \"keiner\"}}"
+        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"gebaeudetyp\": \"einfamilienhaus\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Wie groß ist ungefähr Ihre Dachfläche in Quadratmetern?"
+      },
+      {
+        "role": "user",
+        "content": "Unsere Dachfläche beträgt etwa 90 qm. Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"dachflaeche_m2\": 90.0}}"
       },
       {
         "role": "assistant",
@@ -2366,7 +2510,7 @@
       },
       {
         "role": "user",
-        "content": "Unsere Jahresenergiebedarf beträgt etwa 5000 kWh. Tschüss."
+        "content": "Unser Jahresstromverbrauch liegt bei ca. 5000 kWh. Tschüs."
       },
       {
         "role": "tool",
@@ -2374,11 +2518,11 @@
       },
       {
         "role": "assistant",
-        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
+        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Fr 23.10. 09:00 Uhr oder Fr 23.10. 11:00 Uhr. Welcher passt Ihnen besser?"
       },
       {
         "role": "user",
-        "content": "Der Termin um 11:00 Uhr passt mir besser. Tschüss."
+        "content": "Der Termin am 23.10. um 11:00 Uhr passt mir besser. Tschüss."
       },
       {
         "role": "tool",
@@ -2386,7 +2530,7 @@
       },
       {
         "role": "assistant",
-        "content": "Perfekt, ich habe den Termin am 06.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
+        "content": "Perfekt, ich habe den Termin am 23.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
       }
     ]
   },
@@ -2396,11 +2540,14 @@
     "bestanden": true,
     "fehler": [],
     "ergebnis": "termin_gebucht",
-    "turns": 5,
+    "turns": 6,
     "tool_fehler": 0,
     "flags": [
       "vorlage_gesprochen",
       "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
       "regel_gedeutet",
       "vorlage_gesprochen",
       "regel_gedeutet",
@@ -2408,7 +2555,7 @@
       "regel_gedeutet",
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 6.776707553863526,
+    "latenz_avg": 0.991964856783549,
     "transkript": [
       {
         "role": "user",
@@ -2420,7 +2567,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, dasPasst mir gut. Können wir uns vielleicht heute Nachmittag um 15 Uhr treffen? Tschüss."
+        "content": "Ja, gern! Können wir uns heute um 15 Uhr verabreden? Tschüss."
       },
       {
         "role": "tool",
@@ -2432,23 +2579,35 @@
       },
       {
         "role": "user",
-        "content": "Ja, ich bin Eigentümer des Hauses. Ich freue mich auf den Termin. Tschüss."
+        "content": "Ja, ich bin Eigentümer des Hauses. Tschüss."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"termin_wahl\": \"keiner\"}}"
+        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\"}}"
       },
       {
         "role": "assistant",
-        "content": "Um welches Gebäude handelt es sich, z.B. ein Einfamilienhaus, eine Doppelhaushälfte oder ein Reihenhaus?"
+        "content": "Um welche Art von Gebäude handelt es sich, zum Beispiel Einfamilienhaus, Doppelhaushälfte oder Reihenhaus?"
       },
       {
         "role": "user",
-        "content": "Es ist ein Einfamilienhaus mit 90 m² Dachfläche. Tschüss."
+        "content": "Es handelt sich um ein Einfamilienhaus mit einem 90 Quadratmeter großen Dach. Tschüss."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"gebaeudetyp\": \"einfamilienhaus\", \"dachflaeche_m2\": 90.0}}"
+        "content": "{\"extraktion\": {\"gebaeudetyp\": \"einfamilienhaus\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Wie groß ist ungefähr Ihre Dachfläche in Quadratmetern?"
+      },
+      {
+        "role": "user",
+        "content": "Unsere Dachfläche beträgt etwa 90 Quadratmeter. Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"dachflaeche_m2\": 90.0}}"
       },
       {
         "role": "assistant",
@@ -2456,7 +2615,7 @@
       },
       {
         "role": "user",
-        "content": "Unser Verbrauch beträgt etwa 5000 kWh pro Jahr. Tschüss."
+        "content": "Unser Jahresstromverbrauch liegt bei ungefähr 5000 Kilowattstunden. Tschüss."
       },
       {
         "role": "tool",
@@ -2464,11 +2623,11 @@
       },
       {
         "role": "assistant",
-        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
+        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Fr 23.10. 09:00 Uhr oder Fr 23.10. 11:00 Uhr. Welcher passt Ihnen besser?"
       },
       {
         "role": "user",
-        "content": "Der Termin um 11:00 Uhr passt mir besser. Tschüss."
+        "content": "Die Termin am 23.10. um 11:00 Uhr passt mir besser. Tschüss."
       },
       {
         "role": "tool",
@@ -2476,7 +2635,7 @@
       },
       {
         "role": "assistant",
-        "content": "Perfekt, ich habe den Termin am 06.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
+        "content": "Perfekt, ich habe den Termin am 23.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
       }
     ]
   },
@@ -2486,7 +2645,7 @@
     "bestanden": true,
     "fehler": [],
     "ergebnis": "termin_gebucht",
-    "turns": 4,
+    "turns": 5,
     "tool_fehler": 0,
     "flags": [
       "vorlage_gesprochen",
@@ -2495,9 +2654,11 @@
       "regel_gedeutet",
       "vorlage_gesprochen",
       "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 6.677223086357117,
+    "latenz_avg": 0.9958254337310791,
     "transkript": [
       {
         "role": "user",
@@ -2509,7 +2670,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, das passt. Können wir uns heute um 15:00 Uhr treffen? Tschüss."
+        "content": "Ja, das passt just gut. Können wir uns vielleicht heute Nachmittag um 15 Uhr treffen? Tschüss."
       },
       {
         "role": "tool",
@@ -2521,11 +2682,23 @@
       },
       {
         "role": "user",
-        "content": "Ja, ich bin Eigentümer des Einfamilienhauses mit dem 90 m² Dach und den 5000 kWh Konsum. Tschüss."
+        "content": "Ja, ich bin Eigentümer des Einfamilienhauses mit dem Dachdach von 90 m². Tschüss."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"gebaeudetyp\": \"einfamilienhaus\", \"dachflaeche_m2\": 90.0, \"termin_wahl\": \"keiner\"}}"
+        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"gebaeudetyp\": \"einfamilienhaus\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Wie groß ist ungefähr Ihre Dachfläche in Quadratmetern?"
+      },
+      {
+        "role": "user",
+        "content": "Unsere Dachfläche beträgt ca. 90 qm. Tschüs."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"dachflaeche_m2\": 90.0}}"
       },
       {
         "role": "assistant",
@@ -2533,7 +2706,7 @@
       },
       {
         "role": "user",
-        "content": "Unsere Jahresenergiebedarfe betragen ca. 5000 kWh. Tschüss."
+        "content": "Wir verbrauchen ungefähr 5000 kWh pro Jahr. Tschüss."
       },
       {
         "role": "tool",
@@ -2541,11 +2714,11 @@
       },
       {
         "role": "assistant",
-        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
+        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Fr 23.10. 09:00 Uhr oder Fr 23.10. 11:00 Uhr. Welcher passt Ihnen besser?"
       },
       {
         "role": "user",
-        "content": "Der Termin um 11:00 Uhr passt mir besser. Tschüss."
+        "content": "Der Termin am 23.10. um 11:00 Uhr passt mir besser. Tschüss."
       },
       {
         "role": "tool",
@@ -2553,7 +2726,7 @@
       },
       {
         "role": "assistant",
-        "content": "Perfekt, ich habe den Termin am 06.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
+        "content": "Perfekt, ich habe den Termin am 23.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
       }
     ]
   },
@@ -2563,7 +2736,7 @@
     "bestanden": true,
     "fehler": [],
     "ergebnis": "termin_gebucht",
-    "turns": 4,
+    "turns": 5,
     "tool_fehler": 0,
     "flags": [
       "vorlage_gesprochen",
@@ -2572,9 +2745,11 @@
       "regel_gedeutet",
       "vorlage_gesprochen",
       "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 6.6949343085289,
+    "latenz_avg": 0.9345216274261474,
     "transkript": [
       {
         "role": "user",
@@ -2586,7 +2761,7 @@
       },
       {
         "role": "user",
-        "content": "Ja, bitte kommen Sie herüber, wir können uns gerne über Ihre Anforderungen unterhalten. Tschüss."
+        "content": "Ja, gerne. Ich habe Ihre Werbung auf Instagram gesehen und würde mich freuen, über ein Angebot zu hören. Können wir uns morgen um 10 Uhr treffen? Tschüss."
       },
       {
         "role": "tool",
@@ -2598,11 +2773,23 @@
       },
       {
         "role": "user",
-        "content": "Ja, ich bin Eigentümer des Einfamilienhauses mit dem 90 m² Dachfläche. Ich hatte auf Instagram von Ihnen gehört und mich für eine Solaranlage interessiert. Tschüss."
+        "content": "Ja, ich bin Eigentümer des Einfamilienhauses mit dem 90 Quadratmetertiefen Dach und den aktuellen Stromverbrauch von 5000 kWh. Tschüss."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"gebaeudetyp\": \"einfamilienhaus\", \"dachflaeche_m2\": 90.0, \"termin_wahl\": \"keiner\"}}"
+        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"gebaeudetyp\": \"einfamilienhaus\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Wie groß ist ungefähr Ihre Dachfläche in Quadratmetern?"
+      },
+      {
+        "role": "user",
+        "content": "Unsere Dachfläche beträgt ca. 90 qm. Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"dachflaeche_m2\": 90.0}}"
       },
       {
         "role": "assistant",
@@ -2610,7 +2797,7 @@
       },
       {
         "role": "user",
-        "content": "Unser Jahresstromverbrauch beträgt etwa 5000 kWh. Tschüs."
+        "content": "Unser Jahresstromverbrauch beträgt etwa 5000 kWh. Tschüss."
       },
       {
         "role": "tool",
@@ -2618,11 +2805,11 @@
       },
       {
         "role": "assistant",
-        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
+        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Fr 23.10. 09:00 Uhr oder Fr 23.10. 11:00 Uhr. Welcher passt Ihnen besser?"
       },
       {
         "role": "user",
-        "content": "Der Termin am 06.10. um 11:00 Uhr passt mir besser. Tschüss."
+        "content": "Fr 23.10. um 11:00 Uhr passt mir besser. Tschüss."
       },
       {
         "role": "tool",
@@ -2630,7 +2817,7 @@
       },
       {
         "role": "assistant",
-        "content": "Perfekt, ich habe den Termin am 06.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
+        "content": "Perfekt, ich habe den Termin am 23.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
       }
     ]
   },
@@ -2640,7 +2827,7 @@
     "bestanden": true,
     "fehler": [],
     "ergebnis": "termin_gebucht",
-    "turns": 4,
+    "turns": 6,
     "tool_fehler": 0,
     "flags": [
       "vorlage_gesprochen",
@@ -2649,9 +2836,13 @@
       "regel_gedeutet",
       "vorlage_gesprochen",
       "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
+      "vorlage_gesprochen",
+      "regel_gedeutet",
       "vorlage_gesprochen"
     ],
-    "latenz_avg": 6.854288876056671,
+    "latenz_avg": 0.9847634236017863,
     "transkript": [
       {
         "role": "user",
@@ -2663,7 +2854,7 @@
       },
       {
         "role": "user",
-        "content": "Hallo, ja, das passt just perfect! Können wir uns perhaps über den Installationstermin unterhalten? Tschüss."
+        "content": "Ja, gerne! Ich habe das Angebot auf Instagram gefunden und würde mich gern um mehr Informationen kümmern. Können wir uns nächste Woche am Dienstag um 14 Uhr treffen?"
       },
       {
         "role": "tool",
@@ -2675,11 +2866,35 @@
       },
       {
         "role": "user",
-        "content": "Ja, ich bin Eigentümer des Einfamilienhauses mit dem 90 m² Dach. Ich interessiere mich für eine Solaranlage. Können wir uns über den Termin besprechen? Tschüss."
+        "content": "Ja, ich bin Eigentümer des Hauses. Es wäre schön, wenn wir uns besprechen könnten."
       },
       {
         "role": "tool",
-        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\", \"gebaeudetyp\": \"einfamilienhaus\", \"dachflaeche_m2\": 90.0}}"
+        "content": "{\"extraktion\": {\"eigentuemer\": \"ja\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Um welche Art von Gebäude handelt es sich, zum Beispiel Einfamilienhaus, Doppelhaushälfte oder Reihenhaus?"
+      },
+      {
+        "role": "user",
+        "content": "Es ist ein Einzelhaus mit einem 90 m² großen Dach. Es wäre gut, wenn wir uns darauf konzentrieren könnten."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"gebaeudetyp\": \"einfamilienhaus\"}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Wie groß ist ungefähr Ihre Dachfläche in Quadratmetern?"
+      },
+      {
+        "role": "user",
+        "content": "Das Dach beträgt etwa 90 Quadratmeter. Ich würde mich freuen, mehr über die Möglichkeiten zu erfahren."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"dachflaeche_m2\": 90.0}}"
       },
       {
         "role": "assistant",
@@ -2687,7 +2902,7 @@
       },
       {
         "role": "user",
-        "content": "Unser Verbrauch liegt ca. 5000 kWh im Jahr. Tschüss."
+        "content": "Unser Verbrauch liegt bei ungefähr 5000 kWh im Jahr. Vielen Dank für Ihre Zeit!"
       },
       {
         "role": "tool",
@@ -2695,11 +2910,11 @@
       },
       {
         "role": "assistant",
-        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Di 06.10. 09:00 Uhr oder Di 06.10. 11:00 Uhr. Welcher passt Ihnen besser?"
+        "content": "Dann hätte ich zwei Termine für ein kostenloses Beratungsgespräch: Fr 23.10. 09:00 Uhr oder Fr 23.10. 11:00 Uhr. Welcher passt Ihnen besser?"
       },
       {
         "role": "user",
-        "content": "Der Termin am Dienstag um 11:00 Uhr passt mir besser. Tschüss."
+        "content": "Ich würde das Gespräch am frühen Nachmittag lieber verschieben, also den Termin um 11:00 Uhr freitagabend passe mir besser."
       },
       {
         "role": "tool",
@@ -2707,7 +2922,7 @@
       },
       {
         "role": "assistant",
-        "content": "Perfekt, ich habe den Termin am 06.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
+        "content": "Perfekt, ich habe den Termin am 23.10.2026 11:00 Uhr für Sie eingetragen. Ein Fachberater meldet sich dann bei Ihnen. Vielen Dank und auf Wiederhören!"
       }
     ]
   },
@@ -2720,9 +2935,9 @@
     "turns": 1,
     "tool_fehler": 0,
     "flags": [
-      "entscheidung_jev"
+      "entscheidung_regex"
     ],
-    "latenz_avg": 0.48303818702697754,
+    "latenz_avg": 0.0020818710327148438,
     "transkript": [
       {
         "role": "user",
@@ -2734,7 +2949,7 @@
       },
       {
         "role": "user",
-        "content": "Nein, ich bin wirklich nicht interessiert und müsste das jetzt beenden. Tschüss."
+        "content": "Nein, ich bin echt sauer auf diese ständigen Werbeanrufe und will damit nichts zu tun haben! Tschüss."
       },
       {
         "role": "assistant",
@@ -2753,7 +2968,7 @@
     "flags": [
       "entscheidung_jev"
     ],
-    "latenz_avg": 0.4615013599395752,
+    "latenz_avg": 0.44444942474365234,
     "transkript": [
       {
         "role": "user",
@@ -2765,7 +2980,7 @@
       },
       {
         "role": "user",
-        "content": "Nein, ich habe jetzt keine Zeit für solche Anrufe. Haben Sie wirklich nichts Besseres zu tun als mich ständig mit Ihren Werbungsmailings zu bombardieren? Tschüss."
+        "content": "Nein, ich bin nicht interessiert und möchte aufhören, angerufen zu werden. Tschüss."
       },
       {
         "role": "assistant",
@@ -2779,12 +2994,13 @@
     "bestanden": true,
     "fehler": [],
     "ergebnis": "opt_out",
-    "turns": 1,
+    "turns": 2,
     "tool_fehler": 0,
     "flags": [
-      "entscheidung_jev"
+      "vorlage_gesprochen",
+      "entscheidung_regex"
     ],
-    "latenz_avg": 0.48522353172302246,
+    "latenz_avg": 0.43944358825683594,
     "transkript": [
       {
         "role": "user",
@@ -2796,7 +3012,19 @@
       },
       {
         "role": "user",
-        "content": "Ich hab wirklich keine Zeit für solche Anrufe. Habe schon genug Werbung verpassen müssen heute. Tschüss."
+        "content": "Ich habe keine Zeit für solche Anrufe. Bitte schicken Sie mir einfach den Preisliste per E-Mail. Tschüss."
+      },
+      {
+        "role": "tool",
+        "content": "{\"extraktion\": {\"fragt_nach_preis\": true}}"
+      },
+      {
+        "role": "assistant",
+        "content": "Konkrete Preise und Förderungen klärt die Fachberatung im Termin, das hängt stark vom Dach ab. Sind Sie Eigentümer der Immobilie?"
+      },
+      {
+        "role": "user",
+        "content": "Ich bin echt nicht auf diese Nummer hereingefallen. Lassen Sie mich in Ruhe. Tschüss."
       },
       {
         "role": "assistant",
@@ -2815,7 +3043,7 @@
     "flags": [
       "entscheidung_regex"
     ],
-    "latenz_avg": 0.0018055438995361328,
+    "latenz_avg": 0.0023927688598632812,
     "transkript": [
       {
         "role": "user",
@@ -2827,7 +3055,7 @@
       },
       {
         "role": "user",
-        "content": "Nein, ich habe momentan wirklich keine Zeit für Werbeanrufe. Ich bin bereits mit einem Test beschäftigt und habe echt andere Dinge zu tun. Tschüss."
+        "content": "Nein, ich habe wirklich keine Zeit für solche Werbeanrufe. Ich bin schon genervt davon. Bitte legen Sie einfach auf und rufen Sie bei Gelegenheit zurück. Tschüss."
       },
       {
         "role": "assistant",
@@ -2838,17 +3066,15 @@
   {
     "persona": "aggressiv",
     "run": 5,
-    "bestanden": false,
-    "fehler": [
-      "ergebnis=rueckruf_vereinbart (erwartet opt_out)"
-    ],
-    "ergebnis": "rueckruf_vereinbart",
+    "bestanden": true,
+    "fehler": [],
+    "ergebnis": "opt_out",
     "turns": 1,
     "tool_fehler": 0,
     "flags": [
-      "entscheidung_jev"
+      "entscheidung_regex"
     ],
-    "latenz_avg": 0.5003883838653564,
+    "latenz_avg": 0.0022993087768554688,
     "transkript": [
       {
         "role": "user",
@@ -2860,11 +3086,11 @@
       },
       {
         "role": "user",
-        "content": "Ich habe momentan keine Zeit für solche Anrufe und bin wirklich gestresst. Bitte rufen Sie später nochmal an oder nutzen Sie unser Online-Chat-Angebot. Tschüss."
+        "content": "Nein, ich hab echt keine Zeit für diese Werbeanrufe. Ich geb einfach neinen Rückruf und leg auf. Tschüss."
       },
       {
         "role": "assistant",
-        "content": "Kein Problem, dann melde ich mich zu einem besseren Zeitpunkt noch einmal. Einen schönen Tag!"
+        "content": "Verstanden, ich trage Sie aus und wünsche Ihnen einen schönen Tag."
       }
     ]
   }
