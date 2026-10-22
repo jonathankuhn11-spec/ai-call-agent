@@ -132,7 +132,8 @@ Jev ab dem geführten Modus aktiv. Jede Iteration folgt aus der Analyse der Tran
 | geführt v2 | geführt | Pflichtfelder im Extraktionsschema, feldweise Normalisierung | 5 / 10 |
 | geführt v3 | geführt | dreiwertige Felder, Plausibilitätsschutz, Regex-Opt-out vor Jev | 5 / 10 |
 | geführt v4 | geführt | Regel vor Modell für die gestellte Frage | **10 / 10** |
-| geführt v5, 5 Durchläufe je Persona | geführt | Formulierungs-Guardrails verschärft; „weiß nicht"-Varianten | **49 / 50** |
+| geführt v5, 5 Durchläufe je Persona | geführt | Formulierungs-Guardrails verschärft; „weiß nicht"-Varianten | 49 / 50 |
+| ohne LLM (22.10.), 5 Durchläufe je Persona | geführt | Jev extrahiert, Vorlagen sprechen, kein LLM-Aufruf im Agenten | **50 / 50** |
 
 `eval_history.json` enthält zwei weitere Einträge (4/10, 6/10), bei denen versehentlich der jeweils vorige Stand
 noch einmal lief.
@@ -396,7 +397,8 @@ Jev ist optional. Mit einem API-Key von TypeSafe AI in einer Datei `.env` (Vorla
 Mit `--extractor jev` wertet Jev im geführten Modus auch die Kundenaussage aus (Eigentum, Gebäudetyp, Terminwahl,
 „weiß nicht“, Preisfrage); Zahlen wie Dachfläche und Verbrauch liefern weiter die Regeln, denn Jev gibt
 Wahrscheinlichkeiten aus, keinen Text. `--no-llm` kombiniert das mit Vorlagensätzen: Der Agent ruft dann kein
-Sprachmodell mehr auf. Für diesen Modus gibt es noch keinen protokollierten UAT-Lauf.
+Sprachmodell mehr auf. Im UAT bestand dieser Modus 50 von 50 Gesprächen bei 0,7 Sekunden je Turn (277 Jev-Aufrufe,
+im Mittel 492 ms, kein Fallback nötig); der simulierte Kunde blieb Qwen 2.5 7B.
 Die Geheimnisse der Integrationsschicht (API-Key, Webhook-Secret, Tool-Secret) stehen in derselben Datei; ohne sie
 laufen die Endpunkte unsigniert, für lokale Tests. Die Datei `.env` steht in der `.gitignore`.
 

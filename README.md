@@ -22,11 +22,18 @@ not against what the model says.
 | Guardrails | Code blocks bookings the model claims but never made (62 blocked claims in 10 calls) | 1 / 10 |
 | Guided v1 | The call script becomes a state machine; the model only extracts facts and phrases sentences | 4 / 10 |
 | Guided v4 | A rule reads the answer to the question just asked before the model sees it | 10 / 10 |
-| Guided v5 | 5 runs per persona, stricter checks on the model's phrasing | **49 / 50** |
+| Guided v5 | 5 runs per persona, stricter checks on the model's phrasing | 49 / 50 |
+| No LLM (22.10.) | Jev extracts the facts, templates speak, the agent makes no LLM call | **50 / 50** |
 
-Qwen 2.5 7B runs locally for both agent and simulated customer. In v5 the average call took 2.7 turns at
-4.3 s per turn with zero tool errors, and the price asker never got a price. The one failure was the test's
-fault: the "aggressive" customer said "I don't have time, call me later" and the agent scheduled a callback.
+The simulated customer is always Qwen 2.5 7B, running locally. In v5 the agent used the same model: 2.7 turns
+per call, 4.3 s per turn, zero tool errors, and the price asker never got a price. The one failure was the
+test's fault: the "aggressive" customer said "I don't have time, call me later" and the agent scheduled a
+callback.
+
+In the no-LLM run the agent only uses Jev, rules and templates. All 50 calls passed at 0.7 s per turn
+(3.0 turns per call, 277 Jev calls at 492 ms on average, no fallback needed, zero tool errors). Turn latency
+drops by a factor of six, and the agent needs no GPU. What it gives up is phrasing: every sentence is a
+template.
 
 In the baseline the 7B model told a tenant he qualified, announced appointments it had never looked up
 (29 blocked claims in one call) and printed tool names as text. Guardrails blocked the wrong bookings but
@@ -57,7 +64,7 @@ flowchart LR
   take over fact extraction (ownership, building type, chosen slot). Numbers come from rules. Below a
   confidence of 0.70 the agent asks again rather than disqualifying someone on a weak signal.
 - `--no-llm` combines Jev extraction with template sentences. The agent then
-  makes zero LLM calls per turn. This is covered by tests; there is no logged acceptance run in this mode yet.
+  makes zero LLM calls per turn (50/50 in the acceptance test, see above).
 
 ## Integration layer
 
