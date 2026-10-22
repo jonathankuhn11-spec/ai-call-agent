@@ -15,7 +15,8 @@ from sqlalchemy.orm import Session
 
 from core import domaene, einsatz
 from core.disposition import ZEITZONE
-from core.modelle import Anlage, Beleg, Ereignis, Frist, Kommunikation, Kunde, Mandant, Objekt, Ressource, Servicefall, Termin
+from core.modelle import (Anlage, Beleg, Ereignis, ExternalRef, Frist, Kommunikation, Kunde, Mandant, Objekt, Ressource, Servicefall,
+                          Termin)
 from core.regeln import dringlichkeit_bewerten, qualifikation_fuer
 
 DEMO_NAME = "Demo Haustechnik Köln (fiktiv)"
@@ -200,6 +201,16 @@ def _betriebsdaten(s: Session, m: Mandant, monteure: list[Ressource], faelle: li
                     umsatzsteuer=f"{b - netto:.2f}", brutto=f"{b:.2f}", ust_satz="19", positionen=[], kategorie=kategorie,
                     servicefall_id=fall_id, quelle="manuell", erkennung={"konfidenz": 1.0, "hinweise": []}, status=status,
                     geprueft_von="buero" if status == "geprueft" else None, erstellt=jetzt_ - timedelta(days=tage)))
+    # Scanner-Eingang: ein Beleg aus dem Scan-to-Mail-Postfach, bereits an Lexware Office und den Belegtransfer-Ordner übergeben
+    scan = Beleg(mandant_id=m.id, lieferant="Elektro Fachgroßhandel Köln (fiktiv)", nummer="EF-2026-00931", datum=heute - timedelta(days=6),
+                 faellig=heute + timedelta(days=24), netto="312.00", umsatzsteuer="59.28", brutto="371.28", ust_satz="19", positionen=[],
+                 kategorie="material", quelle="ocr", status="uebergeben", geprueft_von="buero", import_kennung="mail:<scan-demo-0931@scanner.demo>:0",
+                 erkennung={"konfidenz": 0.75, "hinweise": [], "eingang": "scan-to-mail"}, notiz="Scan per E-Mail von scanner@demo-haustechnik.test",
+                 erstellt=jetzt_ - timedelta(days=6))
+    s.add(scan)
+    s.flush()
+    for ziel, ext in (("lexware", "demo-file-0931"), ("belegtransfer", "12345_67890/Rechnungseingang/" + scan.datum.strftime("%Y-%m") + "/" + scan.datum.isoformat() + "_Elektro_Fachgrosshandel_Koeln_EF_2026_00931.pdf")):
+        s.add(ExternalRef(mandant_id=m.id, entitaet="beleg", entitaet_id=scan.id, zielsystem=ziel, externe_id=ext, letzter_sync=jetzt_ - timedelta(days=5)))
     # Bereitschaft: aktuelle Woche (ab gestern bis in acht Tagen), damit der Sprachagent sie findet
     einsatz.bereitschaft_anlegen(s, m, monteure[0], jetzt_ - timedelta(days=1), jetzt_ + timedelta(days=8),
                                  "+49221000001", "Demo-Bereitschaft")
@@ -223,6 +234,9 @@ def _auftragsdaten(s: Session, m: Mandant, monteure: list[Ressource], kunden: li
     from core.rechnung import rechnung_erzeugen
     m.stammdaten = {**m.stammdaten, "angebotsnummer_praefix": "AN", "bewertungslink": "https://g.page/r/demo-haustechnik/review",
                     "webformular_token": f"{m.id}.demo-formular-token"}
+    m.integrationen = {**m.integrationen, "scanner": {"host": "imap.demo-haustechnik.test", "port": 993, "benutzer": "scanner", "passwort": "",
+                                                      "ordner": "INBOX", "erlaubte_absender": "scanner@demo-haustechnik.test", "eingangsordner": "",
+                                                      "kategorie": "material"}}
     artikel = [("A-100", "Monteurstunde", "arbeit", "Std", "55.00", "69.00", None), ("A-110", "Helferstunde", "arbeit", "Std", "38.00", "49.00", None),
                ("F-010", "Anfahrtspauschale Stadtgebiet", "fahrt", "psch", None, "35.00", None),
                ("M-200", "Umwälzpumpe Hocheffizienz 25-60", "material", "Stk", "198.00", "289.00", "Heizungsgroßhandel West (fiktiv)"),

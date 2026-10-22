@@ -7,6 +7,8 @@ developers.lexware.io prüfen, Testschlüssel im Lexware-Office-Konto erzeugen):
   POST /contacts                   {version:0, roles:{customer:{}}, company|person, addresses, emailAddresses}
   POST /invoices?finalize=true     Rechnung; ohne finalize als Entwurf
   POST /credit-notes?finalize=true Gutschrift (für Storno)
+  POST /files (multipart file, type=voucher)  Eingangsbeleg hochladen; er erscheint im Lexware-Belegeingang
+                                   („Belege“), die Kontierung erfolgt dort (keine Kontierung durch die Plattform)
 Die Rechnungsnummer vergibt Lexware Office selbst; unsere Nummer steht im Feld „title“ und in der
 Referenz, damit Kanzlei und Kunde beide Nummern zuordnen können. Idempotenz über ExternalRef.
 """
@@ -19,7 +21,8 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from core.adapter.basis import Konfigurationsfehler, antwort_pruefen, client, rechnung_laden
+from core.adapter.basis import (Konfigurationsfehler, antwort_pruefen, beleg_dateiname, beleg_laden, beleg_referenz,
+                                beleg_uebergeben, client, rechnung_laden)
 from core.modelle import ExternalRef, Kunde, OutboxEintrag, Rechnung
 
 
@@ -33,6 +36,8 @@ class LexwareAdapter:
         self.http = client(konfig.get("basis_url", "https://api.lexware.io/v1"),
                            {"Authorization": f"Bearer {konfig['api_key']}", "Accept": "application/json",
                             "Content-Type": "application/json"}, transport)
+        self.dateien = client(konfig.get("basis_url", "https://api.lexware.io/v1"),
+                              {"Authorization": f"Bearer {konfig['api_key']}", "Accept": "application/json"}, transport)
 
     def _kontakt(self, s: Session, kunde: Kunde) -> str:
         ref = s.scalar(select(ExternalRef).where(ExternalRef.mandant_id == kunde.mandant_id, ExternalRef.entitaet == "kunde",
@@ -78,7 +83,21 @@ class LexwareAdapter:
             "remark": stammdaten.get("rechnungshinweis", "Vielen Dank für Ihren Auftrag."),
         }
 
+    def beleg_hochladen(self, e: OutboxEintrag, s: Session) -> str:
+        b, a, _ = beleg_laden(s, e)
+        if (vorhanden := beleg_referenz(s, b, self.name)):
+            return vorhanden
+        if a is None:
+            raise Konfigurationsfehler("Beleg ohne Datei: Lexware Office erwartet das Original (PDF, JPG, PNG oder XML)")
+        antwort = antwort_pruefen(self.dateien.post("/files", files={"file": (beleg_dateiname(b, a), a.inhalt, a.mime)},
+                                                    data={"type": "voucher"}), "Lexware Beleg hochladen")
+        if not antwort.get("id"):
+            raise Konfigurationsfehler("Lexware Office: Antwort ohne Datei-ID")
+        return beleg_uebergeben(s, b, self.name, str(antwort["id"]))
+
     def zustellen(self, e: OutboxEintrag, s: Session) -> str | None:
+        if e.aktion == "beleg_uebermitteln":
+            return self.beleg_hochladen(e, s)
         if e.aktion != "rechnung_uebermitteln":
             return None  # Termine und Aufträge kennt Lexware Office nicht; dafür Webhook/CSV
         r, m = rechnung_laden(s, e)

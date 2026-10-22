@@ -78,9 +78,12 @@ vorbereitet · `Referenz` = geprüfte Alternative für eine spätere Entscheidun
 | pypdf | BSD-3 | eingebettetes ZUGFeRD-XML und Text aus PDF-Belegen (`core/belege.py`) | Bibliothek | reine Python-Bibliothek, keine Systemabhängigkeit |
 | Tesseract OCR | Apache-2.0 | Texterkennung fotografierter Belege | optional (`MIT_OCR=1` im Dockerfile, Aufruf per CLI) | Trefferquote bei Fotos begrenzt; Büro prüft die Felder; Alternative: Dokumenten-KI eines Anbieters nur mit AVV |
 | Pillow | MIT-CMU | Fotos vor Ablage verkleinern | Bibliothek | — |
-| Lexware Office Public API | kommerziell | Kunden und Rechnungen anlegen | `core/adapter/lexware.py` | Partner-API-Key des Betriebs; Rechnungen werden als Entwurf angelegt |
-| sevDesk API v1 | kommerziell | Kunden und Rechnungen anlegen | `core/adapter/sevdesk.py` | API-Token des Betriebs |
+| Lexware Office Public API | kommerziell | Kunden und Rechnungen anlegen; Eingangsbelege hochladen (Files-API, `type=voucher`) | `core/adapter/lexware.py` | Partner-API-Key des Betriebs; Rechnungen werden als Entwurf angelegt, Belege erscheinen im Belegeingang und werden dort kontiert |
+| sevDesk API v1 | kommerziell | Kunden und Rechnungen anlegen; Eingangsbelege als Entwurf (`Voucher/Factory`) | `core/adapter/sevdesk.py` | API-Token des Betriebs; Beleg ohne Buchungskonto (Zuordnung in sevDesk) |
 | DATEV-Format EXTF (Buchungsstapel) | Spezifikation | Belegpaket für die Kanzlei | `core/adapter/belegpaket.py` | Textformat cp1252, ohne DATEV-Schnittstellenvertrag nutzbar (Import durch die Kanzlei) |
+| DATEV Belegtransfer / Unternehmen online | kommerziell (Kanzlei-Lizenz) | Einzelbelege sofort zur Kanzlei: Ordnerstruktur für das Programm Belegtransfer oder Upload-Mail | `core/adapter/belegtransfer.py`, `core/adapter/email.py` (`upload_email`) | ohne DATEV-Schnittstellenvertrag; Ordner per SMB/Nextcloud-Sync auf den Rechner mit Belegtransfer; DATEVconnect-API später möglich |
+| Pillow (PDF-Ausgabe) | MIT-CMU | Kamera-Scan: Fotos zu mehrseitigem Graustufen-PDF | `core/scanner.py` | kein Ghostscript nötig |
+| IMAP (Python-Standardbibliothek) | PSF | Scan-to-Mail-Postfach des Scanners | `core/scanner.py` über `core/anfragen.ImapPostfach` | Absender-Allowlist, Dublettenschutz über Message-ID |
 | seven.io | kommerziell | SMS-Versand | `core/adapter/sms.py` | deutscher Anbieter, AVV; nur mit dokumentierter Einwilligung |
 
 ## Mitgeführte Kopien und Spiegel

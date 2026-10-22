@@ -64,7 +64,7 @@ Danach `http://localhost:8100/` öffnen (Oberfläche) bzw. `/docs` (OpenAPI). Oh
 | Ontologie | vorbereitete SPARQL-Abfragen und freies Abfragefeld über TBox und Instanzdaten |
 | Ereignisprotokoll | Event-Log und Outbox inkl. Dead-Letter |
 | Mein Einsatz (mobil) | Tagesliste des Monteurs mit Anfahrt und Rufnummer, Stempeluhr (Arbeit/Fahrt/Pause), Rapport mit Fotos, Messwerten und Kundenunterschrift (Canvas, PDF), Belegfoto |
-| Belege | Eingangsrechnungen und Lieferscheine: XRechnung/ZUGFeRD strukturiert, PDF und Fotos per Texterkennung mit Konfidenz; Prüfen, Zuordnen zum Vorgang, Übergabe im Belegpaket |
+| Belege | Eingangsrechnungen und Lieferscheine: XRechnung/ZUGFeRD strukturiert, PDF und Fotos per Texterkennung mit Konfidenz; Kamera-Scan mehrseitig, Abruf von Scanner-Postfach und Eingangsordner; Prüfen, Zuordnen zum Vorgang, Übergabe an Lexware Office/sevDesk/DATEV (Belegtransfer, Upload-Mail) und im Belegpaket |
 | Zeiten | Stempel- und Nachtragszeiten je Monteur und Monat, Lohnexport (CSV mit Nacht- und Sonntagsminuten) |
 | Bereitschaft & Fristen | Bereitschaftsplan (vom Sprachagenten bei Notfällen genannt), Prüf-, Unterweisungs-, Zertifikats- und Vertragsfristen mit Folgefrist |
 | Vorgang (Detail) | zusätzlich Rapporte, Fotos und Nachkalkulation (Deckungsbeitrag aus Zeiten, Belegen und Rechnungen); Kunde: Dokumentenablage |
@@ -128,14 +128,14 @@ Fachendpunkte verlangen einen Mandantenkontext: bei Maschinen `X-Mandant`, bei P
 | Datenschutz | `GET /kunden/{id}/auskunft` (Art. 15), `POST /kunden/{id}/loeschen` (Art. 17, Sperrfristen), `POST /loeschlauf?trocken=true` |
 | Anmeldung | `GET /auth/konfiguration` (öffentlich), `GET /ich` (Name, Rollen, Rechte) |
 | Einsatz | `GET /einsatz/heute`, `POST /zeiten/start`, `POST /zeiten/{id}/stop`, `POST/GET /zeiten`, `GET /zeiten/lohnexport?monat=`, `POST /servicefaelle/{id}/rapport`, `GET /servicefaelle/{id}/rapporte`, `GET /rapporte/{id}/pdf`, `GET /servicefaelle/{id}/kalkulation` |
-| Belege und Anhänge | `POST /belege` (Multipart: Datei und/oder Felder), `GET /belege`, `GET/PATCH/DELETE /belege/{id}`, `POST /anhaenge` (Multipart), `GET /anhaenge?bezug_typ=&bezug_id=`, `GET /anhaenge/{id}/inhalt`, `DELETE /anhaenge/{id}` |
+| Belege und Anhänge | `POST /belege` (Multipart: Datei und/oder Felder), `POST /belege/scan` (Multipart `bilder`, Kamera-Scan mehrseitig → PDF), `POST /belege/scaneingang/abrufen`, `GET /belege`, `GET/PATCH/DELETE /belege/{id}`, `POST /belege/{id}/uebergabe` (Steuertools), `GET/PUT /betrieb/scanner`, `POST /anhaenge` (Multipart), `GET /anhaenge?bezug_typ=&bezug_id=`, `GET /anhaenge/{id}/inhalt`, `DELETE /anhaenge/{id}` |
 | Bereitschaft, Fristen | `GET/POST /bereitschaft`, `GET /bereitschaft/aktuell`, `DELETE /bereitschaft/{id}`, `GET/POST /fristen`, `POST /fristen/{id}/erledigt`, `DELETE /fristen/{id}` |
 | Voice-Tools | `POST /voice/kunde-suchen`, `/voice/zeitfenster`, `/voice/servicefall`, `/voice/notdienst`, `/voice/gespraech-beendet` |
 | Artikel, Angebote | `GET/POST /artikel`, `PATCH /artikel/{id}`, `GET/POST /angebote`, `GET/PATCH /angebote/{id}` (+ `/pdf`), `POST /angebote/{id}/senden`, `/annehmen`, `/ablehnen`, `/rechnung` |
 | Forderungen | `GET /offene-posten`, `GET/POST /zahlungen`, `POST /zahlungen/bankimport` (Multipart CSV), `POST /mahnlauf`, `GET /mahnungen`, `GET /mahnungen/{id}/pdf` |
 | Verträge, Abwesenheiten | `GET/POST /vertraege`, `GET /vertraege/{id}`, `POST /vertraege/{id}/kuendigen`, `GET/POST /abwesenheiten`, `DELETE /abwesenheiten/{id}` |
 | Anfragen | `GET /anfragen`, `POST /anfragen/web/{token}` (öffentlich, Formular oder JSON), `GET/PUT /betrieb/webformular`, `GET/PUT /betrieb/posteingang`, `POST /posteingang/abrufen` |
-| Auswertung, Tageslauf | `GET /auswertungen?monate=12`, `POST /tagesaufgaben` (auch `python -m core tagesaufgaben`, Cron 06:30; `python -m core posteingang` alle 15 Minuten) |
+| Auswertung, Tageslauf | `GET /auswertungen?monate=12`, `POST /tagesaufgaben` (auch `python -m core tagesaufgaben`, Cron 06:30; `python -m core posteingang` und `python -m core scaneingang` alle 15 Minuten) |
 
 Ontologie in Fuseki laden (Profil `ontologie`):
 `curl -X POST -H "X-Mandant: …" localhost:8100/ontologie/export?mit_tbox=true -o daten.ttl` und
@@ -165,7 +165,9 @@ Import des Voice-Agenten, `docker compose config`, `caddy validate`.
 
 Zusätzlich getestet: Rechnungsnummern, XRechnung 3.0 (UBL, Pflichtfelder), PDF, Storno, Adapter
 Lexware/sevDesk/E-Mail/SMS/Webhook mit Attrappen, DATEV-Buchungsstapel im Belegpaket, verschlüsselte
-Zugangsdaten, Löschlauf mit Fristen und Sperrfristen, Auskunft, Sichtbarkeit der Monteure.
+Zugangsdaten, Löschlauf mit Fristen und Sperrfristen, Auskunft, Sichtbarkeit der Monteure. Scanner-Eingang
+(Kamera-PDF, Scan-to-Mail mit Absenderliste, Eingangsordner) und Belegübergabe an Lexware Office, sevDesk,
+DATEV-Belegtransfer-Ordner und Upload-Mail mit Attrappen, idempotent je Zielsystem.
 
 Betriebsmodule (`core/einsatz.py`, `core/belege.py`, Migration 0005): Zeitstempel mit automatischem
 Wechsel, Rapport mit Unterschrift (PNG) und PDF samt Statuswechsel auf „durchgeführt“,
@@ -176,6 +178,17 @@ XML), Text-Heuristik mit Konfidenz, manuell, Schutz übergebener Belege, Eingang
 ER-Buchungen im DATEV-Stapel, Löschfristen für Belege (10 Jahre) und Zeiten (2 Jahre), Rollen des
 Monteurs (nur eigene Ressource und Einsätze). Texterkennung für Fotos braucht Tesseract
 (`docker build --build-arg MIT_OCR=1`); ohne OCR bleibt der Beleg mit Hinweis zur Nacherfassung.
+
+Scanner-Eingang und Belegübergabe (`core/scanner.py`, `core/adapter/belegtransfer.py`, Migration 0007): drei
+Eingangswege mit Dublettenschutz über `Beleg.import_kennung` (Message-ID, Dateihash): Scan-to-Mail (eigenes
+IMAP-Postfach des Multifunktionsgeräts, nur eingetragene Absender, je Anhang ein Beleg), Eingangsordner
+(Netzlaufwerk des Scanners, im Container eingehängt, verarbeitete Dateien nach `verarbeitet/`) und Kamera-Scan
+(mehrere Fotos werden zu einem Graustufen-PDF zusammengefasst). Geprüfte Belege (`PATCH status=geprueft`) gehen
+über die Outbox (`beleg_uebermitteln`) an die Steuertools: Lexware Office (Files-API, Belegtyp `voucher`),
+sevDesk (Beleg-Entwurf, Status 50, ohne Buchungskonto), DATEV-Belegtransfer-Ordner
+(`<Berater>_<Mandant>/Rechnungseingang/JJJJ-MM/`) oder Upload-Mail an DATEV Unternehmen online
+(`upload_email` am E-Mail-Kanal der Kanzlei). Jede Übergabe ist idempotent (ExternalRef je Zielsystem), die
+Kontierung bleibt im Zielsystem (§ 6 Nr. 3 StBerG).
 
 Auftrags- und Forderungsmodule (`core/angebote.py`, `core/forderungen.py`, `core/vertraege.py`, `core/anfragen.py`,
 `core/tagesaufgaben.py`, Migration 0006): Angebote mit Artikelstamm und Nummernkreis, Versand/Annahme/Ablehnung/Ablauf,

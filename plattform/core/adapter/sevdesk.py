@@ -5,6 +5,9 @@ API-Stand nach unserem Kenntnisstand (vor Inbetriebnahme gegen api.sevdesk.de pr
   GET  /Contact?name=…                       Kontaktsuche
   POST /Contact                              {name, category:{id:3, objectName:"Category"}}  (3 = Kunde)
   POST /Invoice/Factory/saveInvoice          {invoice:{…}, invoicePosSave:[…]}
+  POST /Voucher/Factory/uploadTempFile       Belegdatei (multipart file) → objects.filename
+  POST /Voucher/Factory/saveVoucher          Eingangsbeleg als Entwurf (status 50) mit Kopfdaten und Datei;
+                                             Buchungskonto (accountingType) bleibt leer → Zuordnung in sevDesk
 Stornos werden als Rechnung mit negativen Mengen übermittelt (sevDesk: „Stornorechnung“ entsteht dort
 über die Funktion „Stornieren“; die Kanzlei prüft im Pilot).
 """
@@ -17,7 +20,8 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from core.adapter.basis import Konfigurationsfehler, antwort_pruefen, client, rechnung_laden
+from core.adapter.basis import (Konfigurationsfehler, antwort_pruefen, beleg_dateiname, beleg_laden, beleg_referenz,
+                                beleg_uebergeben, client, rechnung_laden)
 from core.modelle import ExternalRef, Kunde, OutboxEintrag
 
 
@@ -50,7 +54,35 @@ class SevdeskAdapter:
         s.add(ExternalRef(mandant_id=kunde.mandant_id, entitaet="kunde", entitaet_id=kunde.id, zielsystem=self.name, externe_id=kontakt_id))
         return kontakt_id
 
+    def beleg_hochladen(self, e: OutboxEintrag, s: Session) -> str:
+        b, a, _ = beleg_laden(s, e)
+        if (vorhanden := beleg_referenz(s, b, self.name)):
+            return vorhanden
+        dateiname = None
+        if a is not None:
+            hochgeladen = antwort_pruefen(self.http.post("/Voucher/Factory/uploadTempFile",
+                                                         files={"file": (beleg_dateiname(b, a), a.inhalt, a.mime)}), "sevDesk Datei hochladen")
+            dateiname = (hochgeladen.get("objects") or {}).get("filename")
+        body = {
+            "voucher": {"objectName": "Voucher", "mapAll": True, "voucherDate": b.datum.strftime("%d.%m.%Y"),
+                        "supplierName": b.lieferant, "description": b.nummer or "", "status": 50, "taxType": "default",
+                        "creditDebit": "C", "voucherType": "VOU", "currency": "EUR",
+                        **({"payDate": b.faellig.strftime("%d.%m.%Y")} if b.faellig else {})},
+            "voucherPosSave": [{"objectName": "VoucherPos", "mapAll": True, "taxRate": float(Decimal(b.ust_satz)), "net": False,
+                                "sumNet": float(Decimal(b.netto)), "sumGross": float(Decimal(b.brutto)),
+                                "comment": f"{b.kategorie}: {b.nummer or ''}".strip(": ")}],
+            "voucherPosDelete": None,
+            **({"filename": dateiname} if dateiname else {}),
+        }
+        antwort = antwort_pruefen(self.http.post("/Voucher/Factory/saveVoucher", json=body), "sevDesk Beleg anlegen")
+        externe_id = str(((antwort.get("objects") or {}).get("voucher") or {}).get("id") or "")
+        if not externe_id:
+            raise Konfigurationsfehler("sevDesk: Antwort ohne Beleg-ID")
+        return beleg_uebergeben(s, b, self.name, externe_id)
+
     def zustellen(self, e: OutboxEintrag, s: Session) -> str | None:
+        if e.aktion == "beleg_uebermitteln":
+            return self.beleg_hochladen(e, s)
         if e.aktion != "rechnung_uebermitteln":
             return None
         r, m = rechnung_laden(s, e)

@@ -46,6 +46,7 @@ write_files:
       45 2 * * * shk cd /opt/shk/plattform && docker compose -f docker-compose.yml -f deploy/server/docker-compose.prod.yml run --rm worker python -m core loeschlauf >> /var/log/shk-loeschlauf.log 2>&1
       30 6 * * * shk cd /opt/shk/plattform && docker compose -f docker-compose.yml -f deploy/server/docker-compose.prod.yml run --rm worker python -m core tagesaufgaben >> /var/log/shk-tageslauf.log 2>&1
       */15 6-20 * * * shk cd /opt/shk/plattform && docker compose -f docker-compose.yml -f deploy/server/docker-compose.prod.yml run --rm worker python -m core posteingang >> /var/log/shk-posteingang.log 2>&1
+      7-59/15 6-20 * * * shk cd /opt/shk/plattform && docker compose -f docker-compose.yml -f deploy/server/docker-compose.prod.yml run --rm worker python -m core scaneingang >> /var/log/shk-scaneingang.log 2>&1
 
 runcmd:
   # Docker Engine aus dem offiziellen Repository
@@ -67,7 +68,7 @@ runcmd:
   - ufw allow 10000:20000/udp
   - ufw --force enable
   - install -d -o shk -g shk /opt/shk /var/backups/shk
-  - touch /var/log/shk-backup.log /var/log/shk-loeschlauf.log /var/log/shk-tageslauf.log /var/log/shk-posteingang.log && chown shk /var/log/shk-backup.log /var/log/shk-loeschlauf.log /var/log/shk-tageslauf.log /var/log/shk-posteingang.log
+  - touch /var/log/shk-backup.log /var/log/shk-loeschlauf.log /var/log/shk-tageslauf.log /var/log/shk-posteingang.log /var/log/shk-scaneingang.log && chown shk /var/log/shk-backup.log /var/log/shk-loeschlauf.log /var/log/shk-tageslauf.log /var/log/shk-posteingang.log /var/log/shk-scaneingang.log
   - git clone https://github.com/jonathankuhn11-spec/ai-call-agent.git /opt/shk && chown -R shk:shk /opt/shk
   - systemctl enable --now fail2ban
   - systemctl restart ssh

@@ -109,3 +109,7 @@ pre { background: var(--fläche); border: 1px solid var(--linie); border-radius:
 .saeule-bez { font-size: 11px; color: var(--gedämpft); margin-top: 4px; }
 .legende { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: middle; margin: 0 4px 0 10px; }
 .legende.umsatz { background: var(--akzent); } .legende.zahlung { background: var(--ok, #2e7d32); }
+
+/* Kamera-Scan: Seitenvorschau */
+.scanseiten { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.scanseiten img { height: 96px; width: auto; border: 1px solid var(--linie); border-radius: 4px; background: #fff; }

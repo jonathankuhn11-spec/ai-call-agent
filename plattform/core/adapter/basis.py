@@ -8,9 +8,10 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from core.modelle import Kunde, Mandant, OutboxEintrag, Rechnung, Servicefall, Termin
+from core.modelle import Anhang, Beleg, ExternalRef, Kunde, Mandant, OutboxEintrag, Rechnung, Servicefall, Termin
 
 ZEITLIMIT = httpx.Timeout(15.0, connect=5.0)
 
@@ -59,3 +60,34 @@ def kunde_laden(s: Session, e: OutboxEintrag) -> Kunde | None:
         kunde_id = fall.kunde_id if fall else None
     k = s.get(Kunde, kunde_id) if kunde_id else None
     return k if k is not None and k.mandant_id == e.mandant_id else None
+
+
+def beleg_laden(s: Session, e: OutboxEintrag) -> tuple[Beleg, Anhang | None, Mandant]:
+    """Eingangsbeleg samt Originaldatei für die Übergabe an Steuertools."""
+    b = s.get(Beleg, e.payload.get("beleg_id", ""))
+    if b is None or b.mandant_id != e.mandant_id:
+        raise Konfigurationsfehler("Beleg zur Outbox-Nachricht nicht gefunden")
+    return b, (s.get(Anhang, b.anhang_id) if b.anhang_id else None), s.get(Mandant, e.mandant_id)
+
+
+def beleg_referenz(s: Session, b: Beleg, zielsystem: str) -> str | None:
+    ref = s.scalar(select(ExternalRef).where(ExternalRef.mandant_id == b.mandant_id, ExternalRef.entitaet == "beleg",
+                                             ExternalRef.entitaet_id == b.id, ExternalRef.zielsystem == zielsystem))
+    return ref.externe_id if ref else None
+
+
+def beleg_uebergeben(s: Session, b: Beleg, zielsystem: str, externe_id: str) -> str:
+    """Referenz merken und Status fortschreiben; bezahlt bleibt bezahlt."""
+    s.add(ExternalRef(mandant_id=b.mandant_id, entitaet="beleg", entitaet_id=b.id, zielsystem=zielsystem, externe_id=externe_id[:120]))
+    if b.status == "geprueft":
+        b.status = "uebergeben"
+    return externe_id
+
+
+def beleg_dateiname(b: Beleg, a: Anhang | None) -> str:
+    endung = a.name.rsplit(".", 1)[-1].lower() if a and "." in a.name else "pdf"
+    roh = f"{b.lieferant}_{b.nummer or b.id[:8]}"
+    for von, nach in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("Ä", "Ae"), ("Ö", "Oe"), ("Ü", "Ue"), ("ß", "ss")):
+        roh = roh.replace(von, nach)
+    sicher = "".join(c if c.isalnum() and c.isascii() else "_" for c in roh)[:60].strip("_")  # SMB/Windows-tauglich
+    return f"{b.datum.isoformat()}_{sicher}.{endung}"

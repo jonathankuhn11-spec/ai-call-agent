@@ -11,8 +11,8 @@ import uuid
 from datetime import date, datetime, time, timezone
 from typing import Any
 
-from sqlalchemy import JSON, Date, ForeignKey, Index, Integer, LargeBinary, String, Text, Time, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import JSON, Date, ForeignKey, Index, Integer, LargeBinary, String, Text, Time, UniqueConstraint, select
+from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
 
 from core.db import Basis, UtcZeit
 
@@ -262,6 +262,7 @@ class Beleg(_Mandantenbezug, Basis):
     """Eingangsbeleg (Lieferantenrechnung, Quittung). Beträge als Zeichenkette (Decimal); Konten vergibt die
     Kanzlei, die Plattform ordnet nur dem Auftrag zu (Nachkalkulation) und reicht weiter (Belegpaket)."""
     __tablename__ = "beleg"
+    __table_args__ = (UniqueConstraint("mandant_id", "import_kennung"),)
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
     lieferant: Mapped[str] = mapped_column(String(200))
     nummer: Mapped[str | None] = mapped_column(String(80))
@@ -282,7 +283,18 @@ class Beleg(_Mandantenbezug, Basis):
     status: Mapped[str] = mapped_column(String(20), default="erfasst")  # erfasst, geprueft, uebergeben, bezahlt
     notiz: Mapped[str | None] = mapped_column(Text)
     geprueft_von: Mapped[str | None] = mapped_column(String(100))
+    import_kennung: Mapped[str | None] = mapped_column(String(200))  # Scan-Eingang: Message-ID bzw. Dateihash, verhindert Dubletten
     erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
+
+    @property
+    def uebergaben(self) -> list[dict[str, Any]]:
+        """Übergaben an Steuertools (Lexware Office, sevDesk, DATEV-Belegtransfer, Upload-Mail) aus ExternalRef."""
+        s = object_session(self)
+        if s is None:
+            return []
+        refs = s.scalars(select(ExternalRef).where(ExternalRef.mandant_id == self.mandant_id, ExternalRef.entitaet == "beleg",
+                                                   ExternalRef.entitaet_id == self.id).order_by(ExternalRef.id)).all()
+        return [{"zielsystem": r.zielsystem, "externe_id": r.externe_id, "zeitpunkt": r.letzter_sync} for r in refs]
 
 
 class Zeiteintrag(_Mandantenbezug, Basis):

@@ -10,6 +10,7 @@
     python -m core loeschlauf [--trocken]  Löschkonzept anwenden (Fristen je Mandant), täglich per cron
     python -m core tagesaufgaben           Angebotsablauf, Mahnvorschläge, Vertragsabrechnungen (Freigaben), täglich per cron
     python -m core posteingang             E-Mail-Postfächer der Mandanten abrufen und Anfragen zu Vorgängen machen
+    python -m core scaneingang             Scanner-Postfächer und Eingangsordner abrufen, Scans zu Belegen machen
 
 Verbindungen in PostgreSQL: DATABASE_URL (shk_app, unterliegt Row-Level Security) für den Core,
 SYSTEM_DATABASE_URL (shk_system) für Worker, Seed und Mandantenverwaltung. Ohne
@@ -47,6 +48,7 @@ def main() -> None:
     lauf.add_argument("--trocken", action="store_true")
     unter.add_parser("tagesaufgaben")
     unter.add_parser("posteingang")
+    unter.add_parser("scaneingang")
     migrate = unter.add_parser("migrate")
     migrate.add_argument("--ziel", default="head")
     args = parser.parse_args()
@@ -95,6 +97,37 @@ def main() -> None:
             for m in s.scalars(select(Mandant)).all():
                 print(json.dumps({"mandant": m.name, **tagesaufgaben(s, m, datetime.now(timezone.utc))}, ensure_ascii=False, default=str), flush=True)
                 s.commit()
+    elif args.befehl == "scaneingang":
+        from datetime import datetime, timezone
+
+        from sqlalchemy import select
+
+        from core import scanner
+        from core.anfragen import ImapPostfach
+        from core.geheimnisse import konfiguration_entschluesseln
+        from core.modelle import Mandant
+        db = system_datenbank()
+        db.schema_anlegen()
+        with db.sitzungen() as s:
+            for m in s.scalars(select(Mandant)).all():
+                k = konfiguration_entschluesseln(m.integrationen.get("scanner") or {})
+                ergebnis = {"mandant": m.name}
+                try:
+                    if k.get("host"):
+                        postfach = ImapPostfach(k["host"], k.get("benutzer", ""), k.get("passwort", ""), k.get("ordner", "INBOX"), int(k.get("port", 993)))
+                        try:
+                            ergebnis["postfach"] = scanner.postfach_scans(s, m, postfach, datetime.now(timezone.utc), k.get("erlaubte_absender"),
+                                                                          k.get("kategorie", "material"))
+                        finally:
+                            postfach.schliessen()
+                    if k.get("eingangsordner"):
+                        ergebnis["ordner"] = scanner.ordner_scans(s, m, Path(k["eingangsordner"]), datetime.now(timezone.utc), k.get("kategorie", "material"))
+                    s.commit()
+                except OSError as e:
+                    s.rollback()
+                    ergebnis["fehler"] = str(e)
+                if len(ergebnis) > 1:
+                    print(json.dumps(ergebnis, ensure_ascii=False), flush=True)
     elif args.befehl == "posteingang":
         from datetime import datetime, timezone
 

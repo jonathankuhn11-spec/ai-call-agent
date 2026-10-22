@@ -493,11 +493,11 @@ const ANBINDUNGEN = {
   endkunde: { titel: "Kundenkommunikation", hinweis: "Terminbestätigung, Nachrichten, Rechnungen. Reihenfolge: E-Mail, dann SMS (nur mit Einwilligung).",
     typen: { email: [["absender", "Absenderadresse"], ["host", "SMTP-Server"], ["port", "Port (587 STARTTLS / 465 SMTPS)"], ["benutzer", "SMTP-Benutzer"], ["passwort", "SMTP-Passwort", true], ["antwort_an", "Antwort an (optional)"]],
       sms: [["api_key", "seven.io API-Key", true], ["absender", "Absenderkennung (max. 11 Zeichen)"]], csv: [] } },
-  finanz: { titel: "Buchhaltung", hinweis: "Rechnungen und Stornos als Entwurf in die Buchhaltungssoftware.",
+  finanz: { titel: "Buchhaltung", hinweis: "Rechnungen und Stornos als Entwurf in die Buchhaltungssoftware; geprüfte Eingangsbelege landen dort im Belegeingang (Lexware Office: Files-API, sevDesk: Beleg-Entwurf), kontiert wird im Zielsystem.",
     typen: { lexware: [["api_key", "Lexware Office API-Key", true]], sevdesk: [["api_token", "sevDesk API-Token", true]], csv: [] } },
-  kanzlei: { titel: "Steuerkanzlei", hinweis: "Monatliches Belegpaket (PDF, XRechnung, DATEV-Buchungsstapel) per E-Mail oder als Datei.",
-    typen: { email: [["kanzlei_email", "E-Mail der Kanzlei"], ["absender", "Absenderadresse"], ["host", "SMTP-Server"], ["port", "Port"], ["benutzer", "SMTP-Benutzer"], ["passwort", "SMTP-Passwort", true]],
-      belegpaket: [["verzeichnis", "Ablageverzeichnis auf dem Server"]] } },
+  kanzlei: { titel: "Steuerkanzlei", hinweis: "Monatliches Belegpaket (PDF, XRechnung, DATEV-Buchungsstapel) per E-Mail oder als Datei. Einzelne geprüfte Eingangsbelege zusätzlich sofort: in den DATEV-Belegtransfer-Ordner oder per Upload-Mail an DATEV Unternehmen online.",
+    typen: { email: [["kanzlei_email", "E-Mail der Kanzlei"], ["upload_email", "Upload-Adresse DATEV Unternehmen online (optional, Einzelbelege)"], ["absender", "Absenderadresse"], ["host", "SMTP-Server"], ["port", "Port"], ["benutzer", "SMTP-Benutzer"], ["passwort", "SMTP-Passwort", true]],
+      belegpaket: [["verzeichnis", "Ablageverzeichnis auf dem Server"]], belegtransfer: [["verzeichnis", "DATEV-Belegtransfer-Ordner (gemountet)"], ["belegtyp", "Belegtyp-Ordner (Standard Rechnungseingang)"]] } },
 };
 async function einstellungen(ziel) {
   const [betrieb, integ] = await Promise.all([api("/betrieb"), api("/integrationen")]);
@@ -682,12 +682,14 @@ async function fallErgaenzungen(wurzel, id) {
 
 // --- Belegeingang (Büro/Inhaber): Prüfen, Zuordnen, Übergabe im Belegpaket -----------------------
 const KATEGORIE_TEXT = { material: "Material", fremdleistung: "Fremdleistung", fahrzeug: "Fahrzeug", sonstiges: "Sonstiges" };
-const BELEGSTATUS_TEXT = { erfasst: "Zu prüfen", geprueft: "Geprüft", uebergeben: "An Kanzlei übergeben", bezahlt: "Bezahlt" };
+const BELEGSTATUS_TEXT = { erfasst: "Zu prüfen", geprueft: "Geprüft", uebergeben: "Übergeben", bezahlt: "Bezahlt" };
 async function belegeAnsicht(ziel) {
   const [wir, liste] = await Promise.all([ich(), api("/belege")]);
   const darf = wir.rechte.includes("bearbeiten");
   const offen = liste.filter((b) => b.status === "erfasst").length;
-  ziel.innerHTML = `<h1>Belege</h1><p class="unterzeile">Eingangsrechnungen und Lieferscheine: XRechnung und ZUGFeRD werden strukturiert gelesen, PDF und Fotos per Texterkennung. Geprüfte Belege gehen mit dem nächsten Belegpaket an die Kanzlei; die Kontierung bleibt dort.</p>
+  const scanner = wir.rechte.includes("verwalten") ? await api("/betrieb/scanner").catch(() => ({})) : {};
+  const kanaele = Object.entries(scanner.uebergabekanaele || {}).map(([z, k]) => `${z}: ${k.join(", ")}`).join(" · ");
+  ziel.innerHTML = `<h1>Belege</h1><p class="unterzeile">Eingangsrechnungen und Lieferscheine: XRechnung und ZUGFeRD werden strukturiert gelesen, PDF und Fotos per Texterkennung. Geprüfte Belege gehen sofort an die angebundenen Steuertools (${esc(kanaele || "keine Anbindung, nur Belegpaket")}) und mit dem nächsten Belegpaket an die Kanzlei; die Kontierung bleibt dort.</p>
     <div class="kacheln"><div class="karte kachel"><div class="wert">${offen}</div><div class="bez">zu prüfen</div></div>
       <div class="karte kachel"><div class="wert">${liste.filter((b) => b.status === "geprueft").length}</div><div class="bez">bereit für Belegpaket</div></div>
       <div class="karte kachel"><div class="wert">${esc(EURO.format(liste.filter((b) => b.status !== "bezahlt" && b.status !== "uebergeben").reduce((a, b) => a + Number(b.brutto), 0)))}</div><div class="bez">offen (brutto)</div></div></div>
@@ -697,10 +699,16 @@ async function belegeAnsicht(ziel) {
       <button id="b-hochladen">Erkennen und erfassen</button></div>
       <details><summary>Ohne Datei von Hand erfassen</summary><div class="zeile" style="margin-top:8px"><label>Lieferant <input id="b-lieferant"></label><label>Nummer <input id="b-nummer"></label><label>Datum <input id="b-datum" type="date"></label><label>Brutto <input id="b-brutto" inputmode="decimal"></label><label>USt <select id="b-ust"><option>19</option><option>7</option><option>0</option></select></label><button id="b-manuell" class="leise">Erfassen</button></div></details>
       <p id="b-status"></p></div>
-    <div class="karte"><div class="tabelle-rahmen"><table><thead><tr><th>Datum</th><th>Lieferant</th><th>Nummer</th><th style="text-align:right">Netto</th><th style="text-align:right">Brutto</th><th>Kategorie</th><th>Erkennung</th><th>Status</th></tr></thead><tbody>
+    <div class="karte" style="margin-bottom:16px"><h2>Mit der Kamera scannen</h2><p class="unterzeile">Mehrere Seiten nacheinander fotografieren; sie werden zu einem PDF zusammengefasst (Graustufen, Kontrast) und erkannt.${scanner.host || scanner.eingangsordner ? " Scan-to-Mail-Postfach bzw. Eingangsordner werden alle 15 Minuten abgerufen." : ""}</p><div class="zeile">
+      <label>Seiten <input id="b-bilder" type="file" accept="image/*" capture="environment" multiple></label>
+      <label><span><input id="b-scanmodus" type="checkbox" checked> Scanmodus (Graustufen, Kontrast)</span></label>
+      <button id="b-scannen">Scannen und erfassen</button>${scanner.host || scanner.eingangsordner ? `<button class="leise" id="b-abrufen">Scanner-Eingang jetzt abrufen</button>` : ""}</div>
+      <div id="b-seiten" class="scanseiten"></div><p id="b-scan-status"></p></div>
+    <div class="karte"><div class="tabelle-rahmen"><table><thead><tr><th>Datum</th><th>Lieferant</th><th>Nummer</th><th style="text-align:right">Netto</th><th style="text-align:right">Brutto</th><th>Kategorie</th><th>Erkennung</th><th>Status</th><th>Übergabe</th></tr></thead><tbody>
       ${liste.map((b) => `<tr class="klickbar" data-beleg="${esc(b.id)}"><td>${esc(DATUM.format(new Date(b.datum)))}</td><td>${esc(b.lieferant)}</td><td>${esc(b.nummer || "–")}</td><td style="text-align:right">${esc(EURO.format(b.netto))}</td><td style="text-align:right">${esc(EURO.format(b.brutto))}</td>
         <td>${esc(KATEGORIE_TEXT[b.kategorie])}</td><td>${tag(b.quelle, "neutral")} ${b.erkennung.konfidenz != null && b.quelle !== "manuell" ? tag(`${Math.round(b.erkennung.konfidenz * 100)} %`, b.erkennung.konfidenz >= 0.75 ? "A" : "B") : ""}</td>
-        <td>${tag(BELEGSTATUS_TEXT[b.status], b.status === "erfasst" ? "offen" : b.status === "bezahlt" ? "neutral" : "A")}</td></tr>`).join("") || `<tr><td colspan="8">Noch keine Belege.</td></tr>`}</tbody></table></div></div>`;
+        <td>${tag(BELEGSTATUS_TEXT[b.status], b.status === "erfasst" ? "offen" : b.status === "bezahlt" ? "neutral" : "A")}</td>
+        <td>${(b.uebergaben || []).map((u) => tag(u.zielsystem, "A")).join(" ") || (b.erkennung.eingang ? tag(b.erkennung.eingang, "neutral") : "")}</td></tr>`).join("") || `<tr><td colspan="9">Noch keine Belege.</td></tr>`}</tbody></table></div></div>`;
   const senden = async (fd) => {
     $("#b-status").textContent = "Wird verarbeitet …";
     try { const b = await api("/belege", { methode: "POST", daten: fd }); $("#b-status").textContent = `Erfasst: ${b.lieferant}, ${EURO.format(b.brutto)}.`; zeigen(); belegDetail(b.id); }
@@ -714,6 +722,22 @@ async function belegeAnsicht(ziel) {
     const fd = new FormData(); for (const [id, feld] of [["b-lieferant", "lieferant"], ["b-nummer", "nummer"], ["b-datum", "datum"], ["b-brutto", "brutto"], ["b-ust", "ust_satz"]]) { const v = $(`#${id}`).value.trim(); if (v) fd.append(feld, v); }
     fd.append("kategorie", $("#b-kategorie").value); senden(fd);
   });
+  $("#b-bilder").addEventListener("change", () => {
+    const leiste = $("#b-seiten"); leiste.innerHTML = "";
+    [...$("#b-bilder").files].forEach((f, i) => { const img = document.createElement("img"); img.alt = `Seite ${i + 1}`; img.src = URL.createObjectURL(f); leiste.append(img); });
+  });
+  $("#b-scannen").addEventListener("click", async () => {
+    const dateien = [...$("#b-bilder").files]; if (!dateien.length) return alert("Seiten fotografieren oder wählen");
+    const fd = new FormData(); dateien.forEach((f) => fd.append("bilder", f)); fd.append("kategorie", $("#b-kategorie").value); fd.append("scanmodus", $("#b-scanmodus").checked ? "true" : "false");
+    $("#b-scan-status").textContent = `${dateien.length} Seite(n) werden zusammengefasst …`;
+    try { const b = await api("/belege/scan", { methode: "POST", daten: fd }); $("#b-scan-status").textContent = `Erfasst: ${b.lieferant}, ${EURO.format(b.brutto)}.`; zeigen(); belegDetail(b.id); }
+    catch (e) { $("#b-scan-status").innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
+  $("#b-abrufen")?.addEventListener("click", async () => {
+    $("#b-scan-status").textContent = "Scanner-Eingang wird abgerufen …";
+    try { const r = await api("/belege/scaneingang/abrufen", { methode: "POST", daten: {} }); const n = (r.postfach?.uebernommen || 0) + (r.ordner?.uebernommen || 0); $("#b-scan-status").textContent = `${n} neue Belege übernommen.`; if (n) zeigen(); }
+    catch (e) { $("#b-scan-status").innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
   ziel.querySelectorAll("[data-beleg]").forEach((z) => z.addEventListener("click", () => belegDetail(z.dataset.beleg, darf)));
 }
 async function belegDetail(id, darf = true) {
@@ -721,7 +745,7 @@ async function belegDetail(id, darf = true) {
   const fest = b.status === "uebergeben" || b.status === "bezahlt";
   const feld = (name, bez, typ = "text", wert = b[name]) => `<label>${bez} <input data-feld="${name}" type="${typ}" value="${esc(wert ?? "")}" ${fest ? "disabled" : ""}></label>`;
   const wurzel = detail(`<h2>${esc(b.lieferant)} ${b.nummer ? `· ${esc(b.nummer)}` : ""}</h2>
-    <p>${tag(BELEGSTATUS_TEXT[b.status], b.status === "erfasst" ? "offen" : "A")} ${tag(b.quelle, "neutral")}${b.erkennung.hinweise?.length ? `<br><small>Hinweise der Erkennung: ${esc(b.erkennung.hinweise.join("; "))}</small>` : ""}${b.erkennung.kommission ? `<br><small>Kommission laut Beleg: ${esc(b.erkennung.kommission)}</small>` : ""}</p>
+    <p>${tag(BELEGSTATUS_TEXT[b.status], b.status === "erfasst" ? "offen" : "A")} ${tag(b.quelle, "neutral")}${b.erkennung.eingang ? tag(b.erkennung.eingang, "neutral") : ""}${(b.uebergaben || []).length ? `<br><small>Übergeben an: ${b.uebergaben.map((u) => `${esc(u.zielsystem)} (${esc(u.externe_id)}, ${esc(zeit(u.zeitpunkt))})`).join("; ")}</small>` : ""}${b.erkennung.hinweise?.length ? `<br><small>Hinweise der Erkennung: ${esc(b.erkennung.hinweise.join("; "))}</small>` : ""}${b.erkennung.kommission ? `<br><small>Kommission laut Beleg: ${esc(b.erkennung.kommission)}</small>` : ""}</p>
     <div class="belegansicht">${b.anhang_id ? `<div id="b-vorschau" class="vorschau">Wird geladen …</div>` : ""}<div>
     <div class="zeile">${feld("lieferant", "Lieferant")}${feld("nummer", "Belegnummer")}</div>
     <div class="zeile">${feld("datum", "Belegdatum", "date")}${feld("faellig", "Fällig", "date")}</div>
@@ -732,7 +756,7 @@ async function belegDetail(id, darf = true) {
     <label>Notiz <input data-feld="notiz" value="${esc(b.notiz || "")}"></label>
     ${b.positionen.length ? `<details><summary>${b.positionen.length} Positionen</summary><table><tbody>${b.positionen.map((p) => `<tr><td>${esc(p.bezeichnung || "")}</td><td style="text-align:right">${esc(p.menge || "")}</td><td style="text-align:right">${p.netto != null ? esc(EURO.format(p.netto)) : ""}</td></tr>`).join("")}</tbody></table></details>` : ""}
     <p id="b-meldung"></p>
-    <div class="aktionen">${b.anhang_id ? `<button class="leise" id="b-datei-laden">Original</button>` : ""}${darf && !fest ? `<button class="gefahr" id="b-loeschen">Löschen</button><button class="leise" id="b-speichern">Speichern</button><button id="b-pruefen">Geprüft, ins Belegpaket</button>` : ""}${darf && b.status === "uebergeben" ? `<button class="leise" id="b-bezahlt">Als bezahlt markieren</button>` : ""}</div></div></div>`);
+    <div class="aktionen">${b.anhang_id ? `<button class="leise" id="b-datei-laden">Original</button>` : ""}${darf && !fest ? `<button class="gefahr" id="b-loeschen">Löschen</button><button class="leise" id="b-speichern">Speichern</button><button id="b-pruefen">Geprüft, ins Belegpaket</button>` : ""}${darf && b.status === "uebergeben" ? `<button class="leise" id="b-bezahlt">Als bezahlt markieren</button>` : ""}${darf && b.status !== "erfasst" ? `<button class="leise" id="b-uebergabe">An Steuertools übergeben</button>` : ""}</div></div></div>`);
   if (b.anhang_id) {
     const url = await bildUrl(b.anhang_id);
     const a = (await api(`/anhaenge?bezug_typ=beleg&bezug_id=${id}`))[0];
@@ -746,6 +770,7 @@ async function belegDetail(id, darf = true) {
   };
   $("#b-speichern", wurzel)?.addEventListener("click", () => speichern());
   $("#b-pruefen", wurzel)?.addEventListener("click", () => speichern({ status: "geprueft" }));
+  $("#b-uebergabe", wurzel)?.addEventListener("click", async () => { try { await api(`/belege/${id}/uebergabe`, { methode: "POST", daten: {} }); $("#b-meldung", wurzel).textContent = "Übergabe eingereiht; der Worker stellt zu."; } catch (e) { $("#b-meldung", wurzel).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; } });
   $("#b-bezahlt", wurzel)?.addEventListener("click", async () => { try { await api(`/belege/${id}`, { methode: "PATCH", daten: { status: "bezahlt" } }); $("#detail").close(); zeigen(); } catch (e) { alert(e.message); } });
   $("#b-loeschen", wurzel)?.addEventListener("click", async () => { if (!confirm("Beleg und Datei löschen?")) return; try { await api(`/belege/${id}`, { methode: "DELETE" }); $("#detail").close(); zeigen(); } catch (e) { alert(e.message); } });
 }
@@ -1026,7 +1051,7 @@ async function abwesenheitenVerwalten(ziel, ressourcen) {
 // --- Einstellungen: Artikelstamm, Webformular, Postfach -------------------------------------
 const ARTIKELKATEGORIE_TEXT = { material: "Material", arbeit: "Arbeit", fahrt: "Fahrt", pauschale: "Pauschale" };
 async function einstellungenErgaenzen(ziel) {
-  const [artikel, web, post, betrieb] = await Promise.all([api("/artikel?alle=true"), api("/betrieb/webformular"), api("/betrieb/posteingang"), api("/betrieb")]);
+  const [artikel, web, post, betrieb, scan] = await Promise.all([api("/artikel?alle=true"), api("/betrieb/webformular"), api("/betrieb/posteingang"), api("/betrieb"), api("/betrieb/scanner")]);
   const teil = document.createElement("div");
   teil.innerHTML = `<div class="karte" style="margin-bottom:16px"><h2>Artikel- und Leistungsstamm</h2><p class="unterzeile">Material, Arbeitszeit, Fahrt und Pauschalen für Angebots- und Rechnungspositionen. Der Einkaufspreis dient der Nachkalkulation.</p>
       <div class="tabelle-rahmen"><table><thead><tr><th>Nummer</th><th>Bezeichnung</th><th>Kategorie</th><th>Einheit</th><th style="text-align:right">Einkauf netto</th><th style="text-align:right">Verkauf netto</th><th>USt</th><th>Aktiv</th></tr></thead><tbody>
@@ -1042,8 +1067,20 @@ async function einstellungenErgaenzen(ziel) {
     <div class="karte" style="margin-bottom:16px"><h2>E-Mail-Posteingang (IMAP)</h2><p class="unterzeile">Ungelesene Nachrichten des Anfragepostfachs werden täglich bzw. auf Knopfdruck zu Vorgängen; Autoreplies und Newsletter werden verworfen. Zugangsdaten werden verschlüsselt gespeichert.</p>
       <form id="pe-form"><div class="raster"><label>IMAP-Server <input name="host" value="${esc(post.host || "")}"></label><label>Port <input name="port" type="number" value="${esc(post.port || 993)}"></label><label>Benutzer <input name="benutzer" value="${esc(post.benutzer || "")}"></label>
         <label>Passwort <input name="passwort" type="password" autocomplete="new-password" value="${esc(post.passwort || "")}"></label><label>Ordner <input name="ordner" value="${esc(post.ordner || "INBOX")}"></label></div>
-      <div class="aktionen"><span id="pe-status"></span><button type="submit">Speichern</button></div></form></div>`;
+      <div class="aktionen"><span id="pe-status"></span><button type="submit">Speichern</button></div></form></div>
+    <div class="karte" style="margin-bottom:16px"><h2>Scanner-Eingang</h2><p class="unterzeile">Scan-to-Mail: der Scanner mailt an ein eigenes Postfach, dessen Anhänge (PDF, JPEG, XML) alle 15 Minuten zu Belegen werden; nur die eingetragenen Absender zählen. Eingangsordner: Netzlaufwerk des Scanners, auf dem Server eingehängt; verarbeitete Dateien wandern nach verarbeitet/.</p>
+      <form id="sc-form"><div class="raster"><label>IMAP-Server (Scanner-Postfach) <input name="host" value="${esc(scan.host || "")}"></label><label>Port <input name="port" type="number" value="${esc(scan.port || 993)}"></label><label>Benutzer <input name="benutzer" value="${esc(scan.benutzer || "")}"></label>
+        <label>Passwort <input name="passwort" type="password" autocomplete="new-password" value="${esc(scan.passwort || "")}"></label><label>Ordner <input name="ordner" value="${esc(scan.ordner || "INBOX")}"></label>
+        <label>Erlaubte Absender (Komma, Adresse oder Domain) <input name="erlaubte_absender" value="${esc(scan.erlaubte_absender || "")}" placeholder="scanner@betrieb.de, @betrieb.de"></label>
+        <label>Eingangsordner auf dem Server <input name="eingangsordner" value="${esc(scan.eingangsordner || "")}" placeholder="/srv/scans/${esc(betrieb.id?.slice(0, 8) || "betrieb")}"></label>
+        <label>Standardkategorie <select name="kategorie">${Object.entries(KATEGORIE_TEXT).map(([k, v]) => `<option value="${k}" ${k === (scan.kategorie || "material") ? "selected" : ""}>${v}</option>`).join("")}</select></label></div>
+      <p>Übergabe geprüfter Belege: ${esc(Object.entries(scan.uebergabekanaele || {}).map(([z, k]) => `${z} → ${k.join(", ")}`).join(" · ") || "kein Kanal angebunden (oben unter Buchhaltung bzw. Steuerkanzlei einrichten)")}</p>
+      <div class="aktionen"><span id="sc-status"></span><button type="submit">Speichern</button></div></form></div>`;
   ziel.append(teil);
+  $("#sc-form", teil).addEventListener("submit", async (ev) => {
+    ev.preventDefault(); const daten = Object.fromEntries(new FormData(ev.target).entries()); daten.port = Number(daten.port) || 993;
+    try { await api("/betrieb/scanner", { methode: "PUT", daten }); $("#sc-status", teil).innerHTML = `<span class="hinweis">Gespeichert</span>`; } catch (e) { $("#sc-status", teil).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
   $("#art-neu", teil).addEventListener("submit", async (ev) => {
     ev.preventDefault(); const daten = {}; for (const [k, v] of new FormData(ev.target).entries()) if (v !== "") daten[k] = ["einkauf_netto", "verkauf_netto"].includes(k) ? Number(v) : v;
     try { await api("/artikel", { methode: "POST", daten }); zeigen(); } catch (e) { $("#art-status", teil).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }

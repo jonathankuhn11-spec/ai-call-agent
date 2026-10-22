@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from core import anfragen, angebote, belege, domaene, einsatz, forderungen, loeschung, management, tagesaufgaben, twin, vertraege
+from core import anfragen, angebote, belege, domaene, einsatz, forderungen, loeschung, management, scanner, tagesaufgaben, twin, vertraege
 from core.auth import Abgewiesen, Authentifizierung, Prinzipal
 from core.db import Datenbank, mandant_binden
 from core.disposition import freie_zeitfenster, kollidiert
@@ -287,6 +287,7 @@ class Integration(_Schema):
     lexware: dict[str, Any] = {}
     sevdesk: dict[str, Any] = {}
     belegpaket: dict[str, Any] = {}
+    belegtransfer: dict[str, Any] = {}
 
 
 class RechnungAus(_Schema):
@@ -349,6 +350,8 @@ class BelegAus(_Schema):
     status: str
     notiz: str | None
     geprueft_von: str | None
+    import_kennung: str | None = None
+    uebergaben: list[dict[str, Any]] = []
     erstellt: datetime
 
 
@@ -629,6 +632,18 @@ class Posteingang(_Schema):
     benutzer: str = ""
     passwort: str = ""
     ordner: str = "INBOX"
+
+
+class ScannerEinstellung(_Schema):
+    """Scan-Eingang: Scan-to-Mail-Postfach (IMAP) und/oder Eingangsordner des Netzwerkscanners."""
+    host: str = ""
+    port: int = Field(993, ge=1, le=65535)
+    benutzer: str = ""
+    passwort: str = ""
+    ordner: str = "INBOX"
+    erlaubte_absender: str = ""  # Komma-getrennt: Adressen oder Domains der Scanner (leer = alle)
+    eingangsordner: str = ""
+    kategorie: Literal["material", "fremdleistung", "fahrzeug", "sonstiges"] = "material"
 
 
 # --- App --------------------------------------------------------------------------------------
@@ -1086,7 +1101,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
             raise HTTPException(404, "Unbekanntes Ziel")
         bisher = m.integrationen.get(ziel) or {}
         neu: dict[str, Any] = {"kanaele": daten.kanaele}
-        for typ in ("email", "sms", "webhook", "lexware", "sevdesk", "belegpaket"):
+        for typ in ("email", "sms", "webhook", "lexware", "sevdesk", "belegpaket", "belegtransfer"):
             konfig = dict(getattr(daten, typ))
             for feld in GEHEIME_FELDER:  # maskierte oder leere Geheimnisse behalten den gespeicherten Wert
                 if konfig.get(feld) in ("", "••••", None) and (bisher.get(typ) or {}).get(feld):
@@ -1381,6 +1396,50 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         s.commit()
         return b_
 
+    @app.post("/belege/scan", response_model=BelegAus, status_code=201)
+    async def beleg_scannen(bilder: list[UploadFile] = File(...), kategorie: str = Form("material"), scanmodus: bool = Form(True),
+                            servicefall_id: str | None = Form(None), notiz: str | None = Form(None), m: Mandant = Depends(mandant_kontext),
+                            s: Session = Depends(sitzung), p: Prinzipal = Depends(recht("einsatz"))):
+        """Kamera-Scan: mehrere Fotos (Seiten) werden zu einem PDF zusammengefasst und wie ein Scan erfasst."""
+        if kategorie not in ("material", "fremdleistung", "fahrzeug", "sonstiges"):
+            raise HTTPException(422, "Kategorie unbekannt")
+        if servicefall_id:
+            eigener_fall(p, s, m, holen(s, Servicefall, servicefall_id, m))
+        seiten = [await b.read() for b in bilder]
+        pdf = fachlich(lambda: scanner.bilder_zu_pdf(seiten, scanmodus))
+        name = f"scan_{app.state.uhr().strftime('%Y%m%d_%H%M%S')}_{len(seiten)}s.pdf"
+        kennung = "kamera:" + scanner.kennung_fuer(b"".join(seiten))  # Hash der Fotos, nicht des PDF (das trägt einen Zeitstempel)
+        b_ = fachlich(lambda: scanner.scan_zu_beleg(s, m, pdf, name, "application/pdf", kennung, app.state.uhr(),
+                                                    "kamera", kategorie, servicefall_id, p.name, notiz))
+        if b_ is None:
+            raise HTTPException(409, "Dieser Scan wurde bereits erfasst")
+        s.commit()
+        return b_
+
+    @app.post("/belege/scaneingang/abrufen", dependencies=[Depends(recht("bearbeiten"))])
+    def scaneingang_abrufen(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        """Scanner-Postfach und Eingangsordner jetzt abrufen (sonst Cron: python -m core scaneingang)."""
+        konfig = m.integrationen.get("scanner") or {}
+        if not konfig.get("host") and not konfig.get("eingangsordner"):
+            raise HTTPException(409, "Kein Scan-Eingang hinterlegt (Einstellungen → Scanner)")
+        from core.geheimnisse import konfiguration_entschluesseln
+        k = konfiguration_entschluesseln(konfig)
+        ergebnis: dict[str, Any] = {}
+        try:
+            if k.get("host"):
+                postfach = anfragen.ImapPostfach(k["host"], k.get("benutzer", ""), k.get("passwort", ""), k.get("ordner", "INBOX"), int(k.get("port", 993)))
+                try:
+                    ergebnis["postfach"] = scanner.postfach_scans(s, m, postfach, app.state.uhr(), k.get("erlaubte_absender"), k.get("kategorie", "material"))
+                finally:
+                    postfach.schliessen()
+            if k.get("eingangsordner"):
+                ergebnis["ordner"] = scanner.ordner_scans(s, m, Path(k["eingangsordner"]), app.state.uhr(), k.get("kategorie", "material"))
+        except OSError as e:
+            s.rollback()
+            raise HTTPException(502, f"Scan-Eingang nicht erreichbar: {e}") from e
+        s.commit()
+        return ergebnis
+
     @app.get("/belege", response_model=list[BelegAus], dependencies=[Depends(recht("finanzen"))])
     def belege_listen(status: str | None = None, servicefall_id: str | None = None, monat: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
                       limit: int = Query(200, le=2000), m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
@@ -1420,6 +1479,22 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         if aenderung.get("status") == "geprueft":
             b.geprueft_von = p.name
         domaene.protokollieren(s, m.id, "beleg.geaendert", "beleg", b.id, "mensch", {"felder": sorted(aenderung)}, p.name)
+        if aenderung.get("status") == "geprueft":
+            scanner.uebergabe_beantragen(s, m, b, p.name)  # Steuertools erhalten geprüfte Belege sofort (Outbox)
+        s.commit()
+        return b
+
+    @app.post("/belege/{beleg_id}/uebergabe", response_model=BelegAus)
+    def beleg_uebergeben(beleg_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                         p: Prinzipal = Depends(recht("finanzen"))):
+        """Übergabe an die angebundenen Steuertools anstoßen (idempotent je Ziel); erfasste Belege erst prüfen."""
+        b = holen(s, Beleg, beleg_id, m)
+        if not scanner.uebergabekanaele(m):
+            raise HTTPException(409, "Kein übergabefähiger Kanal: Lexware Office, sevDesk, DATEV Belegtransfer oder Upload-Mail in den Einstellungen anbinden")
+        eintraege = fachlich(lambda: scanner.uebergabe_beantragen(s, m, b, p.name))
+        for e in eintraege:
+            if e.status in ("tot",):
+                e.status, e.versuche, e.letzter_fehler = "ausstehend", 0, None  # erneuter Anlauf nach Konfigurationskorrektur
         s.commit()
         return b
 
@@ -1914,6 +1989,22 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         m.integrationen = {**m.integrationen, "posteingang": konfig}
         s.commit()
         return konfiguration_maskieren(konfig)
+
+    @app.get("/betrieb/scanner", dependencies=[Depends(recht("verwalten"))])
+    def scanner_lesen(m: Mandant = Depends(mandant_kontext)) -> dict[str, Any]:
+        return {**konfiguration_maskieren(m.integrationen.get("scanner") or {}), "uebergabekanaele": scanner.uebergabekanaele(m)}
+
+    @app.put("/betrieb/scanner", dependencies=[Depends(recht("verwalten"))])
+    def scanner_setzen(daten: ScannerEinstellung, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        bisher = m.integrationen.get("scanner") or {}
+        konfig = daten.model_dump()
+        if konfig.get("passwort") in ("", "••••", None) and bisher.get("passwort"):
+            konfig["passwort"] = bisher["passwort"]
+        else:
+            konfig = konfiguration_verschluesseln(konfig)
+        m.integrationen = {**m.integrationen, "scanner": konfig}
+        s.commit()
+        return {**konfiguration_maskieren(konfig), "uebergabekanaele": scanner.uebergabekanaele(m)}
 
     @app.post("/posteingang/abrufen", dependencies=[Depends(recht("bearbeiten"))])
     def posteingang_abrufen(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, int]:

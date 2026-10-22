@@ -28,9 +28,18 @@ services:
       OIDC_ISSUER: https://auth.${SHK_DOMAIN}/realms/shk
       FORWARDED_ALLOW_IPS: "*"
     ports: !override ["127.0.0.1:8100:8100"]   # Voice-Agent (Host-Netz) spricht den Core lokal an
+    volumes:
+      - ${SHK_SCAN_ORDNER:-/srv/scans}:/srv/scans                                 # Abruf auf Knopfdruck aus der Oberfläche
+      - ${SHK_BELEGTRANSFER_ORDNER:-/srv/datev-belegtransfer}:/srv/datev-belegtransfer
 
   worker:
     <<: [*betrieb, *image]
+    # Scanner-Eingang und DATEV-Belegtransfer: Host-Ordner einhängen (Pfade in den Einstellungen des Mandanten eintragen),
+    # z. B. /srv/scans/<betrieb> als SMB-Freigabe für den Netzwerkscanner, /srv/datev-belegtransfer per Sync zum Kanzlei-Rechner.
+    volumes:
+      - export:/app/export
+      - ${SHK_SCAN_ORDNER:-/srv/scans}:/srv/scans
+      - ${SHK_BELEGTRANSFER_ORDNER:-/srv/datev-belegtransfer}:/srv/datev-belegtransfer
 
   voice-agent:
     <<: *betrieb

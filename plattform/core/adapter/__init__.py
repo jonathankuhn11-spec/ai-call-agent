@@ -4,7 +4,10 @@ Ziele der Outbox und ihre Standardbelegung:
   fachsoftware  webhook | csv (Standard)            Termine, Aufträge an openHandwerk, pds, n8n …
   endkunde      email | sms | csv (Standard)        Terminbestätigung, Nachricht, Rechnung an den Kunden
   finanz        lexware | sevdesk | csv (Standard)  Rechnung und Storno in die Buchhaltungssoftware
-  kanzlei       email | belegpaket (Standard)       Belegpaket an die Steuerkanzlei (DATEV-Format)
+  kanzlei       email | belegpaket (Standard) | belegtransfer
+                                                   Belegpaket an die Steuerkanzlei (DATEV-Format); Einzelbelege in den
+                                                   DATEV-Belegtransfer-Ordner oder per Upload-Mail (email mit upload_email)
+Eingangsbelege (beleg_uebermitteln) nehmen finanz: lexware, sevdesk; kanzlei: belegtransfer, email(upload_email).
 Ein Ziel kann mehrere Kanäle haben (endkunde: ["email", "sms"]); der erste, der zustellt, zählt.
 """
 from __future__ import annotations
@@ -17,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from core.adapter.basis import AdapterFehler, Konfigurationsfehler
 from core.adapter.belegpaket import BelegpaketAdapter
+from core.adapter.belegtransfer import BelegtransferAdapter
 from core.adapter.email import EmailAdapter
 from core.adapter.lexware import LexwareAdapter
 from core.adapter.sevdesk import SevdeskAdapter
@@ -28,12 +32,12 @@ from core.zustellung import Adapter, CsvAdapter
 
 TYPEN: dict[str, Callable[[dict[str, Any]], Adapter]] = {
     "webhook": WebhookAdapter, "email": EmailAdapter, "sms": SmsAdapter, "lexware": LexwareAdapter,
-    "sevdesk": SevdeskAdapter, "belegpaket": BelegpaketAdapter,
+    "sevdesk": SevdeskAdapter, "belegpaket": BelegpaketAdapter, "belegtransfer": BelegtransferAdapter,
 }
 ZIELE = ("fachsoftware", "endkunde", "finanz", "kanzlei")
 STANDARD = {"fachsoftware": ["csv"], "endkunde": ["csv"], "finanz": ["csv"], "kanzlei": ["belegpaket"]}
 ERLAUBT = {"fachsoftware": {"webhook", "csv"}, "endkunde": {"email", "sms", "csv"}, "finanz": {"lexware", "sevdesk", "csv"},
-           "kanzlei": {"email", "belegpaket"}}
+           "kanzlei": {"email", "belegpaket", "belegtransfer"}}
 
 
 class Mehrkanal:

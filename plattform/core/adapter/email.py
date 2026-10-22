@@ -1,4 +1,7 @@
-"""E-Mail an Endkunden (Terminbestätigung, Nachricht, Rechnung) und an die Kanzlei (Belegpaket).
+"""E-Mail an Endkunden (Terminbestätigung, Nachricht, Rechnung) und an die Kanzlei (Belegpaket, Einzelbeleg).
+
+Einzelbelege gehen mit upload_email an die Upload-Adresse von DATEV Unternehmen online (eine Datei je Mail,
+Betreff mit Lieferant und Belegnummer); ohne upload_email ist der E-Mail-Kanal dafür nicht zuständig.
 
 SMTP mit STARTTLS oder SMTPS; ein deutscher Postfachanbieter oder der eigene Mailserver genügt.
 Rechnungen gehen als PDF, bei Unternehmen zusätzlich als XRechnung-XML (EN 16931).
@@ -11,7 +14,8 @@ from typing import Any, Callable
 
 from sqlalchemy.orm import Session
 
-from core.adapter.basis import AdapterFehler, Konfigurationsfehler, kunde_laden, rechnung_laden, termin_laden
+from core.adapter.basis import (AdapterFehler, Konfigurationsfehler, beleg_dateiname, beleg_laden, beleg_referenz, beleg_uebergeben,
+                                kunde_laden, rechnung_laden, termin_laden)
 from core.disposition import ZEITZONE
 from core.domaene import als_utc
 from core.modelle import Mandant, OutboxEintrag
@@ -133,4 +137,20 @@ class EmailAdapter:
             n = self._nachricht(an, f"Belege {m.name} {e.payload.get('zeitraum', '')}".strip(), zusammenfassung + gruss)
             n.add_attachment(inhalt, maintype="application", subtype="zip", filename=dateiname)
             return self._senden(n)
+        if e.aktion == "beleg_uebermitteln":
+            an = self.k.get("upload_email")
+            if not an:
+                return None  # kein Upload-Postfach: Belegtransfer-Ordner oder Buchhaltungssoftware übernimmt
+            b, a, m = beleg_laden(s, e)
+            if (vorhanden := beleg_referenz(s, b, self.name)):
+                return vorhanden
+            if a is None:
+                raise Konfigurationsfehler("Beleg ohne Datei kann nicht per Upload-Mail übergeben werden")
+            n = self._nachricht(an, f"Eingangsbeleg {b.lieferant} {b.nummer or ''} vom {b.datum.strftime('%d.%m.%Y')}".strip(),
+                                f"Eingangsbeleg {b.lieferant}, Nummer {b.nummer or '–'}, Belegdatum {b.datum.strftime('%d.%m.%Y')}, "
+                                f"brutto {b.brutto.replace('.', ',')} € (USt {b.ust_satz} %). Kategorie {b.kategorie}"
+                                + (f", Vorgang {b.servicefall_id}" if b.servicefall_id else "") + f".\n\nÜbermittelt vom SHK-Backoffice {m.name}.")
+            haupt, _, unter = (a.mime or "application/octet-stream").partition("/")
+            n.add_attachment(a.inhalt, maintype=haupt, subtype=unter or "octet-stream", filename=beleg_dateiname(b, a))
+            return beleg_uebergeben(s, b, self.name, self._senden(n))
         raise Konfigurationsfehler(f"E-Mail-Adapter kennt die Aktion {e.aktion!r} nicht")

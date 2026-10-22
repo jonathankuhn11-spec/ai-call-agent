@@ -35,6 +35,7 @@ und wird je Lauf im Ereignisprotokoll nachgewiesen (`loeschung.lauf`).
 | Sicherungen | Erstellung | 14 Tage lokal; außer Haus 14 täglich / 8 wöchentlich / 12 monatlich | Ablauf | `backup.sh` |
 | Mandant nach Vertragsende | Übergabe des Exports | 6 Wochen, spätestens 3 Monate | vollständig inkl. Sicherungen (AVV Ziffer 9) | manuell, Protokoll |
 | Eingangsbelege (Rechnungen, Lieferscheine, Quittungen) mit Datei | Belegdatum | 10 Jahre (§ 147 AO, § 14b UStG) | vollständig inkl. Datei | `beleg_tage` |
+| Scan-Eingang: Importkennungen (Message-ID, Dateihash) und Übergabereferenzen zu Steuertools | mit dem Beleg | wie Beleg | mit dem Beleg | Teil des Belegdatensatzes (`import_kennung`, `external_ref`); Dateien im Eingangsordner `verarbeitet/` löscht der Betrieb nach dem Abruf selbst |
 | Zeiteinträge ohne Vorgangsbezug | Beginn | 2 Jahre (§ 16 Abs. 2 ArbZG) | vollständig | `zeit_tage`; mit Vorgang: mit dem Vorgang |
 | Rapporte, Fotos, Unterschriften am Vorgang | Abschluss des Vorgangs | mit dem Vorgang (3 Jahre bzw. 10 Jahre mit Rechnung) | vollständig | `_vorgangsanhang_loeschen` |
 | Dokumente und Fotos am Kunden oder Objekt | Löschung des Kunden | mit dem Kundendatensatz | vollständig | `kunde_loeschen` |
