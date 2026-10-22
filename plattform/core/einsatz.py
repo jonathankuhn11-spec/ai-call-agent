@@ -170,15 +170,17 @@ def rapport_erzeugen(s: Session, m: Mandant, fall: Servicefall, r: Ressource, da
         rapport.unterschrift_anhang_id = a.id
         rapport.unterzeichnet_von = (daten.get("unterzeichnet_von") or fall.kunde.name)[:200]
         rapport.unterzeichnet_am = jetzt
-    vorhanden = s.scalar(select(func.count()).select_from(Zeiteintrag).where(Zeiteintrag.servicefall_id == fall.id,
-                                                                            Zeiteintrag.ressource_id == r.id)) or 0
-    if not vorhanden:
-        ende = jetzt
-        for art, dauer in (("arbeit", rapport.arbeitszeit_minuten), ("fahrt", rapport.fahrzeit_minuten)):
-            if dauer > 0:
-                s.add(Zeiteintrag(mandant_id=m.id, ressource_id=r.id, servicefall_id=fall.id, art=art,
-                                  beginn=ende - timedelta(minutes=dauer), ende=ende, quelle="rapport"))
-                ende = ende - timedelta(minutes=dauer)
+    laufend = laufender_eintrag(s, r.id)
+    if laufend is not None and laufend.servicefall_id == fall.id:
+        laufend.ende = jetzt  # der Rapport beendet den Einsatz; vergessene Stempeluhr läuft nicht weiter
+        s.flush()
+    gebucht = zeiten_je_fall(s, fall.id)
+    ende = jetzt
+    for art, dauer in (("arbeit", rapport.arbeitszeit_minuten), ("fahrt", rapport.fahrzeit_minuten)):
+        if dauer > 0 and gebucht.get(art, 0) == 0:  # nur, wo die Stempeluhr nichts geliefert hat
+            s.add(Zeiteintrag(mandant_id=m.id, ressource_id=r.id, servicefall_id=fall.id, art=art,
+                              beginn=ende - timedelta(minutes=dauer), ende=ende, quelle="rapport"))
+            ende = ende - timedelta(minutes=dauer)
     domaene.protokollieren(s, m.id, "rapport.erstellt", "servicefall", fall.id, "mensch",
                            {"rapport_id": rapport.id, "nummer": rapport.nummer, "ergebnis": rapport.ergebnis,
                             "unterschrieben": bool(unterschrift_png)}, akteur_name)

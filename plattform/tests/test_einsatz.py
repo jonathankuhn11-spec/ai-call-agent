@@ -181,3 +181,36 @@ def test_monteur_bucht_nur_auf_sich_und_sieht_nur_eigene_faelle(oidc_umgebung): 
     assert c.get("/zeiten/lohnexport?monat=2026-10", headers=buero).status_code == 403
     assert c.post("/bereitschaft", headers=monteur, json={"ressource_id": ids["monteur_gas"], "von": DEMO_ZEIT.isoformat(), "bis": (DEMO_ZEIT + timedelta(days=1)).isoformat(), "telefon": "1"}).status_code == 403
     assert {z["ressource_id"] for z in c.get("/zeiten", headers=monteur).json()} == {ids["monteur_gas"]}
+
+
+def test_rapport_beendet_stempeluhr_und_ergaenzt_fehlende_zeitart(umgebung):
+    """Monteur startet die Fahrt, vergisst zu stoppen und schreibt den Rapport mit 70 Minuten Arbeit:
+    der Rapport beendet die laufende Fahrt und bucht die Arbeitszeit nach (nur die Zeitart ohne Stempelung)."""
+    c, db, ids, h = umgebung
+    fall_id, _ = fall_mit_termin(c, h, ids, ids["monteur_gas"])
+    z = c.post("/zeiten/start", headers=h, json={"art": "fahrt", "servicefall_id": fall_id, "ressource_id": ids["monteur_gas"]}).json()
+    with db.sitzungen() as s:  # die Testuhr steht; die Fahrt begann 20 Minuten vor dem Rapport
+        s.get(Zeiteintrag, z["id"]).beginn = DEMO_ZEIT - timedelta(minutes=20)
+        s.commit()
+    r = c.post(f"/servicefaelle/{fall_id}/rapport", headers=h, json={"taetigkeiten": "Elektrode getauscht", "arbeitszeit_minuten": 70, "fahrzeit_minuten": 25,
+                                                                   "ressource_id": ids["monteur_gas"]})
+    assert r.status_code == 201, r.text
+    with db.sitzungen() as s:
+        eintraege = s.scalars(select(Zeiteintrag).where(Zeiteintrag.servicefall_id == fall_id)).all()
+        assert all(z.ende is not None for z in eintraege)
+        assert sorted((z.art, z.quelle) for z in eintraege) == [("arbeit", "rapport"), ("fahrt", "app")]
+    k = c.get(f"/servicefaelle/{fall_id}/kalkulation", headers=h).json()
+    assert k["arbeit_minuten"] == 70 and k["fahrt_minuten"] == 20
+
+
+def test_rechnung_aus_freigabe_haengt_am_vorgang(umgebung):
+    c, db, ids, h = umgebung
+    c.put("/betrieb/stammdaten", headers=h, json=STAMMDATEN)
+    fall_id, _ = fall_mit_termin(c, h, ids, ids["monteur_gas"])
+    f = c.post("/freigaben", headers=h, json={"aktion": "rechnung_erstellen", "servicefall_id": fall_id,
+                                               "payload": {"kunde_id": ids["kunde"], "betrag_netto": 100}}).json()
+    assert c.post(f"/freigaben/{f['id']}/entscheidung", headers=h, json={"freigeben": True, "wer": "buero"}).status_code == 403  # Klasse C
+    assert c.post(f"/freigaben/{f['id']}/entscheidung", headers=h, json={"freigeben": True, "wer": "inhaber"}).status_code == 200
+    r = c.get("/rechnungen", headers=h).json()[0]
+    assert r["servicefall_id"] == fall_id
+    assert c.get(f"/servicefaelle/{fall_id}/kalkulation", headers=h).json()["rechnungen"] == 1

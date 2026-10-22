@@ -58,7 +58,7 @@ class Mehrkanal:
 
 class Register:
     def __init__(self, csv_verzeichnis: Path | None = None, zusatz: dict[str, Any] | None = None):
-        self.csv_verzeichnis = csv_verzeichnis or Path(os.environ.get("CSV_EXPORT", "export"))
+        self.csv_verzeichnis = Path(csv_verzeichnis or os.environ.get("CSV_EXPORT", "export"))
         self.zusatz = zusatz or {}  # z. B. {"transport": MockTransport} in Tests
         self.cache: dict[tuple[str, str, str], Adapter] = {}
 

@@ -5,6 +5,8 @@ Wartungsplanung macht aus dem Digital Twin Umsatz: Fällige Anlagen werden zu Se
 """
 from __future__ import annotations
 
+import re
+
 from datetime import date, datetime, timedelta
 from statistics import median
 from typing import Any
@@ -123,7 +125,8 @@ def plantafel(s: Session, mandant: Mandant, tag: date, tage: int = 5, nur_ressou
 def sparql(s: Session, mandant: Mandant, abfrage: str) -> dict[str, Any]:
     """Nur SELECT/ASK über TBox und Instanzdaten des Mandanten; der Graph ist je Anfrage isoliert."""
     kopf = abfrage.strip().upper()
-    if not any(w in kopf for w in ("SELECT", "ASK")) or any(w in kopf for w in ("INSERT", "DELETE", "LOAD", "CLEAR", "SERVICE")):
+    # Schlüsselwörter nur als ganze Wörter: „shk:Servicefall“ enthält SERVICE, ist aber keine Föderation
+    if not re.search(r"\b(SELECT|ASK)\b", kopf) or re.search(r"\b(INSERT|DELETE|LOAD|CLEAR|DROP|CREATE|MOVE|COPY|ADD|SERVICE)\b", kopf):
         raise ValueError("Nur SELECT- und ASK-Abfragen sind erlaubt")
     g: Graph = exportieren(s, mandant, mit_tbox=True)
     ergebnis = g.query(abfrage)

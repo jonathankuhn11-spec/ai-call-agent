@@ -75,3 +75,18 @@ def test_voice_bietet_unterschiedliche_uhrzeiten_an():
     r = c.post("/voice/zeitfenster", headers=h, json={"anliegen": "Wasserhahn tropft", "anzahl": 3}).json()
     beginne = [z["beginn"] for z in r["zeitfenster"]]
     assert len(beginne) == 3 and len(set(beginne)) == 3
+
+
+def test_vorbereitete_sparql_abfragen_der_oberflaeche_laufen(umgebung):
+    """Jede vorbereitete Abfrage aus core/ui/app.js muss den Schreibschutz passieren (Servicefall enthält „SERVICE“)."""
+    import re
+    from pathlib import Path
+    c, db, ids, h = umgebung
+    js = (Path(__file__).resolve().parent.parent / "core" / "ui" / "app.js").read_text(encoding="utf-8")
+    abfragen = re.findall(r'"[^"\n]+": `(PREFIX[^`]+)`', js)
+    assert len(abfragen) >= 3
+    for abfrage in abfragen:
+        r = c.post("/ontologie/sparql", headers=h, json={"abfrage": abfrage})
+        assert r.status_code == 200, r.text
+    assert c.post("/ontologie/sparql", headers=h, json={"abfrage": "SELECT * WHERE { SERVICE <http://x> { ?s ?p ?o } }"}).status_code == 422
+    assert c.post("/ontologie/sparql", headers=h, json={"abfrage": "INSERT DATA { <a> <b> <c> }"}).status_code == 422

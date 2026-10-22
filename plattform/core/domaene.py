@@ -157,6 +157,8 @@ def _ausfuehren(s: Session, f: Freigabe) -> None:
         from core.rechnung import rechnung_erzeugen  # zyklischer Import vermieden
 
         mandant = s.get(Mandant, f.mandant_id)
+        if f.servicefall_id and not p.get("servicefall_id"):
+            p = {**p, "servicefall_id": f.servicefall_id}  # Rechnung hängt am Vorgang der Freigabe (Nachkalkulation)
         r = rechnung_erzeugen(s, mandant, p, jetzt().date())
         protokollieren(s, f.mandant_id, "rechnung.gestellt", "rechnung", r.id, "system",
                        {"nummer": r.nummer, "brutto": r.brutto, "freigabe_id": f.id})

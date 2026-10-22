@@ -1009,6 +1009,8 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         f = holen(s, Freigabe, freigabe_id, m)
         if f.risikoklasse == "C" and not p.darf("freigeben_c"):
             raise HTTPException(403, "Finanzwirksame Aktionen (Klasse C) entscheidet nur die Inhaberrolle")
+        if f.risikoklasse == "C" and p.art != "person" and (daten.wer or "").lower() in ("buero", "büro", "monteur", "steuerberater"):
+            raise HTTPException(403, "Klasse C entscheidet nur die Inhaberrolle; ohne Anmeldung wer=\"inhaber\" angeben")
         fachlich(lambda: domaene.entscheiden(s, f, daten.freigeben, wer(p, daten.wer)))
         s.commit()
         return f

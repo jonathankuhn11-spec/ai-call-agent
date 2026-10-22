@@ -273,14 +273,15 @@ async function freigaben(ziel) {
     <div class="karte"><div class="tabelle-rahmen"><table><thead><tr><th>Klasse</th><th>Aktion</th><th>Begründung</th><th>Eingang</th><th></th></tr></thead><tbody>
     ${offen.map((f) => `<tr><td>${tag(f.risikoklasse, f.risikoklasse, KLASSE_TEXT[f.risikoklasse])}</td><td>${esc(AKTION_TEXT[f.aktion] || f.aktion)}</td>
       <td>${esc(f.begruendung || "")}${f.servicefall_id ? ` · <a href="#" data-fall="${esc(f.servicefall_id)}">Vorgang</a>` : ""}</td><td>${zeit(f.erstellt)}</td>
-      <td><div class="aktionen"><button class="gefahr" data-entscheidung="${esc(f.id)}" data-ja="0"${sperre(f)}>Ablehnen</button><button data-entscheidung="${esc(f.id)}" data-ja="1"${sperre(f)}>Freigeben</button></div></td></tr>`).join("")
+      <td><div class="aktionen"><button class="gefahr" data-entscheidung="${esc(f.id)}" data-ja="0"${sperre(f)}>Ablehnen</button><button data-entscheidung="${esc(f.id)}" data-ja="1" data-klasse="${esc(f.risikoklasse)}"${sperre(f)}>Freigeben</button></div></td></tr>`).join("")
       || `<tr><td colspan="5">Keine offenen Freigaben.</td></tr>`}
     </tbody></table></div></div>
     <h2 style="margin-top:24px">Zuletzt freigegeben</h2>
     <div class="karte"><table><tbody>${erledigt.slice(-8).reverse().map((f) => `<tr><td>${tag(f.risikoklasse)}</td><td>${esc(AKTION_TEXT[f.aktion] || f.aktion)}</td><td>${esc(f.entschieden_von)}</td><td>${esc(f.begruendung || "")}</td></tr>`).join("") || "<tr><td>–</td></tr>"}</tbody></table></div>`;
   ziel.querySelectorAll("[data-entscheidung]").forEach((b) => b.addEventListener("click", async () => {
     b.disabled = true;
-    try { await api(`/freigaben/${b.dataset.entscheidung}/entscheidung`, { methode: "POST", daten: { freigeben: b.dataset.ja === "1", wer: "buero" } }); zeigen(); }
+    const wer = b.dataset.klasse === "C" ? "inhaber" : "buero";  // ohne Anmeldung: Klasse C ausdrücklich als Inhaber, mit OIDC zählt der Token
+    try { await api(`/freigaben/${b.dataset.entscheidung}/entscheidung`, { methode: "POST", daten: { freigeben: b.dataset.ja === "1", wer } }); zeigen(); }
     catch (e) { b.disabled = false; alert(e.message); }
   }));
   ziel.querySelectorAll("a[data-fall]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); fallDetail(a.dataset.fall); }));
@@ -791,7 +792,7 @@ async function zeitenAnsicht(ziel) {
     <div class="karte" style="margin-bottom:16px"><h2>Nachtragen</h2><div class="zeile">
       ${!wir.eingeschraenkt ? `<label>Monteur <select id="z-ressource">${ressourcen.map((r) => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join("")}</select></label>` : ""}
       <label>Art <select id="z-art">${Object.entries(ZEITART_TEXT).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></label>
-      <label>Beginn <input id="z-beginn" type="datetime-local" value="${esc(lokalIso())}"></label><label>Ende <input id="z-ende" type="datetime-local" value="${esc(lokalIso())}"></label>
+      <label>Beginn <input id="z-beginn" type="datetime-local" value="${esc(lokalIso())}"></label><label>Ende <input id="z-ende" type="datetime-local" value="${esc(lokalIso(new Date(Date.now() + 3600000)))}"></label>
       <label>Notiz <input id="z-notiz"></label><button id="z-anlegen" class="leise">Eintragen</button></div><p id="z-status"></p></div>
     <div class="karte"><div class="tabelle-rahmen"><table><thead><tr><th>Beginn</th><th>Ende</th><th>Dauer</th><th>Monteur</th><th>Art</th><th>Quelle</th><th>Notiz</th></tr></thead><tbody>
       ${liste.map((z) => `<tr><td>${esc(zeit(z.beginn))}</td><td>${z.ende ? esc(UHRZEIT.format(new Date(z.ende))) : tag("läuft", "offen")}</td><td>${esc(dauerText(z.minuten))}</td><td>${esc(name(z.ressource_id))}</td><td>${esc(ZEITART_TEXT[z.art])}</td><td>${tag(z.quelle, "neutral")}</td><td>${esc(z.notiz || "")}</td></tr>`).join("") || `<tr><td colspan="7">Keine Zeiten in diesem Monat.</td></tr>`}</tbody></table></div></div>`;
@@ -835,6 +836,7 @@ async function betriebAnsicht(ziel) {
   ziel.querySelectorAll("[data-bl]").forEach((b) => b.addEventListener("click", async () => { try { await api(`/bereitschaft/${b.dataset.bl}`, { methode: "DELETE" }); zeigen(); } catch (e) { alert(e.message); } }));
   $("#fr-anlegen")?.addEventListener("click", async () => {
     const [typ, id] = $("#fr-bezug").value.split(":");
+    if ($("#fr-bez").value.trim().length < 2 || !$("#fr-faellig").value) { $("#fr-status").innerHTML = `<span class="fehler">Bezeichnung und Fälligkeit angeben.</span>`; return; }
     try { await api("/fristen", { methode: "POST", daten: { art: $("#fr-art").value, bezeichnung: $("#fr-bez").value, faellig: $("#fr-faellig").value, intervall_monate: Number($("#fr-intervall").value) || null, bezug_typ: typ, bezug_id: id || null } }); zeigen(); }
     catch (e) { $("#fr-status").innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
   });
@@ -1042,6 +1044,7 @@ async function abwesenheitenVerwalten(ziel, ressourcen) {
       <button id="ab-anlegen" class="leise">Eintragen</button></div><p id="ab-status"></p>`;
   ziel.append(teil);
   $("#ab-anlegen", teil).addEventListener("click", async () => {
+    if (!$("#ab-von", teil).value) { $("#ab-status", teil).innerHTML = `<span class="fehler">Datum „Von“ angeben.</span>`; return; }
     try { await api("/abwesenheiten", { methode: "POST", daten: { ressource_id: $("#ab-ressource", teil).value, von: $("#ab-von", teil).value, bis: $("#ab-bis", teil).value || $("#ab-von", teil).value, art: $("#ab-art", teil).value } }); zeigen(); }
     catch (e) { $("#ab-status", teil).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
   });
