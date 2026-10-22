@@ -3,50 +3,357 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{auftritt.marke}} · Büroentlastung für SHK-Betriebe</title>
-  <meta name="description" content="Bedarfsanalyse und Pilotentwicklung: Entlastung von Telefon und Büro für SHK-Handwerksbetriebe im Raum Köln.">
+  <title>{{auftritt.marke}} · Das digitale Backoffice für SHK-Betriebe</title>
+  <meta name="description" content="KI-Telefonagent, Kundenverwaltung, Disposition, Angebote, Rechnungen und Belegeingang für Sanitär-, Heizungs- und Klimabetriebe. Nichts verlässt den Betrieb ohne Ihre Freigabe.">
+  <meta name="theme-color" content="#1b2129">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23b25a26'/%3E%3Cpath d='M11 8v16M22 8l-9 8 9 8' stroke='%23fff' stroke-width='3.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<header><a class="marke" href="./">{{auftritt.marke}}</a></header>
-<main>
-  <h1>Weniger Büro, keine verlorenen Anfragen, für SHK-Betriebe.</h1>
-  <p class="lead">Wir untersuchen gemeinsam mit Sanitär-, Heizungs- und Klimabetrieben im Raum Köln,
-    wo Anfragen, Termine und Papierkram im Alltag liegen bleiben, und entwickeln daraus eine Lösung,
-    die das Büro entlastet.</p>
 
-  <p class="hinweis"><strong>Stand des Vorhabens:</strong> Wir befinden uns in der Bedarfsanalyse und
-    Entwicklungsphase. Es gibt noch kein fertiges Produkt zu kaufen. Wir suchen Betriebe, die uns
-    ihre Abläufe schildern, und einzelne Pilotbetriebe, die frühe Versionen im Alltag erproben.</p>
-
-  <h2>Das Problem, das wir untersuchen</h2>
-  <ul>
-    <li>Der Chef und die Monteure sind auf der Baustelle, das Telefon klingelt ins Leere.</li>
-    <li>Rückrufe, Terminabstimmung und Angebotsvorbereitung fressen die Abende.</li>
-    <li>Informationen aus Anrufen landen auf Zetteln statt in der Handwerkersoftware.</li>
-  </ul>
-
-  <h2>Woran wir arbeiten</h2>
-  <p>Ein digitales Backoffice, das Anrufe entgegennimmt, das Anliegen strukturiert erfasst, Termine
-    vorschlägt und die Daten in die vorhandene Handwerkersoftware überträgt. Entscheidungen, etwa
-    über Angebote und Rechnungen, bleiben beim Betrieb: Nichts geht ohne Freigabe hinaus.</p>
-
-  <h2>Was Sie von einem Gespräch haben</h2>
-  <p>Ein Interview dauert etwa 20 Minuten. Sie erhalten im Gegenzug unsere anonymisierte Auswertung:
-    wie andere Betriebe vergleichbarer Größe Anfragen, Termine und Büroarbeit organisieren.
-    Es entstehen keine Kosten und keine Verpflichtungen.</p>
-
-  <div class="kontakt">
-    <strong>Kontakt</strong><br>
-    E-Mail: <a href="mailto:{{kontakt.email}}">{{kontakt.email}}</a><br>
-    Telefon: <a href="tel:{{kontakt.telefon_e164}}">{{kontakt.telefon}}</a><br>
-    {{anbieter.gesellschafter_1}} und {{anbieter.gesellschafter_2}}
+<header class="kopf">
+  <div class="wrap">
+    <a class="marke" href="./" aria-label="{{auftritt.marke}} Startseite">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" style="fill:var(--kupfer)"/><path d="M11 8v16M22 8l-9 8 9 8" stroke="#fff" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      {{auftritt.marke}}
+    </a>
+    <nav class="nav" aria-label="Hauptnavigation">
+      <a href="#leistungen">Leistungen</a>
+      <a href="#ablauf">So funktioniert es</a>
+      <a href="#preise">Preise</a>
+      <a href="#fragen">Fragen</a>
+    </nav>
+    <a class="knopf klein" href="#demo">Demo anfragen</a>
   </div>
+</header>
+
+<main>
+  <div class="hero">
+    <div class="wrap">
+      <div>
+        <span class="eyebrow">Digitales Backoffice für Sanitär, Heizung, Klima</span>
+        <h1>Jeder Anruf angenommen. <em>Auch wenn Sie auf der Baustelle stehen.</em></h1>
+        <p class="lead">{{auftritt.marke}} nimmt Anrufe für Ihren Betrieb entgegen, erfasst das Anliegen vollständig,
+          schlägt Termine vor und bereitet Angebote, Rechnungen und Belege vor. Entschieden wird bei Ihnen:
+          Nichts verlässt den Betrieb ohne Ihre Freigabe.</p>
+        <div class="aktionen">
+          <a class="knopf" href="#demo">Demo anfragen</a>
+          <a class="knopf zweit" href="#preise">Preise ansehen</a>
+        </div>
+        <p class="pilot">Pilotphase: Wir nehmen derzeit eine begrenzte Zahl Betriebe im Raum Köln auf.</p>
+      </div>
+
+      <figure style="margin:0">
+        <div class="protokoll" role="img" aria-label="Beispiel eines erfassten Anrufs">
+          <div class="protokoll-kopf">
+            <strong>Neuer Anruf · 19:42 Uhr</strong>
+            <span class="etikett">Dringend</span>
+          </div>
+          <dl>
+            <dt>Anliegen</dt><dd>Heizung ausgefallen, kein Warmwasser</dd>
+            <dt>Anlage</dt><dd>Gas-Brennwerttherme, ca. 12 Jahre</dd>
+            <dt>Ort</dt><dd>Einfamilienhaus, Köln-Sülz</dd>
+            <dt>Bestandskunde</dt><dd>Ja, Wartungsvertrag</dd>
+            <dt>Vorschlag</dt><dd>Bereitschaft informiert, Termin morgen 8–10 Uhr</dd>
+          </dl>
+          <div class="protokoll-fuss">
+            <span class="etikett gut">Wartet auf Freigabe</span>
+            <span class="knopf klein">Freigeben</span>
+          </div>
+        </div>
+        <figcaption class="bildunterschrift">Beispieldarstellung mit fiktiven Angaben</figcaption>
+      </figure>
+    </div>
+  </div>
+
+  <div class="leiste">
+    <div class="wrap">
+      <ul>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span><strong>Rund um die Uhr erreichbar</strong>Auch abends, am Wochenende und in der Mittagspause.</span></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 12l2 2 4-4"/><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>
+          <span><strong>Freigabe vor Versand</strong>Angebote, Rechnungen und Mahnungen gehen nur mit Ihrem Klick hinaus.</span></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M7 20h10M12 16v4"/></svg>
+          <span><strong>Server in Deutschland</strong>Alle Dienstleister vertraglich nach Art. 28 DSGVO gebunden.</span></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+          <span><strong>Ihre Software bleibt</strong>Daten fließen in Ihre Handwerker- und Buchhaltungssoftware.</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <section>
+    <div class="wrap">
+      <div class="kopfzeile">
+        <span class="eyebrow">Das Problem</span>
+        <h2>Das Telefon klingelt immer dann, wenn niemand rangehen kann.</h2>
+        <p class="lead">In kleinen SHK-Betrieben liegt das Büro meist bei der Inhaberin, dem Inhaber oder einer Teilzeitkraft.
+          Die Folge kennen Sie.</p>
+      </div>
+      <div class="drei">
+        <div class="problem">
+          <span class="zahl">01</span>
+          <h3>Verpasste Anfragen</h3>
+          <p>Wer auf die Mailbox spricht, ruft oft schon beim nächsten Betrieb an. Gerade Notdienstfälle gehen so verloren.</p>
+        </div>
+        <div class="problem">
+          <span class="zahl">02</span>
+          <h3>Büroarbeit am Abend</h3>
+          <p>Rückrufe, Terminabstimmung, Angebote und Rechnungen landen nach Feierabend auf dem Küchentisch.</p>
+        </div>
+        <div class="problem">
+          <span class="zahl">03</span>
+          <h3>Zettelwirtschaft</h3>
+          <p>Was am Telefon besprochen wurde, steht auf einem Zettel statt in der Software. Rapporte und Belege fehlen.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="leistungen" class="grau">
+    <div class="wrap">
+      <div class="kopfzeile">
+        <span class="eyebrow">Leistungen</span>
+        <h2>Ein Backoffice vom ersten Anruf bis zum Beleg beim Steuerberater.</h2>
+        <p class="lead">Die Bausteine greifen ineinander: Was der Telefonagent aufnimmt, steht sofort im Kundenstamm,
+          im Kalender und später auf Angebot und Rechnung.</p>
+      </div>
+      <div class="module">
+        <article class="modul">
+          <div class="symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg></div>
+          <h3>KI-Telefonagent</h3>
+          <p>Nimmt Anrufe in natürlicher Sprache an, wenn Sie nicht können, und gibt sich als KI-Assistent zu erkennen.</p>
+          <ul>
+            <li>Erfasst Anliegen, Anlage, Adresse und Dringlichkeit</li>
+            <li>Erkennt Notfälle und benachrichtigt die Bereitschaft</li>
+            <li>Schlägt freie Termine aus Ihrem Kalender vor</li>
+            <li>Ihre bisherige Rufnummer bleibt, per Rufumleitung</li>
+          </ul>
+        </article>
+        <article class="modul">
+          <div class="symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></div>
+          <h3>Kundenverwaltung und Disposition</h3>
+          <p>Ein Kundenstamm mit vollständiger Historie und ein Einsatzplan, der zu Ihren Monteuren passt.</p>
+          <ul>
+            <li>Kontakte, Anlagen und Vorgänge an einem Ort</li>
+            <li>Terminplanung nach Qualifikation, Ort und Verfügbarkeit</li>
+            <li>Terminerinnerung per SMS an Ihre Kunden</li>
+            <li>Mobile Ansicht „Mein Einsatz“ für die Monteure</li>
+          </ul>
+        </article>
+        <article class="modul">
+          <div class="symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg></div>
+          <h3>Angebote, Rechnungen, Mahnwesen</h3>
+          <p>Vom Rapport zur Rechnung, ohne doppeltes Abtippen.</p>
+          <ul>
+            <li>Angebote aus Ihrem Artikelstamm</li>
+            <li>Digitaler Rapport mit Unterschrift des Kunden</li>
+            <li>E-Rechnung im Format XRechnung, zusätzlich als PDF</li>
+            <li>Offene Posten und Mahnungen, jeweils nach Ihrer Freigabe</li>
+          </ul>
+        </article>
+        <article class="modul">
+          <div class="symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16v6H4zM6 10v10h12V10"/><path d="M10 14h4"/></svg></div>
+          <h3>Belegeingang und Steuertools</h3>
+          <p>Eingangsrechnungen und Quittungen kommen dort an, wo Ihr Steuerberater sie braucht.</p>
+          <ul>
+            <li>Per Scanner, E-Mail-Postfach oder Handykamera</li>
+            <li>Dublettenschutz und Prüfung vor der Weitergabe</li>
+            <li>Übergabe an DATEV, Lexware Office oder sevDesk</li>
+            <li>Keine Kontierung: Die Buchung bleibt bei Ihrer Kanzlei</li>
+          </ul>
+        </article>
+      </div>
+      <div class="zusatz" aria-label="Weitere Funktionen">
+        <span>Zeiterfassung</span><span>Wartungsverträge</span><span>Bereitschaftsplan</span><span>Fristen</span>
+        <span>Abwesenheiten</span><span>Nachkalkulation</span><span>Bewertungsanfrage</span><span>Auswertungen</span>
+        <span>Anfragen per Webformular und E-Mail</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="ablauf">
+    <div class="wrap">
+      <div class="kopfzeile">
+        <span class="eyebrow">So funktioniert es</span>
+        <h2>Vom Anruf bis zur Rechnung in vier Schritten.</h2>
+      </div>
+      <ol class="ablauf">
+        <li><h3>Anruf</h3><p>Der Telefonagent nimmt an, wenn im Betrieb niemand frei ist, und führt ein strukturiertes Gespräch.</p></li>
+        <li><h3>Erfassung</h3><p>Anliegen, Kunde und Anlage stehen sofort als Vorgang im System, mit Terminvorschlag.</p></li>
+        <li><h3>Freigabe</h3><p>Sie prüfen auf dem Handy oder am Rechner und geben mit einem Klick frei oder ändern.</p></li>
+        <li><h3>Übergabe</h3><p>Termin, Angebot, Rechnung und Belege gehen an Kunde, Monteur und Steuertool.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="dunkel">
+    <div class="wrap zwei">
+      <div>
+        <span class="eyebrow">Sie behalten die Kontrolle</span>
+        <h2 style="margin:.7rem 0 1rem">Automatisch, wo es sicher ist. Mit Freigabe, wo es zählt.</h2>
+        <p class="lead">Jeder Vorgang ist einer von drei Freigabeklassen zugeordnet. So erledigt {{auftritt.marke}}
+          Routine selbstständig, während alles mit rechtlicher oder finanzieller Wirkung bei Ihnen bleibt.</p>
+        <ul class="haken">
+          <li><strong>Transparente KI.</strong> Der Telefonagent sagt zu Beginn jedes Gesprächs, dass er ein KI-System ist (Art. 50 KI-Verordnung).</li>
+          <li><strong>Keine Aufzeichnung ohne Einwilligung.</strong> Gesprächsinhalte werden nur mit Zustimmung des Anrufers gespeichert.</li>
+          <li><strong>Keine Steuerberatung.</strong> Belege werden übergeben, nicht kontiert (§ 6 Nr. 3 StBerG).</li>
+          <li><strong>Löschkonzept.</strong> Daten werden nach festen Fristen automatisch gelöscht, soweit keine Aufbewahrungspflicht besteht.</li>
+        </ul>
+      </div>
+      <div class="klassen">
+        <div class="klasse"><b>A</b><div><h3>Läuft automatisch</h3><p>Anruf annehmen, Anliegen erfassen, Kundenstamm pflegen, Terminerinnerung senden.</p></div></div>
+        <div class="klasse"><b>B</b><div><h3>Vorbereitet, Sie bestätigen</h3><p>Termin zusagen, Angebot versenden, Beleg an das Steuertool übergeben.</p></div></div>
+        <div class="klasse"><b>C</b><div><h3>Nur durch die Inhaberin oder den Inhaber</h3><p>Rechnung stellen, Storno, Mahnung. Ohne ausdrückliche Freigabe geschieht nichts.</p></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="preise">
+    <div class="wrap">
+      <div class="kopfzeile">
+        <span class="eyebrow">Preise</span>
+        <h2>Feste Monatspauschale. Keine versteckten Kosten.</h2>
+        <p class="lead">Alle Preise zuzüglich Umsatzsteuer. Lizenzen für Buchhaltungssoftware wie DATEV, Lexware Office
+          oder sevDesk schließen Sie wie bisher selbst ab.</p>
+      </div>
+      <div class="preise">
+        <article class="paket">
+          <h3>Basis</h3>
+          <p class="fuer">Für Betriebe, die vor allem keinen Anruf mehr verpassen wollen.</p>
+          <div class="preis">349 € <small>/ Monat</small></div>
+          <div class="einrichtung">Einrichtung einmalig 1.490 €</div>
+          <ul>
+            <li>KI-Telefonagent, 300 Gesprächsminuten inklusive</li>
+            <li>Kundenverwaltung mit Kontakthistorie</li>
+            <li>Terminvorschläge mit Kalenderabgleich</li>
+            <li>SMS-Terminerinnerung</li>
+            <li>Rückrufmanagement und Notfallweiterleitung</li>
+          </ul>
+          <a class="knopf zweit" href="#demo">Demo anfragen</a>
+        </article>
+        <article class="paket empfohlen">
+          <span class="etikett">Empfehlung</span>
+          <h3>Pro</h3>
+          <p class="fuer">Für Betriebe, die Telefon und Büroarbeit gemeinsam entlasten wollen.</p>
+          <div class="preis">649 € <small>/ Monat</small></div>
+          <div class="einrichtung">Einrichtung einmalig 2.990 €</div>
+          <ul>
+            <li class="basis">Alles aus Basis</li>
+            <li>600 Gesprächsminuten inklusive</li>
+            <li>Disposition und mobile Monteursansicht</li>
+            <li>Anfragen per E-Mail und Webformular</li>
+            <li>Angebote, Rapport mit Unterschrift, E-Rechnung</li>
+            <li>Offene Posten, Mahnwesen, Bewertungsanfrage</li>
+          </ul>
+          <a class="knopf" href="#demo">Demo anfragen</a>
+        </article>
+        <article class="paket">
+          <h3>Premium</h3>
+          <p class="fuer">Für größere Betriebe mit Kundendienst, Wartung und mehreren Teams.</p>
+          <div class="preis">999 € <small>/ Monat</small></div>
+          <div class="einrichtung">Einrichtung einmalig 4.990 €</div>
+          <ul>
+            <li class="basis">Alles aus Pro</li>
+            <li>1.000 Gesprächsminuten inklusive</li>
+            <li>Belegeingang mit Übergabe an DATEV, Lexware Office oder sevDesk</li>
+            <li>Wartungsverträge, Bereitschaftsplan, Zeiterfassung</li>
+            <li>Auswertungen und Nachkalkulation</li>
+            <li>Mehrere Standorte, bevorzugter Support</li>
+          </ul>
+          <a class="knopf zweit" href="#demo">Demo anfragen</a>
+        </article>
+      </div>
+      <div class="kleingedrucktes">
+        <p>Weitere Gesprächsminuten 0,25 € je Minute. Mindestlaufzeit 12 Monate, danach monatlich kündbar.</p>
+        <p>Angebot ausschließlich für Unternehmer im Sinne von § 14 BGB. Für Pilotbetriebe vereinbaren wir die Einrichtung individuell.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="grau">
+    <div class="wrap zwei">
+      <div class="kopfzeile" style="margin:0">
+        <span class="eyebrow">Einführung</span>
+        <h2>Wir richten alles ein. Sie arbeiten weiter wie gewohnt.</h2>
+        <p class="lead">Die Einführung übernehmen wir vollständig. Sie brauchen weder neue Hardware noch eine neue Telefonanlage.</p>
+      </div>
+      <ol class="zeitstrahl">
+        <li><div><h3>Erstgespräch</h3><p>Wir lernen Ihre Abläufe, Ihre Software und Ihre typischen Anrufe kennen.</p></div></li>
+        <li><div><h3>Einrichtung</h3><p>Stammdaten, Leistungen und Kalender übernehmen, Begrüßung und Gesprächsregeln festlegen, Software anbinden.</p></div></li>
+        <li><div><h3>Probebetrieb</h3><p>Testanrufe mit Ihnen, Feinschliff an Fragen und Weiterleitungen, Einweisung von Büro und Monteuren.</p></div></li>
+        <li><div><h3>Live</h3><p>Rufumleitung einschalten. Die Rückkehr zur alten Lösung ist jederzeit in wenigen Minuten möglich.</p></div></li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="fragen">
+    <div class="wrap">
+      <div class="kopfzeile">
+        <span class="eyebrow">Häufige Fragen</span>
+        <h2>Was Betriebe uns fragen.</h2>
+      </div>
+      <div class="faq">
+        <details><summary>Merken Anrufer, dass sie mit einer KI sprechen?</summary>
+          <p>Ja. Der Telefonagent stellt sich zu Beginn als KI-Assistent Ihres Betriebs vor. Das ist gesetzlich vorgeschrieben
+            und schafft Vertrauen. Wünscht ein Anrufer einen Menschen, wird ein Rückruf vereinbart oder, im Notfall, die Bereitschaft verständigt.</p></details>
+        <details><summary>Behalte ich meine Telefonnummer?</summary>
+          <p>Ja. Ihre Nummer bleibt bei Ihrem bisherigen Anbieter. Sie legen lediglich fest, wann Anrufe umgeleitet werden,
+            etwa nach dem dritten Klingeln, außerhalb der Bürozeiten oder immer.</p></details>
+        <details><summary>Mit welcher Software arbeitet {{auftritt.marke}} zusammen?</summary>
+          <p>Anbindungen an DATEV (Belegtransfer), Lexware Office und sevDesk sind vorhanden; Anbindungen an Handwerkersoftware wie
+            openHandwerk und pds sind vorbereitet. Welche Software Sie nutzen, klären wir im Erstgespräch.</p></details>
+        <details><summary>Bucht {{auftritt.marke}} meine Belege?</summary>
+          <p>Nein. Wir erfassen, prüfen auf Vollständigkeit und übergeben Belege an Ihr Steuertool. Kontierung und Buchung
+            bleiben nach dem Steuerberatungsgesetz bei Ihnen bzw. Ihrer Kanzlei.</p></details>
+        <details><summary>Wo werden meine Daten verarbeitet?</summary>
+          <p>Die Plattform läuft auf Servern in Deutschland. Spracherkennung und Sprachausgabe erfolgen in einem
+            Rechenzentrum in der EU. Mit Ihnen schließen wir einen Auftragsverarbeitungsvertrag nach Art. 28 DSGVO, die eingesetzten
+            Unterauftragsverarbeiter legen wir vollständig offen.</p></details>
+        <details><summary>Was passiert bei einem Notfall außerhalb der Geschäftszeiten?</summary>
+          <p>Der Telefonagent erkennt typische Notfälle wie Heizungsausfall im Winter oder Wasserschaden und verständigt die
+            eingeteilte Bereitschaft nach Ihrem Bereitschaftsplan per SMS.</p></details>
+        <details><summary>Wie lange bin ich gebunden?</summary>
+          <p>Die Mindestlaufzeit beträgt 12 Monate, danach ist der Vertrag monatlich kündbar. Bei Vertragsende stellen wir
+            Ihnen Ihre Daten zum Export bereit und löschen sie anschließend.</p></details>
+      </div>
+    </div>
+  </section>
+
+  <section id="demo" style="padding-top:0">
+    <div class="wrap">
+      <div class="demo">
+        <div>
+          <span class="eyebrow">Demo anfragen</span>
+          <h2>Hören Sie sich an, wie {{auftritt.marke}} für Ihren Betrieb telefoniert.</h2>
+          <p>In 30 Minuten zeigen wir Ihnen den Telefonagenten mit einem Beispiel aus Ihrem Alltag und gehen gemeinsam
+            durch Kundenverwaltung, Freigabe und Rechnung. Unverbindlich und kostenfrei.</p>
+        </div>
+        <div class="demo-kontakt">
+          <a class="knopf" href="mailto:{{kontakt.email}}?subject=Demo-Anfrage&amp;body=Guten%20Tag%2C%0A%0Awir%20interessieren%20uns%20f%C3%BCr%20eine%20Demo.%0A%0ABetrieb%3A%0AAnsprechpartner%3A%0AOrt%3A%0AAnzahl%20Monteure%3A%0AEingesetzte%20Software%20%28z.%20B.%20openHandwerk%2C%20pds%2C%20Lexware%29%3A%0AR%C3%BCckruf%20erw%C3%BCnscht%20am%20%28Tag%2C%20Uhrzeit%29%3A%0ATelefon%3A%0A">Demo per E-Mail anfragen</a>
+          <a class="knopf zweit" href="tel:{{kontakt.telefon_e164}}">Anrufen: {{kontakt.telefon}}</a>
+          <small>{{kontakt.email}}</small>
+        </div>
+      </div>
+    </div>
+  </section>
 </main>
-<footer>
-  <a href="impressum.html">Impressum</a>
-  <a href="datenschutz.html">Datenschutz</a>
-  <a href="einseiter.pdf">Einseiter (PDF)</a>
+
+<footer class="fuss">
+  <div class="wrap">
+    <div>
+      <a class="marke" href="./">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" style="fill:var(--kupfer)"/><path d="M11 8v16M22 8l-9 8 9 8" stroke="#fff" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        {{auftritt.marke}}
+      </a>
+      <p style="margin-top:.6rem">Digitales Backoffice für SHK-Betriebe · {{anbieter.plz_ort}}</p>
+    </div>
+    <nav aria-label="Rechtliches">
+      <a href="#leistungen">Leistungen</a>
+      <a href="#preise">Preise</a>
+      <a href="impressum.html">Impressum</a>
+      <a href="datenschutz.html">Datenschutz</a>
+    </nav>
+  </div>
 </footer>
 </body>
 </html>

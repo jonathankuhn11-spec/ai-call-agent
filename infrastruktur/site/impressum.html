@@ -5,11 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Impressum · {{auftritt.marke}}</title>
   <meta name="robots" content="noindex">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23b25a26'/%3E%3Cpath d='M11 8v16M22 8l-9 8 9 8' stroke='%23fff' stroke-width='3.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<header><a class="marke" href="./">{{auftritt.marke}}</a></header>
-<main>
+<header class="kopf">
+  <div class="wrap">
+    <a class="marke" href="./" aria-label="{{auftritt.marke}} Startseite">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" style="fill:var(--kupfer)"/><path d="M11 8v16M22 8l-9 8 9 8" stroke="#fff" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      {{auftritt.marke}}
+    </a>
+    <nav class="nav" aria-label="Hauptnavigation">
+      <a href="./#leistungen">Leistungen</a>
+      <a href="./#preise">Preise</a>
+    </nav>
+    <a class="knopf klein" href="./#demo">Demo anfragen</a>
+  </div>
+</header>
+<main class="wrap rechtstext">
   <h1>Impressum</h1>
   <p>Angaben gemäß § 5 Digitale-Dienste-Gesetz (DDG)</p>
 
@@ -33,9 +46,14 @@
 
   <p><small>Stand: {{auftritt.stand}}</small></p>
 </main>
-<footer>
-  <a href="./">Startseite</a>
-  <a href="datenschutz.html">Datenschutz</a>
+<footer class="fuss">
+  <div class="wrap">
+    <span>{{auftritt.marke}} · Digitales Backoffice für SHK-Betriebe</span>
+    <nav aria-label="Rechtliches">
+      <a href="./">Startseite</a>
+      <a href="datenschutz.html">Datenschutz</a>
+    </nav>
+  </div>
 </footer>
 </body>
 </html>

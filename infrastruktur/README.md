@@ -17,6 +17,18 @@ infrastruktur/
 └── vorlagen/           Signatur (txt/html), Mail nach Telefonat, Widerspruchsbestätigung, CSV-Schema
 ```
 
+## Marke und Website
+
+Marke ist **KUHN** (`auftritt.marke`). Die Startseite ist eine vollständige Produktseite: Leistungen
+(Telefonagent, Kundenverwaltung/Disposition, Angebote/Rechnungen/Mahnwesen, Belegeingang/Steuertools),
+Ablauf, Freigabeklassen A/B/C, Preise (349/649/999 € netto zzgl. Einrichtung 1.490/2.990/4.990 €), Einführung,
+FAQ und Demo-Anfrage. Die Demo-Anfrage läuft bewusst über `mailto:` mit vorausgefülltem Text, nicht über ein
+Formular: kein Backend, kein Cookie-Banner, keine zusätzliche Datenverarbeitung. Farben und Logo (Kupfer,
+Anthrazit, Bildmarke „K“ als Inline-SVG) stehen in `site/styles.css` bzw. im Kopf jeder Seite.
+
+Vor einer Markenanmeldung oder dem Logodruck eine Markenrecherche zu „KUHN“ durchführen (DPMA, EUIPO):
+Das Zeichen ist für andere Waren bereits eingetragen.
+
 ## Lokal bauen
 
 ```bash
