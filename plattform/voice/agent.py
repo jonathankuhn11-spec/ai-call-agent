@@ -51,15 +51,24 @@ def stt_erzeugen():
 
 
 def tts_erzeugen():
+    """Sprachausgabe; die eigene Stimme des Inhabers kommt als geklonte Stimme über TTS_STIMME (siehe STIMME.md):
+    azure       Standardstimme (de-DE-KatjaNeural) oder Custom Neural Voice (TTS_STIMME = Stimmname, AZURE_TTS_ENDPOINT_ID = Deployment)
+    elevenlabs  TTS_STIMME = voice_id des Klons (Instant/Professional Voice Clone)
+    cartesia    TTS_STIMME = voice id des Klons (Sonic)"""
     anbieter = os.environ.get("TTS_ANBIETER", "azure")
+    stimme = os.environ.get("TTS_STIMME")
     if anbieter == "azure":
         from livekit.plugins import azure
-        return azure.TTS(voice=os.environ.get("TTS_STIMME", "de-DE-KatjaNeural"), language="de-DE",
-                         speech_region=os.environ.get("AZURE_SPEECH_REGION", "germanywestcentral"))
+        zusatz = {"endpoint_id": os.environ["AZURE_TTS_ENDPOINT_ID"]} if os.environ.get("AZURE_TTS_ENDPOINT_ID") else {}
+        return azure.TTS(voice=stimme or "de-DE-KatjaNeural", language="de-DE",
+                         speech_region=os.environ.get("AZURE_SPEECH_REGION", "germanywestcentral"), **zusatz)
     if anbieter == "elevenlabs":
         from livekit.plugins import elevenlabs
-        return elevenlabs.TTS(voice_id=os.environ["TTS_STIMME"], model="eleven_flash_v2_5", language="de")
-    raise ValueError(f"TTS_ANBIETER {anbieter!r} unbekannt (azure, elevenlabs)")
+        return elevenlabs.TTS(voice_id=os.environ["TTS_STIMME"], model=os.environ.get("TTS_MODELL", "eleven_flash_v2_5"), language="de")
+    if anbieter == "cartesia":
+        from livekit.plugins import cartesia
+        return cartesia.TTS(voice=os.environ["TTS_STIMME"], model=os.environ.get("TTS_MODELL", "sonic-2"), language="de")
+    raise ValueError(f"TTS_ANBIETER {anbieter!r} unbekannt (azure, elevenlabs, cartesia)")
 
 
 def llm_erzeugen():

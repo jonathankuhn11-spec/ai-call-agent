@@ -7,6 +7,9 @@
 # ein zweiter Aufruf bricht ab, damit nichts überschrieben wird.
 set -eu
 VERSION=${1:?Version angeben, z. B. 0.2.0}
+SHK_BUILD_LOKAL=0
+[ "${2:-}" = "--lokal" ] && SHK_BUILD_LOKAL=1   # Images auf dem Server bauen statt aus GHCR ziehen
+export SHK_BUILD_LOKAL
 REF=${2:-plattform/backend-grundgeruest}
 cd "$(dirname "$0")/../.."
 WURZEL=$(pwd)
@@ -37,8 +40,7 @@ for h in "$SHK_DOMAIN" "$AUTH_DOMAIN"; do
 done
 
 zufall() { openssl rand -base64 32 | tr -d '/+=' | cut -c1-40; }
-INTEGRATIONS_KEY=$(docker run --rm "ghcr.io/jonathankuhn11-spec/shk-core:$VERSION" python -m core schluessel 2>/dev/null \
-  || python3 -c 'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')
+INTEGRATIONS_KEY=$(python3 -c 'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')  # Fernet-Schlüssel, 32 Byte
 
 umask 077
 sed -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(zufall)|" \
@@ -58,6 +60,7 @@ sed -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(zufall)|" \
     -e "s|^BETRIEB_NAME=.*|BETRIEB_NAME=$BETRIEB_NAME|" \
     .env.example > .env
 grep -q '^INTEGRATIONS_KEY=' .env || echo "INTEGRATIONS_KEY=$INTEGRATIONS_KEY" >> .env
+echo "SHK_BUILD_LOKAL=$SHK_BUILD_LOKAL" >> .env
 . ./.env
 # LiveKit-Schlüsselpaar in sip.yaml spiegeln (Profil voice; harmlos, wenn Telefonie noch nicht läuft)
 sed -i -e "s|^api_key: .*|api_key: $LIVEKIT_API_KEY|" -e "s|^api_secret: .*|api_secret: $LIVEKIT_API_SECRET|" deploy/livekit/sip.yaml

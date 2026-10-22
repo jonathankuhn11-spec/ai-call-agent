@@ -68,5 +68,6 @@ Lokal ohne Telefon: `python -m voice.agent dev` und im LiveKit Agents Playground
 ## Offen
 
 - Latenzmessung Ende-zu-Ende (Ziel unter 1 s bis zur ersten Silbe) mit der gewählten STT/TTS-Kombination.
+- Eigene Stimme des Inhabers als geklonte TTS-Stimme: Anbieter, Aufnahmen, Einwilligung und Konfiguration in [STIMME.md](STIMME.md).
 - Eval-Set aus echten Pilotgesprächen (Extraktion, Terminwahl), analog zum UAT des PV-Prototyps.
 - Notdienst-Weiterleitung an eine Bereitschaftsnummer (`ctx.transfer_sip_participant`).

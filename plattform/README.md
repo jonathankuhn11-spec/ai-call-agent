@@ -31,6 +31,7 @@ plattform/
 ├── deploy/postgres/      Datenbankrollen (shk_app unter RLS, shk_system) und Init-Skripte
 ├── deploy/server/        Serverbetrieb: Compose-Override, Caddy, cloud-init, Deploy, Backup
 ├── HOSTING.md            Hosting in Deutschland, Einrichtung, Sicherung, Sicherheitskonzept
+├── STIMME.md             Eigene Stimme des Inhabers für den Sprachagenten (Voice Cloning, Anbieter, Einwilligung)
 ├── docker-compose.yml    Profile: Basis, voice, ops (n8n), auth (Keycloak), ontologie (Fuseki)
 ├── KATALOG.md            Open-Source-Komponenten mit Lizenz und Einbindungsart
 ├── drittanbieter/        mitgeführte Fremdartefakte: Lizenztexte, Brick-Ontologie, KoSIT-Validator, Wheelhouse, Image-Spiegel (spiegeln.sh)
@@ -211,7 +212,8 @@ Löschkonzept (deckungsgleich mit `core/loeschung.py`) und Datenschutzhinweis f�
 
 Bereitgestellt, aber nur mit Konten des Betreibers ausführbar:
 - echter Anruf über SIP: TELEFONIE.md, `deploy/livekit/trunk-anlegen.sh`, `python -m voice.probe`
-- Erstausrollung: HOSTING.md, `deploy/server/einrichten.sh` (erzeugt `.env`, rollt aus, legt Mandant an)
+- Erstausrollung: HOSTING.md, `deploy/server/einrichten.sh` (erzeugt `.env`, rollt aus, legt Mandant an; `--lokal` baut die Images auf dem Server)
+- eigene Stimme: STIMME.md (ElevenLabs, Cartesia oder Azure Custom Neural Voice über `TTS_ANBIETER`/`TTS_STIMME`)
 - eigenes Repository: `deploy/repo-abspalten.sh` (git subtree split, Workflows angepasst)
 - Finanzanbindung (Lexware Office, sevDesk, DATEV, XRechnung über Mustang Project)
 - AVV, TOMs, Löschkonzept: rechtliche Unterlagen vor dem ersten Pilotkunden

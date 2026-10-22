@@ -1,0 +1,16 @@
+# Zusatz-Override: Images auf dem Server selbst bauen statt aus GHCR ziehen (kein veröffentlichtes Paket nötig).
+#   SHK_BUILD_LOKAL=1 deploy/server/deploy.sh 0.2.0      bzw.   deploy/server/einrichten.sh 0.2.0 --lokal
+# Das Image heißt dann shk-core:<Version>; deploy.sh baut vor dem Start aus dem Quellstand des Checkouts.
+services:
+  migrate:
+    image: shk-core:${SHK_VERSION:?SHK_VERSION setzen}
+    build: {context: ., args: {MIT_OCR: "${MIT_OCR:-0}"}}
+  core:
+    image: shk-core:${SHK_VERSION}
+    build: {context: ., args: {MIT_OCR: "${MIT_OCR:-0}"}}
+  worker:
+    image: shk-core:${SHK_VERSION}
+    build: {context: ., args: {MIT_OCR: "${MIT_OCR:-0}"}}
+  voice-agent:
+    image: shk-core:${SHK_VERSION}-voice
+    build: {context: ., args: {MIT_VOICE: "1"}}

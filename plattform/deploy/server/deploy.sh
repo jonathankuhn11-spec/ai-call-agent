@@ -6,10 +6,18 @@
 set -eu
 VERSION=${1:?Version angeben}
 cd "$(dirname "$0")/../.."
-COMPOSE="docker compose -f docker-compose.yml -f deploy/server/docker-compose.prod.yml --profile auth ${SHK_PROFILE_ZUSATZ:-}"
+[ -f .env ] && SHK_BUILD_LOKAL=${SHK_BUILD_LOKAL:-$(grep -s '^SHK_BUILD_LOKAL=' .env | cut -d= -f2)}
+LOKAL=""
+[ "${SHK_BUILD_LOKAL:-0}" = "1" ] && LOKAL="-f deploy/server/docker-compose.lokal.yml"
+COMPOSE="docker compose -f docker-compose.yml -f deploy/server/docker-compose.prod.yml $LOKAL --profile auth ${SHK_PROFILE_ZUSATZ:-}"
 VORHER=$(cat .shk-version 2>/dev/null || echo "")
 export SHK_VERSION="$VERSION"
-$COMPOSE pull --quiet migrate core worker
+if [ -n "$LOKAL" ]; then
+  echo "Baue shk-core:$VERSION aus dem Quellstand (SHK_BUILD_LOKAL=1) …"
+  $COMPOSE build --quiet migrate core worker
+else
+  $COMPOSE pull --quiet migrate core worker
+fi
 [ -n "$VORHER" ] && deploy/server/backup.sh
 $COMPOSE run --rm migrate
 $COMPOSE up -d --remove-orphans

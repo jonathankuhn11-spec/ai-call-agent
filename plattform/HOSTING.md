@@ -31,13 +31,30 @@ nachts 02:15 ──▶ backup.sh: pg_dump lokal 14 Tage, optional restic außer 
 | Datei | Zweck |
 | --- | --- |
 | `deploy/server/cloud-init.yaml` | Grundeinrichtung: Nutzer `shk`, Docker, Firewall (ufw), fail2ban, automatische Sicherheitsupdates, Backup-Cron |
-| `deploy/server/docker-compose.prod.yml` | Override: Images aus GHCR, Neustart-Policy, Log-Rotation, Caddy, Keycloak im Produktionsmodus |
+| `deploy/server/docker-compose.prod.yml`, `docker-compose.lokal.yml` | Override: Images aus GHCR (oder mit `--lokal` auf dem Server gebaut), Neustart-Policy, Log-Rotation, Caddy, Keycloak im Produktionsmodus |
 | `deploy/server/Caddyfile` | Reverse-Proxy, TLS, HSTS, CSP, `/docs` nicht öffentlich |
 | `deploy/server/deploy.sh` | Ausrollen: Pull, Sicherung, Migration, Neustart, Gesundheitsprüfung, Rückfall auf vorige Version |
 | `deploy/server/backup.sh`, `restore.sh` | Sicherung und Wiederherstellung |
 | `deploy/postgres/rollen.sql`, `init/` | Datenbankrollen und Keycloak-Datenbank beim ersten Start |
 | `deploy/keycloak/shk-realm.json` | Realm `shk`: Rollen, Client `shk-buero` (PKCE), Mandanten-Claim, Passwort-Policy |
 | `.github/workflows/plattform-deploy.yml` | Images bauen, nach GHCR schieben, per SSH ausrollen (manuell oder Tag `plattform-v*`) |
+
+## Sofort testen, ohne Server (10 Minuten)
+
+Auf dem eigenen Rechner mit Docker Desktop (Windows, macOS) oder Docker Engine:
+
+```
+git clone https://github.com/jonathankuhn11-spec/ai-call-agent.git && cd ai-call-agent
+git checkout plattform/backend-grundgeruest && cd plattform
+cp .env.example .env
+docker compose up -d --build postgres migrate core worker
+docker compose exec core python -m core seed      # fiktiver Demo-Betrieb mit Vorgängen, Belegen, Angeboten
+```
+
+Danach `http://localhost:8100/app` (Oberfläche, Mandant „Demo Haustechnik Köln“ wählen) und
+`http://localhost:8100/docs` (API). Ohne Docker genügt Python 3.12: `pip install -r requirements.txt`
+und `python -m core serve --demo` (SQLite, keine weitere Einrichtung). Beides ist ein lokaler Test
+ohne Anmeldung und ohne Telefonie; der Serverbetrieb folgt unten.
 
 ## Einrichtung Schritt für Schritt
 
@@ -50,8 +67,11 @@ Was nur Sie erledigen können, ist mit **(Sie)** markiert: Verträge, Konten, DN
    Server-IP.
 3. **Images bauen:** Workflow „Plattform ausrollen“ (Actions, Eingabe Version, z. B. `0.2.0`). Ist das
    GHCR-Paket privat, auf dem Server einmalig `docker login ghcr.io` mit einem Token (Recht `read:packages`).
+   Der Workflow steht erst nach dem Merge von PR #4 im Standardzweig zur Verfügung; bis dahin (oder ganz ohne
+   GHCR) baut der Server selbst: `deploy/server/einrichten.sh 0.2.0 --lokal` bzw. `SHK_BUILD_LOKAL=1` in `.env`
+   (Override `deploy/server/docker-compose.lokal.yml`, Bauzeit ca. 3–5 Minuten auf 4 vCPU).
 4. **Erstausrollung:** auf dem Server als Nutzer `shk`
-   `cd /opt/shk/plattform && deploy/server/einrichten.sh 0.2.0`. Das Skript fragt Domain, E-Mail und
+   `cd /opt/shk/plattform && deploy/server/einrichten.sh 0.2.0` (oder `… 0.2.0 --lokal`). Das Skript fragt Domain, E-Mail und
    Büro-Netz ab, erzeugt `.env` mit Zufallsgeheimnissen (inkl. `INTEGRATIONS_KEY`), prüft die
    DNS-Einträge, ruft `deploy.sh` auf und legt den ersten Mandanten an. `.env` gehört nie ins
    Repository. Für jede weitere Version genügt `deploy/server/deploy.sh <version>`.
