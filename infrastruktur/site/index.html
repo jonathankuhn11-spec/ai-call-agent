@@ -3,47 +3,164 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{auftritt.marke}} · Büroentlastung für SHK-Betriebe</title>
-  <meta name="description" content="Bedarfsanalyse und Pilotentwicklung: Entlastung von Telefon und Büro für SHK-Handwerksbetriebe im Raum Köln.">
+  <title>{{auftritt.marke}} · Digitales Backoffice für SHK-Betriebe</title>
+  <meta name="description" content="{{auftritt.marke}} nimmt Anrufe an, erfasst Aufträge strukturiert, plant Termine und bereitet Angebote, Rechnungen und Belege vor. Für Sanitär-, Heizungs- und Klimabetriebe im Raum Köln. Nichts geht ohne Ihre Freigabe hinaus.">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<header><a class="marke" href="./">{{auftritt.marke}}</a></header>
+<header>
+  <a class="marke" href="./">{{auftritt.marke}}</a>
+  <nav aria-label="Seitenbereiche">
+    <a href="#leistungen">Leistungen</a>
+    <a href="#freigabe">Freigabe</a>
+    <a href="#pilot">Pilot</a>
+    <a href="#datenschutz">Datenschutz</a>
+    <a href="#kontakt">Kontakt</a>
+  </nav>
+</header>
+
 <main>
-  <h1>Weniger Büro, keine verlorenen Anfragen, für SHK-Betriebe.</h1>
-  <p class="lead">Wir untersuchen gemeinsam mit Sanitär-, Heizungs- und Klimabetrieben im Raum Köln,
-    wo Anfragen, Termine und Papierkram im Alltag liegen bleiben, und entwickeln daraus eine Lösung,
-    die das Büro entlastet.</p>
+  <section class="einstieg">
+    <div>
+      <p class="dachzeile">Digitales Backoffice für Sanitär, Heizung, Klima</p>
+      <h1>Das Telefon nimmt ab. Das Büro schreibt mit.</h1>
+      <p class="lead">{{auftritt.marke}} nimmt Anrufe an, wenn Sie und Ihre Monteure auf der Baustelle sind,
+        erfasst das Anliegen strukturiert, schlägt einen Termin vor und bereitet Angebot, Rapport und Rechnung vor.
+        Entscheidungen bleiben bei Ihnen: Was Geld kostet oder den Kunden bindet, geht erst nach Ihrer Freigabe hinaus.</p>
+      <div class="aktionen">
+        <a class="knopf primaer" href="mailto:{{kontakt.email}}?subject=Pilotplatz%20{{auftritt.marke}}">Pilotplatz anfragen</a>
+        <a class="knopf sekundaer" href="tel:{{kontakt.telefon_e164}}">{{kontakt.telefon}}</a>
+      </div>
+    </div>
 
-  <p class="hinweis"><strong>Stand des Vorhabens:</strong> Wir befinden uns in der Bedarfsanalyse und
-    Entwicklungsphase. Es gibt noch kein fertiges Produkt zu kaufen. Wir suchen Betriebe, die uns
-    ihre Abläufe schildern, und einzelne Pilotbetriebe, die frühe Versionen im Alltag erproben.</p>
-
-  <h2>Das Problem, das wir untersuchen</h2>
-  <ul>
-    <li>Der Chef und die Monteure sind auf der Baustelle, das Telefon klingelt ins Leere.</li>
-    <li>Rückrufe, Terminabstimmung und Angebotsvorbereitung fressen die Abende.</li>
-    <li>Informationen aus Anrufen landen auf Zetteln statt in der Handwerkersoftware.</li>
-  </ul>
-
-  <h2>Woran wir arbeiten</h2>
-  <p>Ein digitales Backoffice, das Anrufe entgegennimmt, das Anliegen strukturiert erfasst, Termine
-    vorschlägt und die Daten in die vorhandene Handwerkersoftware überträgt. Entscheidungen, etwa
-    über Angebote und Rechnungen, bleiben beim Betrieb: Nichts geht ohne Freigabe hinaus.</p>
-
-  <h2>Was Sie von einem Gespräch haben</h2>
-  <p>Ein Interview dauert etwa 20 Minuten. Sie erhalten im Gegenzug unsere anonymisierte Auswertung:
-    wie andere Betriebe vergleichbarer Größe Anfragen, Termine und Büroarbeit organisieren.
-    Es entstehen keine Kosten und keine Verpflichtungen.</p>
-
-  <div class="kontakt">
-    <strong>Kontakt</strong><br>
-    E-Mail: <a href="mailto:{{kontakt.email}}">{{kontakt.email}}</a><br>
-    Telefon: <a href="tel:{{kontakt.telefon_e164}}">{{kontakt.telefon}}</a><br>
-    {{anbieter.gesellschafter_1}} und {{anbieter.gesellschafter_2}}
-  </div>
+    <figure class="protokoll" aria-label="Beispiel eines erfassten Anrufs">
+      <div class="kopf"><span>Anruf · Do 06:42</span><span>Dauer 2:58</span></div>
+      <dl>
+        <dt>Anliegen</dt><dd>Heizung aus, kein Warmwasser</dd>
+        <dt>Anlage</dt><dd>Gas-Brennwerttherme, Einbau 2012, Wartung zuletzt 2024</dd>
+        <dt>Dringlichkeit</dt><dd>hoch: Haushalt mit Kleinkind</dd>
+        <dt>Ort</dt><dd>Köln-Ehrenfeld, Bestandskunde</dd>
+        <dt>Vorschlag</dt><dd>Notdienst heute 08:00–10:00, Monteur mit Ersatzteilsatz Zündelektrode</dd>
+      </dl>
+      <div class="status">Wartet auf Freigabe durch das Büro</div>
+      <figcaption class="beispiel">Beispiel zur Veranschaulichung, keine echten Kundendaten.</figcaption>
+    </figure>
+  </section>
 </main>
+
+<section class="band dunkel" id="leistungen">
+  <div class="band-innen">
+    <p class="dachzeile">Leistungen</p>
+    <h2>Vom ersten Anruf bis zum Beleg beim Steuerberater</h2>
+    <p class="lead">Ein durchgehender Vorgang statt Zettel, Rückrufliste und Abendarbeit. Jede Station kennt,
+      was vorher passiert ist.</p>
+    <div class="raster">
+      <div>
+        <span class="marker">Telefon</span>
+        <h3>Telefonassistent rund um die Uhr</h3>
+        <p>Nimmt Anrufe außerhalb der Bürozeit oder bei besetzter Leitung an, gibt sich als KI-Assistent zu erkennen,
+          fragt gezielt nach Anlage, Fehlerbild und Dringlichkeit. Im Störfall greift Ihre bestehende Mailbox.</p>
+      </div>
+      <div>
+        <span class="marker">Disposition</span>
+        <h3>Aufträge und Termine</h3>
+        <p>Anfragen aus Telefon, E-Mail und Webformular landen als Vorgang mit Kunde und Anlage.
+          Terminvorschläge berücksichtigen Abwesenheiten und Bereitschaftsdienste.</p>
+      </div>
+      <div>
+        <span class="marker">Baustelle</span>
+        <h3>Rapport und Zeiterfassung</h3>
+        <p>Monteure sehen ihren Einsatz auf dem Smartphone, stempeln, dokumentieren Material und lassen den
+          Kunden auf dem Gerät unterschreiben. Die Nachkalkulation entsteht nebenbei.</p>
+      </div>
+      <div>
+        <span class="marker">Angebot &amp; Rechnung</span>
+        <h3>Angebote, Rechnungen, E-Rechnung</h3>
+        <p>Positionen aus Ihrem Artikelstamm, eigener Nummernkreis, PDF und XRechnung für Geschäftskunden
+          und öffentliche Auftraggeber. Storno und Mahnstufen nur auf Ihre Freigabe.</p>
+      </div>
+      <div>
+        <span class="marker">Wartung</span>
+        <h3>Wartungsverträge und Erinnerungen</h3>
+        <p>Fällige Anlagen werden erkannt, Termine vorgeplant und Kunden erinnert. Laufzeiten,
+          Kündigungsfristen und periodische Abrechnung behält das System im Blick.</p>
+      </div>
+      <div>
+        <span class="marker">Belege</span>
+        <h3>Belegeingang und Übergabe</h3>
+        <p>Eingangsrechnungen per Scan-to-Mail, Ordner oder Handyfoto werden gesammelt, geprüft und an Lexware Office,
+          sevDesk oder den DATEV-Belegtransfer Ihres Steuerberaters übergeben. Kontiert wird dort, nicht bei uns.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="freigabe">
+  <div class="band-innen">
+    <p class="dachzeile">Freigabeprinzip</p>
+    <h2>Automatisiert wird nur, was Sie erlauben</h2>
+    <p class="lead">Jede Aktion gehört zu einer von drei Klassen. Jede Entscheidung wird mit Zeitpunkt und Person protokolliert.</p>
+    <div class="klassen">
+      <div class="klasse"><div class="buchstabe">A</div><h3>läuft selbstständig</h3>
+        <p>Erfassen, Zuordnen, Erinnern intern: alles, was weder Geld bewegt noch den Kunden verpflichtet.</p></div>
+      <div class="klasse"><div class="buchstabe">B</div><h3>Büro gibt frei</h3>
+        <p>Terminbestätigungen, Angebotsversand, Bewertungsanfragen: ein Klick im Büro oder auf dem Handy.</p></div>
+      <div class="klasse"><div class="buchstabe">C</div><h3>nur der Inhaber</h3>
+        <p>Rechnungen, Stornos, Mahnungen, Abrechnung von Wartungsverträgen: alles, was finanzwirksam ist.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="band dunkel" id="pilot">
+  <div class="band-innen">
+    <p class="dachzeile">Pilotphase</p>
+    <h2>So läuft ein Pilot</h2>
+    <p class="hinweis"><strong>Stand:</strong> {{auftritt.marke}} ist in der Pilotphase. Wir nehmen eine kleine Zahl von
+      SHK-Betrieben im Raum Köln auf, die das System im Alltag erproben und mitgestalten. Konditionen besprechen wir
+      im Erstgespräch; ein Pilot ist jederzeit beendbar.</p>
+    <ol class="ablauf">
+      <li><h3>Erstgespräch</h3><p>Etwa 30 Minuten: Wo bleiben heute Anrufe und Büroarbeit liegen, welche Software nutzen Sie.</p></li>
+      <li><h3>Einrichtung</h3><p>Rufumleitung bei Nichtannahme, Ansagetext, Artikel- und Kundenstamm, Zugänge für Büro und Monteure.</p></li>
+      <li><h3>Erprobung</h3><p>Echter Betrieb mit Ihren Anrufen. Wir passen Fragen, Abläufe und Freigaben wöchentlich an.</p></li>
+      <li><h3>Auswertung</h3><p>Angenommene Anrufe, erfasste Aufträge, gesparte Bürozeit: Sie entscheiden auf Basis der Zahlen.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section class="band" id="datenschutz">
+  <div class="band-innen">
+    <p class="dachzeile">Datenschutz und Sicherheit</p>
+    <h2>Ihre Kundendaten bleiben in Deutschland und unter Ihrer Kontrolle</h2>
+    <ul class="haken">
+      <li>Betrieb auf Servern in Deutschland, Vertrag zur Auftragsverarbeitung nach Art. 28 DSGVO</li>
+      <li>Strikte Trennung der Betriebe auf Datenbankebene, verschlüsselte Zugangsdaten</li>
+      <li>Der Assistent nennt sich zu Beginn jedes Gesprächs als KI (Art. 50 KI-Verordnung)</li>
+      <li>Keine Gesprächsaufzeichnung ohne Einwilligung, Löschfristen nach dokumentiertem Löschkonzept</li>
+      <li>Anmeldung mit Rollen für Inhaber, Büro, Monteur und Steuerberater, Zwei-Faktor für Inhaber</li>
+      <li>Tägliche Sicherung, zusätzlich verschlüsselt außer Haus</li>
+    </ul>
+  </div>
+</section>
+
+<section class="band dunkel" id="kontakt">
+  <div class="band-innen kontaktband">
+    <div>
+      <p class="dachzeile">Kontakt</p>
+      <h2>Sprechen wir über Ihren Betrieb</h2>
+      <p class="lead">Schreiben Sie uns oder rufen Sie an. Wir melden uns zeitnah und vereinbaren
+        ein Erstgespräch, telefonisch oder bei Ihnen vor Ort.</p>
+    </div>
+    <div class="kontakt">
+      <strong>{{auftritt.marke}}</strong><br>
+      E-Mail: <a href="mailto:{{kontakt.email}}">{{kontakt.email}}</a><br>
+      Telefon: <a href="tel:{{kontakt.telefon_e164}}">{{kontakt.telefon}}</a><br>
+      {{anbieter.gesellschafter_1}} und {{anbieter.gesellschafter_2}}
+    </div>
+  </div>
+</section>
+
 <footer>
+  <span>{{auftritt.marke}} · {{anbieter.plz_ort}}</span>
   <a href="impressum.html">Impressum</a>
   <a href="datenschutz.html">Datenschutz</a>
   <a href="einseiter.pdf">Einseiter (PDF)</a>

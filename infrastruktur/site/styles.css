@@ -1,28 +1,118 @@
-/* Systemschriften, keine externen Ressourcen: keine Übermittlung an Dritte beim Seitenaufruf. */
+/* KUHN · Außenauftritt
+   Systemschriften, keine externen Ressourcen: keine Übermittlung an Dritte beim Seitenaufruf.
+   DIN-Anmutung über vorinstallierte Schriften (Bahnschrift unter Windows, DIN Alternate unter macOS).
+   Farbwelt: Graphit und Kupfer (Rohrleitung), ein Akzent, sonst ruhig. */
 :root {
-  --text: #1c2430; --gedämpft: #5a6675; --flaeche: #ffffff; --flaeche-2: #f3f5f8;
-  --akzent: #0b5cad; --linie: #dde2e8;
+  --text: #18202a; --gedämpft: #55606c; --flaeche: #fbfbf9; --flaeche-2: #eef0ee;
+  --akzent: #a8541f; --akzent-text: #ffffff; --linie: #d9ddda; --tinte: #1d2833;
+  --ok: #2f6b45;
+  --din: "Bahnschrift", "DIN Alternate", "DIN Next", "D-DIN", "Barlow", "Arial Narrow", system-ui, sans-serif;
+  --text-schrift: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --text: #e6eaf0; --gedämpft: #a3adba; --flaeche: #12161c; --flaeche-2: #1b212a;
-          --akzent: #6aaef5; --linie: #2b333e; }
+  :root { --text: #e5e8ea; --gedämpft: #a2abb4; --flaeche: #121619; --flaeche-2: #1b2125;
+          --akzent: #e28c52; --akzent-text: #121619; --linie: #2c343a; --tinte: #0c1013; --ok: #7fc494; }
 }
 * { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 body { margin: 0; background: var(--flaeche); color: var(--text);
-       font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-main, header, footer { max-width: 46rem; margin: 0 auto; padding: 0 16px; }
-header { padding-top: 2.5rem; }
-.marke { font-weight: 700; letter-spacing: .01em; color: var(--text); text-decoration: none; }
-h1 { font-size: clamp(1.7rem, 4vw, 2.3rem); line-height: 1.2; margin: 2rem 0 1rem; }
-h2 { font-size: 1.25rem; margin: 2.2rem 0 .6rem; }
-h3 { font-size: 1.05rem; margin: 1.4rem 0 .3rem; }
-p, li { color: var(--text); }
-.lead { font-size: 1.12rem; color: var(--gedämpft); }
+       font: 17px/1.6 var(--text-schrift); }
+main, header, footer, .band-innen { max-width: 68rem; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 a { color: var(--akzent); }
+a:focus-visible, .knopf:focus-visible { outline: 2px solid var(--akzent); outline-offset: 3px; }
+h1, h2, h3 { font-family: var(--din); font-weight: 600; letter-spacing: -.005em; text-wrap: balance; }
+h1 { font-size: clamp(2rem, 5vw, 3.3rem); line-height: 1.08; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.45rem, 3vw, 2rem); line-height: 1.15; margin: 0 0 1rem; }
+h3 { font-size: 1.15rem; line-height: 1.25; margin: 0 0 .4rem; }
+p { margin: 0 0 1rem; }
+
+/* Kopfzeile */
+header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .8rem 2rem;
+         padding-block: 1.4rem; }
+.marke { font-family: var(--din); font-weight: 700; font-size: 1.55rem; letter-spacing: .14em;
+         color: var(--text); text-decoration: none; display: inline-flex; align-items: center; gap: .55rem; }
+.marke::before { content: ""; width: .8rem; height: .8rem; border-radius: 50%;
+                 border: 3px solid var(--akzent); }
+nav { display: flex; flex-wrap: wrap; gap: .2rem 1.4rem; font-size: .95rem; }
+nav a { color: var(--gedämpft); text-decoration: none; }
+nav a:hover { color: var(--text); }
+
+/* Einstieg */
+.einstieg { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 3rem; align-items: center;
+            padding-block: 2.5rem 4rem; }
+.dachzeile { font-family: var(--din); text-transform: uppercase; letter-spacing: .12em; font-size: .82rem;
+             color: var(--akzent); margin: 0 0 .9rem; font-weight: 600; }
+.lead { font-size: 1.15rem; color: var(--gedämpft); max-width: 36rem; }
+.aktionen { display: flex; flex-wrap: wrap; gap: .8rem; margin-top: 1.6rem; }
+.knopf { display: inline-block; padding: .75rem 1.25rem; border-radius: 4px; font-weight: 600;
+         text-decoration: none; border: 1.5px solid var(--akzent); }
+.knopf.primaer { background: var(--akzent); color: var(--akzent-text); }
+.knopf.sekundaer { color: var(--text); border-color: var(--linie); }
+
+/* Beispielprotokoll eines Anrufs */
+.protokoll { background: var(--tinte); color: #e8ecef; border-radius: 6px; padding: 1.3rem 1.4rem;
+             font-size: .92rem; box-shadow: 0 18px 40px -24px rgba(0,0,0,.45); }
+.protokoll .kopf { display: flex; justify-content: space-between; gap: 1rem; font-family: var(--mono);
+                   font-size: .78rem; color: #9fb0bd; border-bottom: 1px solid #33414c; padding-bottom: .7rem; margin-bottom: .9rem; }
+.protokoll dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .45rem 1rem; margin: 0; }
+.protokoll dt { color: #9fb0bd; font-family: var(--mono); font-size: .78rem; padding-top: .15rem; }
+.protokoll dd { margin: 0; }
+.protokoll .status { margin-top: 1rem; display: flex; align-items: center; gap: .5rem; font-weight: 600; color: #f0b183; }
+.protokoll .status::before { content: ""; width: .55rem; height: .55rem; border-radius: 50%; background: #f0b183; }
+.protokoll .beispiel { margin: .9rem 0 0; font-size: .75rem; color: #7f909c; }
+
+/* Bänder */
+.band { border-top: 1px solid var(--linie); padding-block: 3.5rem; }
+.band.dunkel { background: var(--flaeche-2); }
+.band-innen > p.lead { margin-bottom: 2rem; }
+.raster { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2rem 2.4rem; }
+.raster > div { min-width: 0; }
+.raster p { color: var(--gedämpft); font-size: .97rem; margin: 0; }
+.raster .marker { font-family: var(--mono); font-size: .75rem; color: var(--akzent); display: block; margin-bottom: .35rem; }
+
+/* Freigabeklassen */
+.klassen { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.klasse { border: 1px solid var(--linie); border-radius: 6px; padding: 1.1rem 1.2rem; background: var(--flaeche); min-width: 0; }
+.klasse .buchstabe { font-family: var(--din); font-size: 2rem; font-weight: 700; line-height: 1; color: var(--akzent); }
+.klasse p { margin: .4rem 0 0; color: var(--gedämpft); font-size: .95rem; }
+
+/* Ablauf */
+ol.ablauf { list-style: none; counter-reset: schritt; padding: 0; margin: 0;
+            display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1.6rem; }
+ol.ablauf li { counter-increment: schritt; border-top: 3px solid var(--akzent); padding-top: .9rem; min-width: 0; }
+ol.ablauf li::before { content: "Schritt " counter(schritt); display: block; font-family: var(--din); font-size: .8rem;
+                       letter-spacing: .1em; text-transform: uppercase; color: var(--gedämpft); margin-bottom: .3rem; }
+ol.ablauf p { color: var(--gedämpft); font-size: .95rem; margin: 0; }
+
+ul.haken { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem 2rem; }
+ul.haken li { padding-left: 1.6rem; position: relative; min-width: 0; }
+ul.haken li::before { content: ""; position: absolute; left: 0; top: .45rem; width: .8rem; height: .45rem;
+                      border-left: 2px solid var(--ok); border-bottom: 2px solid var(--ok); transform: rotate(-45deg); }
+
 .hinweis { background: var(--flaeche-2); border-left: 3px solid var(--akzent); padding: .8rem 1rem; border-radius: 4px; }
-.kontakt { background: var(--flaeche-2); padding: 1.2rem 1.4rem; border-radius: 8px; margin: 2rem 0; }
+.kontakt { background: var(--flaeche-2); padding: 1.4rem 1.6rem; border-radius: 6px; margin: 2rem 0; }
 .kontakt a { font-weight: 600; overflow-wrap: anywhere; }
-footer { border-top: 1px solid var(--linie); margin-top: 3rem; padding-top: 1rem; padding-bottom: 2rem;
-         font-size: .9rem; color: var(--gedämpft); }
-footer a { color: var(--gedämpft); margin-right: 1rem; }
+.kontaktband { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 2rem; align-items: start; }
+.kontaktband .kontakt { margin: 0; }
+
+footer { border-top: 1px solid var(--linie); margin-top: 3rem; padding-block: 1.2rem 2.2rem;
+         font-size: .9rem; color: var(--gedämpft); display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; }
+footer a { color: var(--gedämpft); }
 mark.offen { background: #ffd54a; color: #000; padding: 0 .2em; }
+
+/* Rechtstexte (Impressum, Datenschutz): schmale Lesespalte */
+main.text { max-width: 46rem; padding-block: 1rem 0; }
+main.text h1 { font-size: clamp(1.8rem, 4vw, 2.4rem); margin-top: 1rem; }
+main.text h2 { font-size: 1.3rem; margin: 2.2rem 0 .6rem; }
+main.text h3 { font-size: 1.05rem; margin: 1.4rem 0 .3rem; }
+
+@media (max-width: 860px) {
+  .einstieg, .kontaktband { grid-template-columns: minmax(0, 1fr); gap: 2rem; }
+  .raster, .klassen { grid-template-columns: minmax(0, 1fr); }
+  ol.ablauf { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  ul.haken { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 480px) { ol.ablauf { grid-template-columns: minmax(0, 1fr); } }
