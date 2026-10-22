@@ -11,6 +11,7 @@
     python -m core tagesaufgaben           Angebotsablauf, Mahnvorschläge, Vertragsabrechnungen (Freigaben), täglich per cron
     python -m core posteingang             E-Mail-Postfächer der Mandanten abrufen und Anfragen zu Vorgängen machen
     python -m core scaneingang             Scanner-Postfächer und Eingangsordner abrufen, Scans zu Belegen machen
+    python -m core geokodieren [--alle]    Kundenadressen ohne Koordinaten über Nominatim auflösen (Kundenkarte)
 
 Verbindungen in PostgreSQL: DATABASE_URL (shk_app, unterliegt Row-Level Security) für den Core,
 SYSTEM_DATABASE_URL (shk_system) für Worker, Seed und Mandantenverwaltung. Ohne
@@ -49,6 +50,9 @@ def main() -> None:
     unter.add_parser("tagesaufgaben")
     unter.add_parser("posteingang")
     unter.add_parser("scaneingang")
+    geo = unter.add_parser("geokodieren")
+    geo.add_argument("--limit", type=int, default=100)
+    geo.add_argument("--alle", action="store_true", help="auch Datensätze mit vorhandenen Koordinaten neu auflösen")
     migrate = unter.add_parser("migrate")
     migrate.add_argument("--ziel", default="head")
     args = parser.parse_args()
@@ -128,6 +132,21 @@ def main() -> None:
                     ergebnis["fehler"] = str(e)
                 if len(ergebnis) > 1:
                     print(json.dumps(ergebnis, ensure_ascii=False), flush=True)
+    elif args.befehl == "geokodieren":
+        from datetime import datetime, timezone
+
+        from sqlalchemy import select
+
+        from core import karte
+        from core.modelle import Mandant
+        db = system_datenbank()
+        db.schema_anlegen()
+        with db.sitzungen() as s:
+            for m in s.scalars(select(Mandant)).all():
+                geocoder = karte.nominatim(email=(m.stammdaten or {}).get("email"))
+                ergebnis = karte.geokodieren(s, m, geocoder, datetime.now(timezone.utc), args.limit, nur_fehlende=not args.alle)
+                s.commit()
+                print(json.dumps({"mandant": m.name, **ergebnis}, ensure_ascii=False), flush=True)
     elif args.befehl == "posteingang":
         from datetime import datetime, timezone
 

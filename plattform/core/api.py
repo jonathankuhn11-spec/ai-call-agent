@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from core import anfragen, angebote, belege, domaene, einsatz, forderungen, loeschung, management, scanner, tagesaufgaben, twin, vertraege
+from core import anfragen, angebote, belege, domaene, einsatz, forderungen, karte, loeschung, management, scanner, tagesaufgaben, twin, vertraege
 from core.auth import Abgewiesen, Authentifizierung, Prinzipal
 from core.db import Datenbank, mandant_binden
 from core.disposition import freie_zeitfenster, kollidiert
@@ -67,11 +67,15 @@ class KundeNeu(_Schema):
     ort: str | None = None
     vertragsstatus: str = "ohne"
     notiz: str | None = None
+    lat: float | None = Field(None, ge=-90, le=90)
+    lon: float | None = Field(None, ge=-180, le=180)
 
 
 class KundeAus(KundeNeu):
     id: str
     einwilligungen: dict[str, Any] = {}
+    geo_quelle: str | None = None
+    geo_stand: datetime | None = None
 
 
 class KundeAenderung(_Schema):
@@ -83,6 +87,17 @@ class KundeAenderung(_Schema):
     ort: str | None = None
     vertragsstatus: str | None = None
     notiz: str | None = None
+    lat: float | None = Field(None, ge=-90, le=90)
+    lon: float | None = Field(None, ge=-180, le=180)
+
+
+class Einwilligungen(_Schema):
+    """Schalter je Einwilligungsart; true setzt den Zeitstempel, false entzieht die Einwilligung."""
+    aufzeichnung: bool | None = None
+    email: bool | None = None
+    sms: bool | None = None
+    kontakt: bool | None = None
+    bewertung: bool | None = None
 
 
 class ObjektNeu(_Schema):
@@ -91,6 +106,8 @@ class ObjektNeu(_Schema):
     plz: str | None = None
     ort: str | None = None
     gebaeudetyp: str | None = None
+    lat: float | None = Field(None, ge=-90, le=90)
+    lon: float | None = Field(None, ge=-180, le=180)
 
 
 class ObjektAus(ObjektNeu):
@@ -263,6 +280,10 @@ class Stammdaten(_Schema):
     datev_beraternummer: str | None = None
     datev_mandantennummer: str | None = None
     kanzlei_email: str | None = None
+    lat: float | None = Field(None, ge=-90, le=90)
+    lon: float | None = Field(None, ge=-180, le=180)
+    karte_kacheln: str | None = None   # Kachel-URL mit {z}/{x}/{y}; Standard OpenStreetMap, CSP img-src beachten
+    karte_hinweis: str | None = None
     # Nachkalkulation (core/einsatz.py): interne Kosten und Verrechnungssatz je Stunde, Aufschlag auf Materialnetto
     stundensatz_kosten: float = Field(55, ge=0, le=500)
     stundensatz_verrechnung: float = Field(69, ge=0, le=500)
@@ -658,6 +679,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     auth = auth or Authentifizierung.aus_umgebung()
     app = FastAPI(title="SHK-Backoffice Core-Service", version="0.2.0")
     app.state.db, app.state.system_db, app.state.uhr, app.state.auth = db, system_db, uhr, auth
+    app.state.geocoder = None   # Tests und Betrieb ohne Netz setzen hier eine eigene Funktion (Adresse → (lat, lon))
 
     def sitzung():
         yield from db.sitzung()
@@ -770,6 +792,8 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         werte["telefon"] = telefon_normalisieren(daten.telefon)
         if werte["telefon"] and s.scalar(select(Kunde).where(Kunde.mandant_id == m.id, Kunde.telefon == werte["telefon"])):
             raise HTTPException(409, "Kunde mit dieser Rufnummer existiert bereits (Dublette)")
+        if werte.get("lat") is not None and werte.get("lon") is not None:
+            werte["geo_quelle"], werte["geo_stand"] = "manuell", app.state.uhr()
         k = Kunde(mandant_id=m.id, **werte)
         s.add(k)
         s.flush()
@@ -788,6 +812,28 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
             abfrage = abfrage.where(or_(Kunde.name.ilike(muster), Kunde.ort.ilike(muster), Kunde.email.ilike(muster)))
         return s.scalars(abfrage.order_by(Kunde.name).limit(limit)).all()
 
+    @app.get("/kunden/karte")
+    def kunden_karte(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        """Kundenkarte für das Cockpit: Kundenpunkte, heutige Einsätze, Betriebsstandort, Verteilung je Ort."""
+        return karte.kundenkarte(s, m, app.state.uhr())
+
+    @app.get("/kunden/vollstaendigkeit")
+    def kunden_vollstaendigkeit(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        """Welche Kundendatensätze sind für den automatischen Betrieb unvollständig und was fehlt."""
+        return karte.vollstaendigkeit_betrieb(s, m)
+
+    @app.post("/kunden/geokodieren", dependencies=[Depends(recht("bearbeiten"))])
+    def kunden_geokodieren(limit: int = Query(50, ge=1, le=500), alle: bool = False, m: Mandant = Depends(mandant_kontext),
+                           s: Session = Depends(sitzung)) -> dict[str, Any]:
+        """Adressen ohne Koordinaten über den konfigurierten Geokodierungsdienst (Nominatim) auflösen."""
+        if os.environ.get("GEOCODER_AUS", "").lower() in ("1", "true", "ja"):
+            raise HTTPException(409, "Geokodierung ist abgeschaltet (GEOCODER_AUS)")
+        geocoder = app.state.geocoder or karte.nominatim(email=(m.stammdaten or {}).get("email"))
+        ergebnis = karte.geokodieren(s, m, geocoder, app.state.uhr(), limit, nur_fehlende=not alle)
+        domaene.protokollieren(s, m.id, "kunden.geokodiert", "mandant", m.id, "mensch", ergebnis)
+        s.commit()
+        return ergebnis
+
     @app.get("/kunden/{kunde_id}")
     def kunde_lesen(kunde_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
         k = holen(s, Kunde, kunde_id, m)
@@ -795,7 +841,8 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         return {"kunde": KundeAus.model_validate(k),
                 "objekte": [{**ObjektAus.model_validate(o).model_dump(),
                              "anlagen": [AnlageAus.model_validate(a) for a in o.anlagen]} for o in k.objekte],
-                "servicefaelle": [ServicefallAus.model_validate(f) for f in faelle]}
+                "servicefaelle": [ServicefallAus.model_validate(f) for f in faelle],
+                "vollstaendigkeit": karte.vollstaendigkeit(k)}
 
     @app.patch("/kunden/{kunde_id}", response_model=KundeAus, dependencies=[Depends(recht("bearbeiten"))])
     def kunde_aendern(kunde_id: str, daten: KundeAenderung, m: Mandant = Depends(mandant_kontext),
@@ -806,7 +853,29 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
             aenderung["telefon"] = telefon_normalisieren(aenderung["telefon"])
         for feld, wert in aenderung.items():
             setattr(k, feld, wert)
+        if "lat" in aenderung or "lon" in aenderung:
+            k.geo_quelle, k.geo_stand = ("manuell", app.state.uhr()) if k.lat is not None and k.lon is not None else (None, None)
+        elif {"strasse", "plz", "ort"} & set(aenderung) and k.geo_quelle == "nominatim":
+            k.lat = k.lon = k.geo_quelle = k.geo_stand = None   # Adresse geändert: Koordinaten neu ermitteln
         domaene.protokollieren(s, m.id, "kunde.geaendert", "kunde", k.id, "mensch", {"felder": sorted(aenderung)})
+        s.commit()
+        return k
+
+    @app.put("/kunden/{kunde_id}/einwilligungen", response_model=KundeAus, dependencies=[Depends(recht("bearbeiten"))])
+    def einwilligungen_setzen(kunde_id: str, daten: Einwilligungen, m: Mandant = Depends(mandant_kontext),
+                              s: Session = Depends(sitzung)):
+        """Einwilligungen mit Zeitstempel setzen oder entziehen (Art. 7 DSGVO, Nachweis im Ereignisprotokoll)."""
+        k = holen(s, Kunde, kunde_id, m)
+        stand = dict(k.einwilligungen or {})
+        aenderung = daten.model_dump(exclude_unset=True)
+        for art, wert in aenderung.items():
+            if wert:
+                stand[art] = app.state.uhr().isoformat()
+            else:
+                stand.pop(art, None)
+        k.einwilligungen = stand
+        domaene.protokollieren(s, m.id, "kunde.einwilligung", "kunde", k.id, "mensch", {"gesetzt": [a for a, w in aenderung.items() if w],
+                                                                                          "entzogen": [a for a, w in aenderung.items() if not w]})
         s.commit()
         return k
 
@@ -838,7 +907,10 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     def objekt_anlegen(kunde_id: str, daten: ObjektNeu, m: Mandant = Depends(mandant_kontext),
                        s: Session = Depends(sitzung)):
         k = holen(s, Kunde, kunde_id, m)
-        o = Objekt(mandant_id=m.id, kunde_id=k.id, **daten.model_dump())
+        werte = daten.model_dump()
+        if werte.get("lat") is not None and werte.get("lon") is not None:
+            werte["geo_quelle"], werte["geo_stand"] = "manuell", app.state.uhr()
+        o = Objekt(mandant_id=m.id, kunde_id=k.id, **werte)
         s.add(o)
         s.commit()
         return o

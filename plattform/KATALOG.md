@@ -16,6 +16,7 @@ vorbereitet · `Referenz` = geprüfte Alternative für eine spätere Entscheidun
 | --- | --- | --- | --- | --- |
 | LiveKit Agents | Apache-2.0 | Voice-Agent-Framework (VAD, STT, LLM, TTS, Function Calling) | aktiv (`voice/agent.py`) | gewählt, siehe VOICE-AGENT.md |
 | LiveKit Server + LiveKit SIP | Apache-2.0 | WebRTC-Medienserver, SIP-Gateway zum Carrier | aktiv (Profil `voice`) | selbst betreibbar in DE |
+| OpenStreetMap-Kacheln und Nominatim | Daten ODbL, Dienste mit Nutzungsbedingungen (Attribution, max. 1 Geokodier-Anfrage/s, aussagekräftiger User-Agent, kein Massenabgleich) | Kartenhintergrund der Kundenkarte, Geokodierung der Kundenadressen | aktiv (`core/karte.py`, Kachel-URL in den Stammdaten `karte_kacheln`, CSP `img-src` in der Caddyfile) | kein Fremdcode eingebettet: Projektion und Marker zeichnet die Oberfläche selbst; für höhere Last eigener Kachelserver oder kommerzieller Anbieter (MapTiler, Thunderforest) per URL umschaltbar; Leaflet (BSD-2) wäre die Alternative, falls Routing oder Polygone dazukommen |
 | Pipecat | BSD-2-Clause | alternatives Voice-Framework | Referenz | gleichwertig, stärker auf Daily/Twilio-Transport ausgerichtet |
 | Vocode | MIT | Voice-Agent-Bibliothek | Referenz | geringere Aktivität |
 | Silero VAD | MIT | Sprachaktivitätserkennung | aktiv (über LiveKit-Plugin) | Standard |

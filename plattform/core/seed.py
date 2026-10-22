@@ -58,6 +58,24 @@ VORGAENGE = [
     (7, "Legionellenprüfung Trinkwasser fällig", None, "abgerechnet", -6, time(8, 0), 0, True),
 ]
 
+# Demo-Koordinaten (WGS 84, gerundet auf den Stadtteil) für die Kundenkarte; im Echtbetrieb per Geokodierung
+KOORDINATEN = {
+    "Familie Achternbusch": (50.9025, 6.9660), "Dr. Brehmer": (50.9350, 6.8450), "Hausverwaltung Carstens": (50.9260, 6.9590),
+    "Familie Dörrenbach": (50.8770, 6.8680), "Eiscafé Ferrante": (50.9330, 6.9410), "Familie Gerhardt": (50.8260, 6.9780),
+    "Herr Hollmann": (50.9510, 6.9180), "Praxis Dr. Ilgner": (50.9360, 6.9200), "Familie Jankowski": (50.9620, 7.0050),
+    "Bäckerei Kremer": (50.8860, 7.0580), "Frau Lindqvist": (50.9650, 6.9520), "Familie Moritz": (50.8290, 6.9000),
+}
+# Kontaktdaten und Einwilligungen der Demo-Kunden (ein Teil bleibt bewusst lückenhaft, damit die Vollständigkeitsprüfung greift)
+KONTAKT = {  # name: (E-Mail, Einwilligungen)
+    "Familie Achternbusch": ("achternbusch@example.invalid", ["email", "sms", "aufzeichnung"]),
+    "Dr. Brehmer": ("praxis.brehmer@example.invalid", ["email"]),
+    "Hausverwaltung Carstens": ("technik@carstens-hv.example.invalid", ["email", "sms"]),
+    "Eiscafé Ferrante": ("info@ferrante.example.invalid", ["email"]),
+    "Familie Gerhardt": ("gerhardt@example.invalid", ["email", "sms", "bewertung"]),
+    "Praxis Dr. Ilgner": ("praxis@ilgner.example.invalid", ["email", "sms"]),
+    "Familie Moritz": ("moritz@example.invalid", ["sms"]),
+    "Bäckerei Kremer": ("kremer@example.invalid", []),
+}
 MONTEURE = [  # letztes Feld: Anmeldename in Keycloak (Attribut preferred_username)
     ("Monteur Arndt (Kundendienst Gas)", ["gas", "oel", "trinkwasser"], time(7, 30), time(16, 30), "m.arndt"),
     ("Monteur Bilgin (Kälte/Wärmepumpe)", ["kaeltetechnik", "elektro"], time(7, 0), time(15, 30), "m.bilgin"),
@@ -91,7 +109,8 @@ def demodaten_anlegen(s: Session, jetzt_: datetime | None = None) -> str:
     m = Mandant(name=DEMO_NAME, policies={}, stammdaten={  # fiktive Betriebsstammdaten
         "strasse": "Werkstattstraße 12", "plz": "50823", "ort": "Köln", "telefon": "0221 000000", "email": "buero@example.invalid",
         "inhaber": "Max Muster", "ust_id": "DE000000000", "handwerksrolle": "HWK Köln, Nr. 000000", "iban": "DE02120300000000202051",
-        "bic": "BYLADEM1001", "bank": "Musterbank", "zahlungsziel_tage": 14, "kontenrahmen": "SKR03"})
+        "bic": "BYLADEM1001", "bank": "Musterbank", "zahlungsziel_tage": 14, "kontenrahmen": "SKR03",
+        "lat": 50.9530, "lon": 6.9210})
     s.add(m)
     s.flush()
     monteure = []
@@ -101,11 +120,15 @@ def demodaten_anlegen(s: Session, jetzt_: datetime | None = None) -> str:
         monteure.append(r)
     kunden, anlagen_je_kunde = [], []
     for name, tel, strasse, plz, ort, vertrag, anlagen in KUNDEN:
+        lat, lon = KOORDINATEN.get(name, (None, None))
+        geo = {"lat": lat, "lon": lon, "geo_quelle": "demo" if lat else None, "geo_stand": jetzt_ if lat else None}
+        email, einwilligungen = KONTAKT.get(name, (None, []))
         k = Kunde(mandant_id=m.id, name=name, telefon="+49" + tel.replace(" ", "")[1:], strasse=strasse, plz=plz,
-                  ort=ort, vertragsstatus=vertrag)
+                  ort=ort, vertragsstatus=vertrag, email=email, **geo,
+                  einwilligungen={e: (jetzt_ - timedelta(days=90)).isoformat() for e in einwilligungen})
         s.add(k)
         s.flush()
-        o = Objekt(mandant_id=m.id, kunde_id=k.id, strasse=strasse, plz=plz, ort=ort)
+        o = Objekt(mandant_id=m.id, kunde_id=k.id, strasse=strasse, plz=plz, ort=ort, **geo)
         s.add(o)
         s.flush()
         liste = []

@@ -11,7 +11,7 @@ import uuid
 from datetime import date, datetime, time, timezone
 from typing import Any
 
-from sqlalchemy import JSON, Date, ForeignKey, Index, Integer, LargeBinary, String, Text, Time, UniqueConstraint, select
+from sqlalchemy import JSON, Date, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, Time, UniqueConstraint, select
 from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
 
 from core.db import Basis, UtcZeit
@@ -63,6 +63,11 @@ class Kunde(_Mandantenbezug, Basis):
     einwilligungen: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     vertragsstatus: Mapped[str] = mapped_column(String(30), default="ohne")  # ohne, wartungsvertrag
     notiz: Mapped[str | None] = mapped_column(Text)
+    # Geokoordinaten (WGS 84) für Kundenkarte und Anfahrt; geo_quelle: nominatim, manuell, demo
+    lat: Mapped[float | None] = mapped_column(Float)
+    lon: Mapped[float | None] = mapped_column(Float)
+    geo_quelle: Mapped[str | None] = mapped_column(String(20))
+    geo_stand: Mapped[datetime | None] = mapped_column(UtcZeit)
     erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
 
     objekte: Mapped[list[Objekt]] = relationship(back_populates="kunde")
@@ -78,6 +83,11 @@ class Objekt(_Mandantenbezug, Basis):
     plz: Mapped[str | None] = mapped_column(String(10))
     ort: Mapped[str | None] = mapped_column(String(100))
     gebaeudetyp: Mapped[str | None] = mapped_column(String(50))  # Einfamilienhaus, Mehrfamilienhaus, Gewerbe
+    # Geokoordinaten (WGS 84) für Kundenkarte und Anfahrt; geo_quelle: nominatim, manuell, demo
+    lat: Mapped[float | None] = mapped_column(Float)
+    lon: Mapped[float | None] = mapped_column(Float)
+    geo_quelle: Mapped[str | None] = mapped_column(String(20))
+    geo_stand: Mapped[datetime | None] = mapped_column(UtcZeit)
 
     kunde: Mapped[Kunde] = relationship(back_populates="objekte")
     anlagen: Mapped[list[Anlage]] = relationship(back_populates="objekt")

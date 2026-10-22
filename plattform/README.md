@@ -55,12 +55,12 @@ Danach `http://localhost:8100/` öffnen (Oberfläche) bzw. `/docs` (OpenAPI). Oh
 
 | Ansicht | Inhalt |
 | --- | --- |
-| Cockpit | Kennzahlen, Auslastung je Monteur, dringende Vorgänge, letzte Ereignisse (Betriebs-Zwilling) |
+| Cockpit | Kennzahlen, Auslastung je Monteur, dringende Vorgänge, letzte Ereignisse (Betriebs-Zwilling); **Kundenkarte** (wo welche Kunden sind: Punkte je Kunde mit Dringlichkeit, Wartungsstatus, Vertrag, heutige Einsätze; Betriebsstandort; Zoom/Verschieben; Hintergrund vom konfigurierbaren Kachelserver), Kunden je Ort, Kachel „Kundendaten vollständig“ und Liste, welche Angaben fehlen |
 | Anruf simulieren | spielt die Werkzeugkette des Voice-Agenten ohne Telefon durch, inkl. Sicherheitsfall Gasgeruch |
 | Freigabe-Inbox | offene Aktionen der Klassen B und C, Freigeben/Ablehnen mit Protokolleintrag |
 | Vorgänge | Kanban über den Statusautomaten; Detail mit Terminvorschlag aus der Disposition und Statuswechsel |
 | Plantafel | Einsätze je Monteur und Tag, vorgemerkt vs. bestätigt |
-| Kunden & Anlagen | CRM-Suche, Kundendetail mit Anlagen-Zwilling (Wartungsstatus, Ontologieklasse) |
+| Kunden & Anlagen | CRM-Suche mit Spalte „Vollständig“ (Rufnummer, E-Mail, Anschrift, Koordinaten, Objekt, Anlage, Einwilligung) und Filter auf unvollständige Datensätze; Kunde anlegen und bearbeiten (inkl. Koordinaten), Einwilligungen mit Zeitstempel setzen und entziehen, Objekt und Anlage anlegen, Adressen geokodieren; Kundendetail mit Prüfliste und Anlagen-Zwilling (Wartungsstatus, Ontologieklasse) |
 | Wartungsplanung | fällige Anlagen aus dem Zwilling, Planung als Servicefälle plus Kundenerinnerung zur Freigabe |
 | Ontologie | vorbereitete SPARQL-Abfragen und freies Abfragefeld über TBox und Instanzdaten |
 | Ereignisprotokoll | Event-Log und Outbox inkl. Dead-Letter |
@@ -116,7 +116,8 @@ Fachendpunkte verlangen einen Mandantenkontext: bei Maschinen `X-Mandant`, bei P
 
 | Bereich | Endpunkte |
 | --- | --- |
-| CRM | `POST/GET /kunden`, `GET/PATCH /kunden/{id}`, `POST /kunden/{id}/objekte`, `POST /objekte/{id}/anlagen`, `GET /anlagentypen` |
+| CRM | `POST/GET /kunden`, `GET/PATCH /kunden/{id}` (mit `lat`/`lon`, Detail mit `vollstaendigkeit`), `PUT /kunden/{id}/einwilligungen`, `POST /kunden/{id}/objekte`, `POST /objekte/{id}/anlagen`, `GET /anlagentypen` |
+| Kundenkarte | `GET /kunden/karte` (Kundenpunkte, heutige Einsätze, Betriebsstandort, Kunden je Ort, Kachelserver), `GET /kunden/vollstaendigkeit`, `POST /kunden/geokodieren?limit=&alle=` (Nominatim, max. 1 Anfrage/s; CLI `python -m core geokodieren`) |
 | Disposition | `POST/GET /ressourcen`, `GET /disposition/zeitfenster`, `GET /termine` |
 | Vorgänge | `POST/GET /servicefaelle`, `GET /servicefaelle/{id}` (mit Event-Historie), `POST /servicefaelle/{id}/status`, `POST /servicefaelle/{id}/termine` |
 | Freigabe | `GET /freigaben`, `POST /freigaben`, `POST /freigaben/{id}/entscheidung` |

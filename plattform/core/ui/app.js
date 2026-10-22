@@ -171,7 +171,8 @@ function detail(html) { $("#detail-inhalt").innerHTML = html; const d = $("#deta
 
 // --- Cockpit ---------------------------------------------------------------------------------
 async function cockpit(ziel) {
-  const [k, z, notfaelle] = await Promise.all([api("/kennzahlen"), api("/twin/betrieb"), api("/servicefaelle?dringlichkeit=notdienst")]);
+  const [k, z, notfaelle, karte, voll] = await Promise.all([api("/kennzahlen"), api("/twin/betrieb"), api("/servicefaelle?dringlichkeit=notdienst"),
+    api("/kunden/karte"), api("/kunden/vollstaendigkeit")]);
   const hoch = await api("/servicefaelle?dringlichkeit=hoch");
   const dringend = [...notfaelle, ...hoch].filter((f) => ["eingegangen", "qualifiziert"].includes(f.status));
   const kachel = (wert, bez) => `<div class="karte kachel"><div class="wert">${esc(wert ?? "–")}</div><div class="bez">${esc(bez)}</div></div>`;
@@ -186,6 +187,14 @@ async function cockpit(ziel) {
       ${kachel(k.automatisierungsquote === null ? "–" : `${Math.round(k.automatisierungsquote * 100)} %`, "automatisch freigegeben")}
       ${kachel(z.wartungspotenzial.length, "Wartungen fällig")}
       ${kachel(k.outbox_tot, "Zustellfehler (Dead Letter)")}
+      <a class="karte kachel klickbar" href="#kunden/unvollstaendig"><div class="wert">${esc(voll.vollstaendig)} / ${esc(voll.kunden)}</div><div class="bez">Kundendaten vollständig</div></a>
+    </div>
+    <div class="raster raster-karte">
+      <div class="karte"><h2>Wo sind die Kunden</h2><p class="unterzeile" style="margin-bottom:10px">${karte.kunden.length} Kunden mit Koordinaten${karte.ohne_koordinaten.length ? `, ${karte.ohne_koordinaten.length} ohne (<a href="#kunden/unvollstaendig">geokodieren</a>)` : ""} · Klick auf einen Punkt öffnet den Kunden</p><div id="c-karte"></div></div>
+      <div>
+        <div class="karte" style="margin-bottom:16px"><h2>Heute unterwegs</h2>${karte.einsaetze_heute.length ? `<table><tbody>${karte.einsaetze_heute.map((e) => `<tr class="klickbar" data-fall="${esc(e.servicefall_id)}"><td>${esc(UHRZEIT.format(new Date(e.beginn)))}</td><td>${esc(e.ressource.split(" (")[0])}</td><td>${esc(e.kunde)}${e.lat == null ? ' <span class="marke-tag t-neutral">ohne Koordinaten</span>' : ""}</td><td>${tag(e.status, e.status, e.status === "bestaetigt" ? "bestätigt" : "vorgemerkt")}</td></tr>`).join("")}</tbody></table>` : "<p>Heute keine Einsätze geplant.</p>"}</div>
+        <div class="karte"><h2>Kunden je Ort</h2><table><tbody>${karte.je_ort.map((o) => `<tr><td>${esc(o.ort)}<br><small>${esc(o.plz.join(", "))}</small></td><td style="text-align:right">${esc(o.anzahl)}</td></tr>`).join("") || "<tr><td>Keine Kunden.</td></tr>"}</tbody></table></div>
+      </div>
     </div>
     <div class="raster">
       <div class="karte"><h2>Dringend und noch nicht eingeplant</h2>${dringend.length ? `<table><tbody>${dringend.map((f) =>
@@ -195,10 +204,73 @@ async function cockpit(ziel) {
         <div class="balken"><span style="width:${Math.min(100, Math.round((a.quote || 0) * 100))}%"></span></div></div>`).join("")}</div>
     </div>
     <div class="raster">
+      <div class="karte"><h2>Was an Kundendaten fehlt</h2><table><tbody>${voll.je_feld.map((f) => `<tr><td>${esc(f.text)}</td><td style="text-align:right">${f.anzahl ? tag(f.anzahl, "offen", f.anzahl) : tag("0", "aktuell", "0")}</td></tr>`).join("")}</tbody></table></div>
       <div class="karte"><h2>Vorgänge je Status</h2><table><tbody>${STATUS.map((s) => `<tr><td>${STATUS_TEXT[s]}</td><td style="text-align:right">${z.vorgaenge_je_status[s] || 0}</td></tr>`).join("")}</tbody></table></div>
       <div class="karte"><h2>Letzte Ereignisse</h2><ul class="verlauf">${z.letzte_ereignisse.slice(0, 8).map((e) => `<li>${tag(e.akteur, "neutral")} <code>${esc(e.typ)}</code> · ${zeit(e.zeit)}</li>`).join("")}</ul></div>
     </div>`;
+  karteZeichnen($("#c-karte"), karte, { beimKlick: kundeDetail });
   ziel.querySelectorAll("[data-fall]").forEach((z) => z.addEventListener("click", () => fallDetail(z.dataset.fall)));
+}
+
+// --- Kundenkarte (eigene Zeichnung, Web-Mercator; Hintergrundkacheln vom konfigurierten Kachelserver) ----
+const KACHEL = 256;
+const WARTUNG_TEXT = { ueberfaellig: "Wartung überfällig", bald_faellig: "Wartung bald fällig", aktuell: "Wartung aktuell" };
+function mercator(lat, lon, z) {
+  const n = 2 ** z * KACHEL, phi = (lat * Math.PI) / 180;
+  return { x: ((lon + 180) / 360) * n, y: ((1 - Math.log(Math.tan(phi) + 1 / Math.cos(phi)) / Math.PI) / 2) * n };
+}
+function karteZeichnen(wurzel, daten, { hoehe = 420, beimKlick } = {}) {
+  const punkte = [...daten.kunden.filter((p) => p.lat != null), ...(daten.betrieb.lat != null ? [{ ...daten.betrieb, betrieb: true }] : [])];
+  const heute = new Set(daten.einsaetze_heute.map((e) => e.kunde_id));
+  wurzel.innerHTML = `<div class="geo" style="height:${hoehe}px" tabindex="0" aria-label="Kundenkarte"><div class="geo-kacheln"></div><div class="geo-marker"></div>
+    <div class="geo-steuer"><button type="button" class="leise" data-zoom="1" aria-label="Vergrößern">+</button><button type="button" class="leise" data-zoom="-1" aria-label="Verkleinern">−</button></div>
+    <div class="geo-hinweis">${esc(daten.kacheln.hinweis || "")}</div></div>
+    <div class="geo-legende"><span><i class="m-betrieb"></i>Betrieb</span><span><i class="m-notdienst"></i>Notdienst offen</span><span><i class="m-hoch"></i>dringend</span><span><i class="m-ueberfaellig"></i>Wartung überfällig</span><span><i class="m-vertrag"></i>Wartungsvertrag</span><span><i class="m-kunde"></i>Kunde</span><span><i class="m-heute"></i>heute Einsatz</span></div>`;
+  const geo = $(".geo", wurzel), kacheln = $(".geo-kacheln", wurzel), marker = $(".geo-marker", wurzel);
+  if (!punkte.length) { marker.innerHTML = `<p class="geo-leer">Noch keine Koordinaten. Adressen unter „Kunden &amp; Anlagen“ geokodieren.</p>`; return; }
+  const B = geo.clientWidth || 800, H = hoehe;
+  const lats = punkte.map((p) => p.lat), lons = punkte.map((p) => p.lon);
+  const mitte = { lat: (Math.min(...lats) + Math.max(...lats)) / 2, lon: (Math.min(...lons) + Math.max(...lons)) / 2 };
+  let z = 16;
+  for (; z > 3; z--) { const a = mercator(Math.max(...lats), Math.min(...lons), z), b = mercator(Math.min(...lats), Math.max(...lons), z); if (b.x - a.x < B - 80 && b.y - a.y < H - 80) break; }
+  const lage = { z, ...mercator(mitte.lat, mitte.lon, z) };  // Mittelpunkt in Pixeln der aktuellen Zoomstufe
+  const zeichnen = () => {
+    const links = lage.x - B / 2, oben = lage.y - H / 2, n = 2 ** lage.z;
+    kacheln.innerHTML = "";
+    if (daten.kacheln.url) {
+      for (let tx = Math.floor(links / KACHEL); tx <= Math.floor((links + B) / KACHEL); tx++) {
+        for (let ty = Math.max(0, Math.floor(oben / KACHEL)); ty <= Math.min(n - 1, Math.floor((oben + H) / KACHEL)); ty++) {
+          const img = document.createElement("img");
+          img.src = daten.kacheln.url.replace("{z}", lage.z).replace("{x}", ((tx % n) + n) % n).replace("{y}", ty);
+          img.alt = ""; img.loading = "lazy"; img.draggable = false; img.width = img.height = KACHEL;
+          img.addEventListener("error", () => { img.remove(); $(".geo-hinweis", wurzel).textContent = "Kartenhintergrund nicht erreichbar (Kachelserver, CSP oder Netz); Punkte sind lagerichtig zueinander."; });
+          img.style.left = `${tx * KACHEL - links}px`; img.style.top = `${ty * KACHEL - oben}px`;
+          kacheln.append(img);
+        }
+      }
+    }
+    marker.innerHTML = punkte.map((p) => {
+      const pos = mercator(p.lat, p.lon, lage.z);
+      const art = p.betrieb ? "betrieb" : p.dringlichkeit === "notdienst" ? "notdienst" : p.dringlichkeit === "hoch" ? "hoch" : p.wartung === "ueberfaellig" ? "ueberfaellig" : p.vertragsstatus === "wartungsvertrag" ? "vertrag" : "kunde";
+      const titel = p.betrieb ? `${p.name} (Betrieb)` : `${p.name} · ${p.strasse || ""}, ${p.plz || ""} ${p.ort || ""} · ${p.offene_vorgaenge} offene Vorgänge · ${WARTUNG_TEXT[p.wartung] || ""}`;
+      const l = pos.x - links, o = pos.y - oben;
+      return `<button type="button" class="m m-${art}${heute.has(p.id) ? " m-heute" : ""}" style="left:${l}px;top:${o}px" title="${esc(titel)}" ${p.betrieb ? "" : `data-kunde="${esc(p.id)}"`} aria-label="${esc(titel)}"></button>${lage.z >= 11 || p.betrieb ? `<span class="m-text" style="left:${l + 11}px;top:${o}px">${esc(p.name)}</span>` : ""}`;
+    }).join("");
+    marker.querySelectorAll("[data-kunde]").forEach((b) => b.addEventListener("click", () => beimKlick?.(b.dataset.kunde)));
+  };
+  const zoomen = (delta, px = B / 2, py = H / 2) => {
+    const neu = Math.max(3, Math.min(18, lage.z + delta)); if (neu === lage.z) return;
+    const f = 2 ** (neu - lage.z);  // Punkt unter dem Zeiger bleibt stehen
+    lage.x = (lage.x - B / 2 + px) * f - px + B / 2; lage.y = (lage.y - H / 2 + py) * f - py + H / 2; lage.z = neu; zeichnen();
+  };
+  wurzel.querySelectorAll("[data-zoom]").forEach((b) => b.addEventListener("click", () => zoomen(Number(b.dataset.zoom))));
+  geo.addEventListener("wheel", (ev) => { ev.preventDefault(); const r = geo.getBoundingClientRect(); zoomen(ev.deltaY < 0 ? 1 : -1, ev.clientX - r.left, ev.clientY - r.top); }, { passive: false });
+  let zug = null;
+  geo.addEventListener("pointerdown", (ev) => { if (ev.target.closest("button")) return; zug = { x: ev.clientX, y: ev.clientY }; geo.setPointerCapture(ev.pointerId); });
+  geo.addEventListener("pointermove", (ev) => { if (!zug) return; lage.x -= ev.clientX - zug.x; lage.y -= ev.clientY - zug.y; zug = { x: ev.clientX, y: ev.clientY }; zeichnen(); });
+  geo.addEventListener("pointerup", () => { zug = null; });
+  geo.addEventListener("keydown", (ev) => { const s = 60; if (ev.key === "+") zoomen(1); else if (ev.key === "-") zoomen(-1); else if (ev.key === "ArrowLeft") { lage.x -= s; zeichnen(); } else if (ev.key === "ArrowRight") { lage.x += s; zeichnen(); } else if (ev.key === "ArrowUp") { lage.y -= s; zeichnen(); } else if (ev.key === "ArrowDown") { lage.y += s; zeichnen(); } else return; ev.preventDefault(); });
+  zeichnen();
 }
 
 // --- Anrufsimulator --------------------------------------------------------------------------
@@ -366,31 +438,91 @@ async function monteureVerwalten(ziel) {
 
 // --- Kunden und Anlagen ----------------------------------------------------------------------
 async function kunden(ziel) {
-  ziel.innerHTML = `<h1>Kunden &amp; Anlagen</h1><p class="unterzeile">Kanonisches Datenmodell: Kunde → Objekt → Anlage; Dubletten über die Rufnummer.</p>
-    <div class="karte" style="margin-bottom:16px"><div class="zeile"><label>Suche <input id="k-suche" placeholder="Name, Ort oder E-Mail"></label></div></div>
-    <div class="karte"><div class="tabelle-rahmen"><table><thead><tr><th>Name</th><th>Ort</th><th>Telefon</th><th>Vertrag</th></tr></thead><tbody id="k-liste"></tbody></table></div></div>`;
+  const wir = await ich();
+  const nurOffen = location.hash.includes("/unvollstaendig");
+  ziel.innerHTML = `<h1>Kunden &amp; Anlagen</h1><p class="unterzeile">Kanonisches Datenmodell: Kunde → Objekt → Anlage; Dubletten über die Rufnummer. Die Spalte „Vollständig“ zeigt, ob alles für den automatischen Betrieb sitzt (Rufnummer, E-Mail, Anschrift, Koordinaten, Objekt, Anlage, Einwilligung).</p>
+    <div class="karte" style="margin-bottom:16px"><div class="zeile"><label>Suche <input id="k-suche" placeholder="Name, Ort oder E-Mail"></label>
+      <label><span><input type="checkbox" id="k-offen" ${nurOffen ? "checked" : ""}> nur unvollständige</span></label>
+      ${wir.rechte.includes("bearbeiten") ? `<button class="leise" id="k-geo" title="Adressen ohne Koordinaten über den Geokodierungsdienst auflösen">Adressen geokodieren</button>` : ""}
+      ${wir.rechte.includes("bearbeiten") ? `<button id="k-neu">Kunde anlegen</button>` : ""}</div><p id="k-status"></p></div>
+    <div class="karte"><div class="tabelle-rahmen"><table><thead><tr><th>Name</th><th>Ort</th><th>Telefon</th><th>Vertrag</th><th>Vollständig</th></tr></thead><tbody id="k-liste"></tbody></table></div></div>`;
   const laden = async () => {
     const q = $("#k-suche").value.trim();
-    const liste = await api(`/kunden?limit=200${q ? `&q=${encodeURIComponent(q)}` : ""}`);
-    $("#k-liste").innerHTML = liste.map((k) => `<tr class="klickbar" data-kunde="${esc(k.id)}"><td>${esc(k.name)}</td><td>${esc(k.ort || "")}</td><td>${esc(k.telefon || "")}</td><td>${k.vertragsstatus === "wartungsvertrag" ? tag("Wartungsvertrag", "A") : ""}</td></tr>`).join("") || `<tr><td colspan="4">Keine Treffer.</td></tr>`;
+    const [liste, voll] = await Promise.all([api(`/kunden?limit=200${q ? `&q=${encodeURIComponent(q)}` : ""}`), api("/kunden/vollstaendigkeit")]);
+    const luecken = Object.fromEntries(voll.unvollstaendig.map((u) => [u.id, u]));
+    const zeilen = $("#k-offen").checked ? liste.filter((k) => luecken[k.id]) : liste;
+    $("#k-liste").innerHTML = zeilen.map((k) => { const l = luecken[k.id]; return `<tr class="klickbar" data-kunde="${esc(k.id)}"><td>${esc(k.name)}</td><td>${esc(k.ort || "")}</td><td>${esc(k.telefon || "")}</td><td>${k.vertragsstatus === "wartungsvertrag" ? tag("Wartungsvertrag", "A") : ""}</td>
+      <td>${l ? `${tag(`${Math.round(l.quote * 100)} %`, "offen")} <small>${esc(l.fehlend.join(", "))}</small>` : tag("vollständig", "aktuell")}</td></tr>`; }).join("") || `<tr><td colspan="5">Keine Treffer.</td></tr>`;
     $("#k-liste").querySelectorAll("[data-kunde]").forEach((z) => z.addEventListener("click", () => kundeDetail(z.dataset.kunde)));
   };
   let warte; $("#k-suche").addEventListener("input", () => { clearTimeout(warte); warte = setTimeout(laden, 250); });
+  $("#k-offen").addEventListener("change", laden);
+  $("#k-geo")?.addEventListener("click", async () => {
+    $("#k-status").textContent = "Geokodierung läuft (höchstens eine Anfrage je Sekunde) …";
+    try { const e = await api("/kunden/geokodieren?limit=100", { methode: "POST" }); $("#k-status").innerHTML = `<span class="hinweis">${e.gesetzt} Koordinaten gesetzt, ${e.ohne_treffer} ohne Treffer, ${e.fehler} Fehler${e.uebrig ? `, ${e.uebrig} verbleiben für den nächsten Lauf` : ""}.</span>`; laden(); }
+    catch (e) { $("#k-status").innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
+  $("#k-neu")?.addEventListener("click", () => kundeFormular(null, laden));
   await laden();
 }
+const KUNDE_FELDER = [["name", "Name"], ["telefon", "Rufnummer"], ["email", "E-Mail"], ["strasse", "Straße und Hausnummer"], ["plz", "PLZ"], ["ort", "Ort"], ["lat", "Breitengrad (optional, sonst Geokodierung)"], ["lon", "Längengrad"]];
+const EINWILLIGUNGEN = [["email", "E-Mail (Terminbestätigung, Angebote, Rechnungen)"], ["sms", "SMS (Terminerinnerung)"], ["kontakt", "telefonische Kontaktaufnahme durch den Betrieb"], ["aufzeichnung", "Gesprächsaufzeichnung durch den Sprachagenten"], ["bewertung", "Bewertungsanfrage nach dem Einsatz"]];
+function kundeFormular(kunde, danach) {
+  const k = kunde || {};
+  const wurzel = detail(`<h2>${kunde ? "Kunde bearbeiten" : "Kunde anlegen"}</h2><form id="kf"><div class="raster">
+    ${KUNDE_FELDER.map(([f, b]) => `<label>${esc(b)} <input name="${f}" value="${esc(k[f] ?? "")}" ${f === "name" ? "required" : ""}></label>`).join("")}
+    <label>Vertragsstatus <select name="vertragsstatus"><option value="ohne" ${k.vertragsstatus !== "wartungsvertrag" ? "selected" : ""}>ohne Vertrag</option><option value="wartungsvertrag" ${k.vertragsstatus === "wartungsvertrag" ? "selected" : ""}>Wartungsvertrag</option></select></label>
+    <label>Notiz <input name="notiz" value="${esc(k.notiz ?? "")}"></label></div>
+    <p class="fehler" id="kf-fehler" hidden></p><div class="aktionen"><button type="submit">Speichern</button></div></form>`);
+  $("#kf", wurzel).addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target); const daten = {};
+    for (const [f, v] of fd.entries()) daten[f] = v === "" ? null : (["lat", "lon"].includes(f) ? Number(String(v).replace(",", ".")) : v);
+    if ((daten.lat == null) !== (daten.lon == null)) { $("#kf-fehler", wurzel).textContent = "Breiten- und Längengrad nur gemeinsam angeben."; $("#kf-fehler", wurzel).hidden = false; return; }
+    try {
+      const r = kunde ? await api(`/kunden/${kunde.id}`, { methode: "PATCH", daten }) : await api("/kunden", { methode: "POST", daten: { ...daten, vertragsstatus: daten.vertragsstatus || "ohne" } });
+      $("#detail").close(); danach ? danach() : kundeDetail(r.id);
+    } catch (e) { $("#kf-fehler", wurzel).textContent = e.message; $("#kf-fehler", wurzel).hidden = false; }
+  });
+}
 async function kundeDetail(id) {
-  const d = await api(`/kunden/${id}`);
+  const [d, wir, typen] = await Promise.all([api(`/kunden/${id}`), ich(), api("/anlagentypen")]);
+  const darf = wir.rechte.includes("bearbeiten");
   const anlagen = d.objekte.flatMap((o) => o.anlagen);
   const zwillinge = await Promise.all(anlagen.map((a) => api(`/twin/anlagen/${a.id}`)));
-  const wurzel = detail(`<h2>${esc(d.kunde.name)}</h2>
-    <p>${esc(d.kunde.strasse || "")}, ${esc(d.kunde.plz || "")} ${esc(d.kunde.ort || "")} · ${esc(d.kunde.telefon || "")}</p>
-    <h3>Anlagen (Digital Twin)</h3>
+  const v = d.vollstaendigkeit, ew = d.kunde.einwilligungen || {};
+  const wurzel = detail(`<div class="zeile" style="justify-content:space-between"><h2 style="margin:0">${esc(d.kunde.name)}</h2>${darf ? `<button class="leise" id="kd-bearbeiten">Bearbeiten</button>` : ""}</div>
+    <p>${esc(d.kunde.strasse || "–")}, ${esc(d.kunde.plz || "")} ${esc(d.kunde.ort || "")} · ${esc(d.kunde.telefon || "ohne Rufnummer")} · ${esc(d.kunde.email || "ohne E-Mail")}${d.kunde.lat != null ? ` · <small>${d.kunde.lat.toFixed(4)}, ${d.kunde.lon.toFixed(4)} (${esc(d.kunde.geo_quelle || "")})</small>` : ""}${d.kunde.notiz ? `<br><small>${esc(d.kunde.notiz)}</small>` : ""}</p>
+    <div class="raster"><div>
+      <h3>Für den Betrieb sitzt alles? ${v.vollstaendig ? tag("ja", "aktuell") : tag(`${Math.round(v.quote * 100)} %`, "offen")}</h3>
+      ${v.vollstaendig ? "<p>Alle Pflichtangaben vorhanden.</p>" : `<ul class="pruefliste">${v.fehlend.map((f) => `<li>${esc(f.text)}</li>`).join("")}</ul>`}
+    </div><div>
+      <h3>Einwilligungen</h3><form id="kd-ew">${EINWILLIGUNGEN.map(([a, b]) => `<label><span><input type="checkbox" name="${a}" ${ew[a] ? "checked" : ""} ${darf ? "" : "disabled"}> ${esc(b)}${ew[a] ? ` <small>(seit ${esc(zeit(ew[a]))})</small>` : ""}</span></label>`).join("")}</form>
+    </div></div>
+    <h3>Objekte und Anlagen (Digital Twin)</h3>
+    ${d.objekte.map((o) => `<p style="margin:8px 0 4px"><strong>${esc(o.bezeichnung)}</strong> · ${esc(o.strasse || "")} ${esc(o.plz || "")} ${esc(o.ort || "")}${o.gebaeudetyp ? ` · ${esc(o.gebaeudetyp)}` : ""} ${darf ? `<button class="leise" data-anlage-neu="${esc(o.id)}" style="padding:2px 8px">Anlage hinzufügen</button>` : ""}</p>`).join("") || "<p>Noch kein Objekt erfasst.</p>"}
+    ${darf ? `<p><button class="leise" id="kd-objekt-neu">Objekt hinzufügen</button></p>` : ""}
     <table><thead><tr><th>Anlage</th><th>Baujahr</th><th>Letzte Wartung</th><th>Status</th><th>Qualifikation</th></tr></thead><tbody>
     ${zwillinge.map((z) => `<tr><td>${esc(z.anlage.bezeichnung)}${z.anlage.hersteller ? ` · ${esc(z.anlage.hersteller)}` : ""}<br><small><code>shk:${esc(z.anlage.ontologieklasse)}</code></small></td>
       <td>${esc(z.anlage.baujahr || "–")}</td><td>${esc(z.wartung.letzte || "nie")}</td><td>${tag(z.wartung.status)}</td><td>${esc(z.wartung.benoetigte_qualifikation || "–")}</td></tr>`).join("") || `<tr><td colspan="5">Keine Anlagen erfasst.</td></tr>`}
     </tbody></table>
+    <div id="kd-formular"></div>
     <h3 style="margin-top:16px">Vorgänge</h3><table><tbody>${d.servicefaelle.map((f) => `<tr class="klickbar" data-fall="${esc(f.id)}"><td>${esc(f.anliegen)}</td><td>${tag(f.dringlichkeit)}</td><td>${esc(STATUS_TEXT[f.status])}</td><td>${zeit(f.erstellt)}</td></tr>`).join("") || "<tr><td>Keine.</td></tr>"}</tbody></table>`);
   wurzel.querySelectorAll("[data-fall]").forEach((z) => z.addEventListener("click", () => fallDetail(z.dataset.fall)));
+  $("#kd-bearbeiten", wurzel)?.addEventListener("click", () => kundeFormular(d.kunde));
+  $("#kd-ew", wurzel).addEventListener("change", async (ev) => {
+    try { await api(`/kunden/${id}/einwilligungen`, { methode: "PUT", daten: { [ev.target.name]: ev.target.checked } }); kundeDetail(id); } catch (e) { alert(e.message); }
+  });
+  $("#kd-objekt-neu", wurzel)?.addEventListener("click", () => {
+    $("#kd-formular", wurzel).innerHTML = `<form id="kd-of" class="karte"><div class="raster"><label>Bezeichnung <input name="bezeichnung" value="Hauptobjekt"></label><label>Straße <input name="strasse" value="${esc(d.kunde.strasse || "")}"></label><label>PLZ <input name="plz" value="${esc(d.kunde.plz || "")}"></label><label>Ort <input name="ort" value="${esc(d.kunde.ort || "")}"></label>
+      <label>Gebäudetyp <select name="gebaeudetyp"><option value="">–</option>${["Einfamilienhaus", "Mehrfamilienhaus", "Gewerbe"].map((g) => `<option>${g}</option>`).join("")}</select></label></div><div class="aktionen"><button type="submit">Objekt anlegen</button></div></form>`;
+    $("#kd-of", wurzel).addEventListener("submit", async (ev) => { ev.preventDefault(); const daten = Object.fromEntries([...new FormData(ev.target).entries()].filter(([, v]) => v !== "")); try { await api(`/kunden/${id}/objekte`, { methode: "POST", daten }); kundeDetail(id); } catch (e) { alert(e.message); } });
+  });
+  wurzel.querySelectorAll("[data-anlage-neu]").forEach((b) => b.addEventListener("click", () => {
+    $("#kd-formular", wurzel).innerHTML = `<form id="kd-af" class="karte"><div class="raster"><label>Anlagentyp <select name="anlagentyp">${Object.entries(typen).map(([k, t]) => `<option value="${k}">${esc(t.bezeichnung)}</option>`).join("")}</select></label>
+      <label>Hersteller <input name="hersteller"></label><label>Modell <input name="modell"></label><label>Baujahr <input name="baujahr" type="number" min="1950" max="2100"></label><label>Letzte Wartung <input name="letzte_wartung" type="date"></label></div><div class="aktionen"><button type="submit">Anlage anlegen</button></div></form>`;
+    $("#kd-af", wurzel).addEventListener("submit", async (ev) => { ev.preventDefault(); const daten = Object.fromEntries([...new FormData(ev.target).entries()].filter(([, v]) => v !== "")); if (daten.baujahr) daten.baujahr = Number(daten.baujahr); try { await api(`/objekte/${b.dataset.anlageNeu}/anlagen`, { methode: "POST", daten }); kundeDetail(id); } catch (e) { alert(e.message); } });
+  }));
   kundeDokumente(wurzel, id);
 }
 
@@ -487,7 +619,8 @@ const FELDER_STAMM = [["inhaber", "Inhaber/in"], ["strasse", "Straße"], ["plz",
   ["kontenrahmen", "Kontenrahmen (SKR03/SKR04)"], ["datev_beraternummer", "DATEV Beraternummer"], ["datev_mandantennummer", "DATEV Mandantennummer"], ["kanzlei_email", "E-Mail der Kanzlei"],
   ["stundensatz_kosten", "Stundensatz intern (€/h, Nachkalkulation)"], ["stundensatz_verrechnung", "Stundensatz Verrechnung (€/h)"], ["materialaufschlag_prozent", "Materialaufschlag (%)"],
   ["angebotsnummer_praefix", "Angebotsnummer-Präfix"], ["angebot_gueltig_tage", "Angebote gültig (Tage)"], ["mahn_karenz_tage", "Karenz nach Fälligkeit (Tage)"], ["mahn_frist_tage", "Zahlungsfrist je Mahnstufe (Tage)"],
-  ["mahngebuehr_stufe2", "Mahngebühr Stufe 2 (€)"], ["mahngebuehr_stufe3", "Mahngebühr Stufe 3 (€)"], ["bewertungslink", "Bewertungslink (Google/ProvenExpert, Anfrage nach erledigtem Rapport)"], ["basis_url", "Öffentliche Adresse der Plattform (für Formular-URL)"]];
+  ["mahngebuehr_stufe2", "Mahngebühr Stufe 2 (€)"], ["mahngebuehr_stufe3", "Mahngebühr Stufe 3 (€)"], ["bewertungslink", "Bewertungslink (Google/ProvenExpert, Anfrage nach erledigtem Rapport)"], ["basis_url", "Öffentliche Adresse der Plattform (für Formular-URL)"],
+  ["lat", "Betriebsstandort Breitengrad (leer: Geokodierung)"], ["lon", "Betriebsstandort Längengrad"], ["karte_kacheln", "Kachelserver der Kundenkarte ({z}/{x}/{y}, Standard OpenStreetMap; CSP img-src anpassen)"], ["karte_hinweis", "Urhebervermerk auf der Karte"]];
 const ANBINDUNGEN = {
   fachsoftware: { titel: "Fachsoftware", hinweis: "Termine und Aufträge. Bis die Schreib-API der Fachsoftware geklärt ist: Webhook (z. B. n8n) oder CSV-Export.",
     typen: { webhook: [["url", "Webhook-URL"], ["signatur_schluessel", "Signaturschlüssel (HMAC)", true], ["api_key", "Bearer-Token (optional)", true]], csv: [] } },
@@ -519,7 +652,7 @@ async function einstellungen(ziel) {
   $("#e-stamm").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const fd = new FormData(ev.target); const daten = {};
-    for (const [k, v] of fd.entries()) if (k !== "kleinunternehmer" && v !== "") daten[k] = ["zahlungsziel_tage", "stundensatz_kosten", "stundensatz_verrechnung", "materialaufschlag_prozent", "angebot_gueltig_tage", "mahn_karenz_tage", "mahn_frist_tage", "mahngebuehr_stufe2", "mahngebuehr_stufe3"].includes(k) ? Number(String(v).replace(",", ".")) : v;
+    for (const [k, v] of fd.entries()) if (k !== "kleinunternehmer" && v !== "") daten[k] = ["lat", "lon", "zahlungsziel_tage", "stundensatz_kosten", "stundensatz_verrechnung", "materialaufschlag_prozent", "angebot_gueltig_tage", "mahn_karenz_tage", "mahn_frist_tage", "mahngebuehr_stufe2", "mahngebuehr_stufe3"].includes(k) ? Number(String(v).replace(",", ".")) : v;
     daten.kleinunternehmer = fd.has("kleinunternehmer");
     try { await api("/betrieb/stammdaten", { methode: "PUT", daten }); alert("Gespeichert"); } catch (e) { alert(e.message); }
   });
