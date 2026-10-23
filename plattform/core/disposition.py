@@ -15,7 +15,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from core.domaene import als_utc
-from core.feiertage import feiertag
+from core.dienstplan import arbeitszeit, dienstkarte
+from core.qualifikationen import gueltig as qualifikation_gueltig
 from core.modelle import Abwesenheit, Mandant, Ressource, Termin
 
 ZEITZONE = ZoneInfo("Europe/Berlin")
@@ -52,7 +53,7 @@ def freie_zeitfenster(s: Session, mandant: Mandant, ab: datetime, tage: int = 5,
     damit der Agent echte Alternativen anbietet statt fünf Fenster desselben Tages."""
     ab = als_utc(ab)
     ressourcen = [r for r in s.scalars(select(Ressource).where(Ressource.mandant_id == mandant.id, Ressource.aktiv))
-                  if qualifikation is None or qualifikation in (r.qualifikationen or [])]
+                  if qualifikation is None or qualifikation_gueltig(r, qualifikation, ab.astimezone(ZEITZONE).date())]
     if not ressourcen:
         return []
     puffer = timedelta(minutes=mandant.puffer_minuten)
@@ -60,15 +61,18 @@ def freie_zeitfenster(s: Session, mandant: Mandant, ab: datetime, tage: int = 5,
     dauer = timedelta(minutes=dauer_minuten)
     bis = ab + timedelta(days=tage + 1)
     belegt = _belegungen(s, mandant.id, [r.id for r in ressourcen], ab, bis, puffer)
+    erster_tag = ab.astimezone(ZEITZONE).date()
+    dienste = dienstkarte(s, mandant.id, erster_tag, erster_tag + timedelta(days=tage + 1), [r.id for r in ressourcen])
 
     kandidaten: list[Zeitfenster] = []
     for r in ressourcen:
         gefunden = 0
-        tag: date = ab.astimezone(ZEITZONE).date()
+        tag: date = erster_tag
         for _ in range(tage + 1):
-            if tag.weekday() in (r.arbeitstage or []) and not feiertag(tag, mandant.stammdaten):
-                tagesbeginn = datetime.combine(tag, r.arbeitsbeginn, ZEITZONE)
-                tagesende = datetime.combine(tag, r.arbeitsende, ZEITZONE)
+            az = arbeitszeit(r, tag, dienste, mandant.stammdaten)
+            if az:
+                tagesbeginn = datetime.combine(tag, az[0], ZEITZONE)
+                tagesende = datetime.combine(tag, az[1], ZEITZONE)
                 beginn = max(tagesbeginn, _aufrunden(ab.astimezone(ZEITZONE), raster, tagesbeginn))
                 while beginn + dauer <= tagesende and gefunden < je_ressource:
                     ende = beginn + dauer

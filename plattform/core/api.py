@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from datetime import date, datetime, timedelta, timezone
+from datetime import time as time_
 from pathlib import Path
 from typing import Any, Literal
 
@@ -23,9 +24,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from core import (anfragen, angebote, belege, branchen, buchung, checklisten, domaene, dubletten, einsatz, feiertage, foerderung, forderungen, grosshandel,
-                  gutscheine, hinweise, kalender, karte, loeschung, management, metriken, optimierung, portal, prognose, risiko, routing, scanner, schaetzung,
-                  suche, tagesaufgaben, twin, vertraege, warteliste)
+from core import (anfragen, angebote, belege, branchen, buchung, checklisten, dienstplan, domaene, dubletten, einsatz, feiertage, foerderung, forderungen,
+                  garantie, grosshandel, gutscheine, hinweise, kalender, karte, lebenszyklus, loeschung, management, metriken, optimierung, portal, prognose,
+                  qualifikationen, risiko, routing, scanner, schaetzung, suche, tagesaufgaben, twin, vertraege, warteliste, zaehler)
 from core.auth import Abgewiesen, Authentifizierung, Prinzipal
 from core.db import Datenbank, mandant_binden
 from core.disposition import ZEITZONE, freie_zeitfenster, kollidiert
@@ -33,7 +34,7 @@ from core.domaene import als_utc
 from core.adapter import ERLAUBT, ZIELE, konfiguration_pruefen
 from core.adapter import datev as datev_api
 from core.geheimnisse import GEHEIME_FELDER, konfiguration_entschluesseln, konfiguration_maskieren, konfiguration_verschluesseln
-from core.modelle import (Abwesenheit, Anfrage, Angebot, Anhang, Anlage, Artikel, Beleg, Bereitschaft, Ereignis, Freigabe, Frist, Wartelisteneintrag,
+from core.modelle import (Abwesenheit, Anfrage, Angebot, Anhang, Anlage, Artikel, Bauteil, Beleg, Bereitschaft, Dienst, Ereignis, Freigabe, Frist, Wartelisteneintrag,
                           Kommunikation, Kunde, Mahnung, Mandant, Objekt, OutboxEintrag, Rapport, Rechnung, Ressource, Servicefall,
                           Termin, Vertrag, Zahlung, Zeiteintrag)
 from core.ontologie import ANLAGENTYPEN, TBOX, anlagentyp, exportieren
@@ -147,6 +148,9 @@ class RessourceNeu(_Schema):
     arbeitsbeginn: str = "07:30"
     arbeitsende: str = "16:30"
     benutzer: str | None = None
+    qualifikationen_ablauf: dict[str, str] = {}
+    wochenstunden: float = Field(40.0, ge=0, le=60)
+    urlaubsanspruch_tage: int = Field(30, ge=0, le=60)
 
 
 class RessourceAenderung(_Schema):
@@ -157,6 +161,9 @@ class RessourceAenderung(_Schema):
     arbeitsende: str | None = None
     aktiv: bool | None = None
     benutzer: str | None = None
+    qualifikationen_ablauf: dict[str, str | None] | None = None
+    wochenstunden: float | None = Field(None, ge=0, le=60)
+    urlaubsanspruch_tage: int | None = Field(None, ge=0, le=60)
 
 
 class RessourceAus(_Schema):
@@ -164,9 +171,56 @@ class RessourceAus(_Schema):
     name: str
     qualifikationen: list[str]
     arbeitstage: list[int]
+    arbeitsbeginn: time_ | None = None
+    arbeitsende: time_ | None = None
     benutzer: str | None = None
     aktiv: bool = True
-    aktiv: bool
+    qualifikationen_ablauf: dict[str, Any] = {}
+    wochenstunden: float = 40.0
+    urlaubsanspruch_tage: int = 30
+
+
+class BauteilNeu(_Schema):
+    art: str = Field(max_length=50)
+    bezeichnung: str = Field(max_length=200)
+    pflicht: bool = False
+    nutzungsdauer_jahre: int | None = Field(None, ge=1, le=80)
+    intervall_monate: int | None = Field(None, ge=1, le=600)
+    einbau: date | None = None
+    letzte_erneuerung: date | None = None
+    kosten_schaetzung: str | None = None
+    rechtsgrundlage: str | None = Field(None, max_length=200)
+    notiz: str | None = Field(None, max_length=300)
+
+
+class BauteilErneuert(_Schema):
+    am: date | None = None
+    kosten: str | None = None
+    notiz: str | None = Field(None, max_length=300)
+
+
+class DienstNeu(_Schema):
+    ressource_id: str
+    datum: date
+    art: Literal["arbeit", "bereitschaft", "frei"] = "arbeit"
+    schicht: str | None = None
+    beginn: str | None = None
+    ende: str | None = None
+    pause_minuten: int | None = Field(None, ge=0, le=180)
+    notiz: str | None = Field(None, max_length=200)
+
+
+class DienstUebernahme(_Schema):
+    dienste: list[dict[str, Any]]
+
+
+class ZaehlerstandNeu(_Schema):
+    art: str
+    wert: float = Field(ge=0)
+    datum: date | None = None
+    anlage_id: str | None = None
+    quelle: Literal["buero", "monteur", "kunde", "import"] = "buero"
+    notiz: str | None = Field(None, max_length=200)
 
 
 class ServicefallNeu(_Schema):
@@ -313,6 +367,14 @@ class Stammdaten(_Schema):
     buchung_vorlauf_tage: int = Field(14, ge=1, le=90)      # Online-Buchung: wie weit voraus
     buchung_vorlauf_stunden: int = Field(2, ge=0, le=72)    # Online-Buchung: Mindestvorlauf
     no_show_hinweis: str | None = None                      # Text in Terminbestätigung (z. B. Ausfallgebühr bei Nichterscheinen)
+    # Runde 6 (core/dienstplan.py, core/garantie.py, core/qualifikationen.py, core/lebenszyklus.py)
+    schichtbetrieb: bool | None = None                      # Dienstplan-Vorschlag mit Früh-/Spätschicht statt Tagschicht
+    vob: bool | None = None                                 # Gewährleistungsfristen nach VOB/B statt BGB
+    garantie_jahre: int | None = Field(None, ge=0, le=15)   # Herstellergarantie ab Baujahr, wenn keine Frist hinterlegt
+    garantie_hersteller: dict[str, int] | None = None       # je Hersteller abweichende Garantiejahre
+    pflichtqualifikationen: list[str] | None = None         # Spalten der Qualifikationsmatrix, die jeder haben muss
+    bauteilkosten: dict[str, str] | None = None             # Kostenschätzung je Bauteilart überschreiben
+    warteliste_frist_stunden: int | None = Field(None, ge=1, le=72)
     # Nachkalkulation (core/einsatz.py): interne Kosten und Verrechnungssatz je Stunde, Aufschlag auf Materialnetto
     stundensatz_kosten: float = Field(55, ge=0, le=500)
     stundensatz_verrechnung: float = Field(69, ge=0, le=500)
@@ -1078,6 +1140,8 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         werte["wartungsintervall_monate"] = werte["wartungsintervall_monate"] or typ.wartungsintervall_monate
         a = Anlage(mandant_id=m.id, objekt_id=o.id, **werte)
         s.add(a)
+        s.flush()
+        lebenszyklus.bauteile_anlegen(s, m, a)
         s.commit()
         return a
 
@@ -1107,6 +1171,9 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         for feld, wert in daten.model_dump(exclude_unset=True).items():
             if feld in ("arbeitsbeginn", "arbeitsende"):
                 wert = datetime.strptime(wert, "%H:%M").time()
+            elif feld == "qualifikationen_ablauf":
+                wert = {**(r.qualifikationen_ablauf or {}), **(wert or {})}
+                wert = {k: v for k, v in wert.items() if v}
             setattr(r, feld, wert)
         s.commit()
         return r
@@ -1155,6 +1222,9 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
                                 **({"dauer_schaetzung": {k: geschaetzt[k] for k in ("planung_minuten", "ebene", "stichprobe", "konfidenz")}} if geschaetzt else {})})
         if f.dringlichkeit == "notdienst":
             hinweise.senden(s, m, "notdienst", "Notdienst eingegangen", f"{f.kunde.name}: {f.anliegen[:80]}", f"servicefall:{f.id}", "vorgaenge")
+        g = garantie.pruefen(s, m, f, app.state.uhr().date())
+        if g["moeglicher_gewaehrleistungsfall"]:
+            domaene.protokollieren(s, m.id, "garantie.hinweis", "servicefall", f.id, "system", {"hinweise": g["hinweise"]})
         return f
 
     @app.post("/servicefaelle", response_model=ServicefallAus, status_code=201, dependencies=[Depends(recht("bearbeiten"))])
@@ -2798,5 +2868,171 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         ergebnis = fachlich(lambda: dubletten.zusammenfuehren(s, m, ziel, quelle, wer(p, None)))
         s.commit()
         return ergebnis
+
+    # --- Runde 6: Lebenszyklus, Dienstplan, Zähler, Garantie, Qualifikationen ----------------
+    @app.get("/anlagen/{anlage_id}/bauteile")
+    def bauteile(anlage_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        a = holen(s, Anlage, anlage_id, m)
+        return lebenszyklus.anlage_uebersicht(s, m, a, app.state.uhr().date())
+
+    @app.post("/anlagen/{anlage_id}/bauteile/anlegen", dependencies=[Depends(recht("bearbeiten"))])
+    def bauteile_anlegen(anlage_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        a = holen(s, Anlage, anlage_id, m)
+        neu = lebenszyklus.bauteile_anlegen(s, m, a, wer(p, None))
+        s.commit()
+        return {"angelegt": len(neu), **lebenszyklus.anlage_uebersicht(s, m, a, app.state.uhr().date())}
+
+    @app.post("/anlagen/{anlage_id}/bauteile", status_code=201, dependencies=[Depends(recht("bearbeiten"))])
+    def bauteil_anlegen(anlage_id: str, daten: BauteilNeu, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        a = holen(s, Anlage, anlage_id, m)
+        if daten.pflicht and not daten.intervall_monate:
+            raise HTTPException(422, "Prüfpflichten brauchen ein Intervall")
+        if not daten.pflicht and not daten.nutzungsdauer_jahre:
+            raise HTTPException(422, "Bauteile brauchen eine Nutzungsdauer")
+        b = Bauteil(mandant_id=m.id, anlage_id=a.id, **daten.model_dump())
+        s.add(b)
+        s.commit()
+        return lebenszyklus._eintrag(b, app.state.uhr().date())
+
+    @app.post("/bauteile/{bauteil_id}/erneuert", dependencies=[Depends(recht("einsatz"))])
+    def bauteil_erneuert(bauteil_id: str, daten: BauteilErneuert, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                         p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        b = holen(s, Bauteil, bauteil_id, m)
+        heute = app.state.uhr().date()
+        fachlich(lambda: lebenszyklus.erneuern(s, m, b, daten.am or heute, daten.kosten, daten.notiz, wer(p, None)))
+        s.commit()
+        return lebenszyklus._eintrag(b, heute)
+
+    @app.delete("/bauteile/{bauteil_id}", status_code=204, dependencies=[Depends(recht("bearbeiten"))])
+    def bauteil_loeschen(bauteil_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> Response:
+        b = holen(s, Bauteil, bauteil_id, m)
+        s.delete(b)
+        s.commit()
+        return Response(status_code=204)
+
+    @app.get("/kunden/{kunde_id}/erneuerungskalender")
+    def erneuerungskalender(kunde_id: str, jahre: int = Query(10, ge=1, le=30), m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        k = holen(s, Kunde, kunde_id, m)
+        return lebenszyklus.kalender(s, m, k, app.state.uhr().date(), jahre)
+
+    @app.get("/lebenszyklus/faellig", dependencies=[Depends(recht("bearbeiten"))])
+    def lebenszyklus_faellig(vorlauf_tage: int = Query(90, ge=0, le=730), m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> list[dict[str, Any]]:
+        return lebenszyklus.faellig(s, m, app.state.uhr().date(), vorlauf_tage)
+
+    @app.get("/lebenszyklus/katalog")
+    def lebenszyklus_katalog(anlagentyp: str | None = None) -> dict[str, Any]:
+        typen = [anlagentyp] if anlagentyp else list(lebenszyklus.KATALOG)
+        return {t: [vars(e) for e in lebenszyklus.katalog(t)] for t in typen}
+
+    @app.get("/dienstplan", dependencies=[Depends(recht("bearbeiten"))])
+    def dienstplan_woche(von: date | None = None, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        return dienstplan.woche(s, m, von or app.state.uhr().date())
+
+    @app.get("/dienstplan/pruefung", dependencies=[Depends(recht("bearbeiten"))])
+    def dienstplan_pruefung(von: date | None = None, tage: int = Query(28, ge=1, le=120), m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> list[dict[str, Any]]:
+        start = von or app.state.uhr().date()
+        return dienstplan.pruefen(s, m, start, start + timedelta(days=tage))
+
+    @app.get("/dienstplan/vorschlag", dependencies=[Depends(recht("verwalten"))])
+    def dienstplan_vorschlag(von: date | None = None, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        return dienstplan.vorschlag(s, m, von or app.state.uhr().date())
+
+    @app.post("/dienstplan/vorschlag", dependencies=[Depends(recht("verwalten"))])
+    def dienstplan_uebernehmen(daten: DienstUebernahme, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        angelegt = fachlich(lambda: dienstplan.uebernehmen(s, m, daten.dienste, wer(p, None)))
+        s.commit()
+        return {"angelegt": len(angelegt)}
+
+    @app.post("/dienste", status_code=201, dependencies=[Depends(recht("verwalten"))])
+    def dienst_anlegen(daten: DienstNeu, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        r = holen(s, Ressource, daten.ressource_id, m)
+        d = fachlich(lambda: dienstplan.eintragen(s, m, r, daten.datum, daten.art, daten.schicht,
+                                                   time_.fromisoformat(daten.beginn) if daten.beginn else None,
+                                                   time_.fromisoformat(daten.ende) if daten.ende else None, daten.pause_minuten, daten.notiz, wer(p, None)))
+        s.commit()
+        return dienstplan._eintrag(d)
+
+    @app.delete("/dienste/{dienst_id}", status_code=204, dependencies=[Depends(recht("verwalten"))])
+    def dienst_loeschen(dienst_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> Response:
+        d = holen(s, Dienst, dienst_id, m)
+        s.delete(d)
+        s.commit()
+        return Response(status_code=204)
+
+    @app.get("/dienstplan/schichten")
+    def dienstplan_schichten() -> dict[str, Any]:
+        return {k: {"beginn": b.strftime("%H:%M"), "ende": e.strftime("%H:%M"), "pause_minuten": p} for k, (b, e, p) in dienstplan.SCHICHTEN.items()}
+
+    @app.get("/zeitkonto", dependencies=[Depends(recht("einsatz"))])
+    def zeitkonto(ressource_id: str | None = None, von: date | None = None, bis: date | None = None, m: Mandant = Depends(mandant_kontext),
+                  s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> list[dict[str, Any]]:
+        heute = app.state.uhr().date()
+        von = von or heute.replace(day=1)
+        bis = bis or heute
+        eigene = eigene_ressourcen(p, s, m)
+        ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv).order_by(Ressource.name)).all()
+        if ressource_id:
+            ressourcen = [r for r in ressourcen if r.id == ressource_id]
+        if eigene is not None:
+            ressourcen = [r for r in ressourcen if r.id in eigene]
+        return [dienstplan.zeitkonto(s, m, r, von, bis) for r in ressourcen]
+
+    @app.get("/urlaub", dependencies=[Depends(recht("einsatz"))])
+    def urlaubskonten(jahr: int | None = None, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> list[dict[str, Any]]:
+        heute = app.state.uhr().date()
+        konten = dienstplan.urlaubsuebersicht(s, m, jahr or heute.year, heute)
+        eigene = eigene_ressourcen(p, s, m)
+        return konten if eigene is None else [k for k in konten if k["ressource_id"] in eigene]
+
+    @app.get("/kunden/{kunde_id}/zaehlerstaende")
+    def zaehlerstaende(kunde_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        k = holen(s, Kunde, kunde_id, m)
+        return {"staende": zaehler.liste(s, k), "arten": {a: {"bezeichnung": b, "einheit": e} for a, (b, e, _) in zaehler.ARTEN.items()}, **zaehler.analyse(s, m, k)}
+
+    @app.post("/kunden/{kunde_id}/zaehlerstaende", status_code=201, dependencies=[Depends(recht("einsatz"))])
+    def zaehlerstand_erfassen(kunde_id: str, daten: ZaehlerstandNeu, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                              p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        k = holen(s, Kunde, kunde_id, m)
+        a = holen(s, Anlage, daten.anlage_id, m) if daten.anlage_id else None
+        z = fachlich(lambda: zaehler.erfassen(s, m, k, daten.art, daten.wert, daten.datum or app.state.uhr().date(), a, daten.quelle, daten.notiz, wer(p, None)))
+        s.commit()
+        return zaehler._aus(z)
+
+    @app.get("/zaehler/auffaellig", dependencies=[Depends(recht("bearbeiten"))])
+    def zaehler_auffaellig(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> list[dict[str, Any]]:
+        return zaehler.auffaellige(s, m)
+
+    @app.get("/servicefaelle/{fall_id}/garantie")
+    def servicefall_garantie(fall_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        f = holen(s, Servicefall, fall_id, m)
+        eigener_fall(p, s, m, f)
+        return garantie.pruefen(s, m, f, app.state.uhr().date())
+
+    @app.get("/kunden/{kunde_id}/gewaehrleistung")
+    def kunde_gewaehrleistung(kunde_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        k = holen(s, Kunde, kunde_id, m)
+        heute = app.state.uhr().date()
+        anlagen = s.scalars(select(Anlage).join(Objekt, Objekt.id == Anlage.objekt_id).where(Objekt.kunde_id == k.id)).all()
+        return {"leistungen": garantie.eigene_leistungen(s, m, k, heute),
+                "herstellergarantien": [g for g in (garantie.herstellergarantie(s, m, a, heute) for a in anlagen) if g]}
+
+    @app.get("/qualifikationen/matrix", dependencies=[Depends(recht("bearbeiten"))])
+    def qualifikationsmatrix(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        return qualifikationen.matrix(s, m, app.state.uhr().date())
+
+    @app.get("/qualifikationen/katalog")
+    def qualifikationskatalog() -> dict[str, Any]:
+        return {k: {"bezeichnung": b, "nachschulung_monate": n, "grundlage": g} for k, (b, n, g) in qualifikationen.QUALIFIKATIONEN.items()}
+
+    @app.post("/portal/faelle/{fall_id}/zaehlerstand")
+    def portal_zaehlerstand(fall_id: str, daten: ZaehlerstandNeu, token: str | None = None, s: Session = Depends(sitzung)) -> dict[str, Any]:
+        f, m = portal_fall(s, fall_id, token)
+        a = s.get(Anlage, daten.anlage_id) if daten.anlage_id else None
+        if a is not None and a.objekt.kunde_id != f.kunde_id:
+            raise HTTPException(404, "Anlage nicht gefunden")
+        z = fachlich(lambda: zaehler.erfassen(s, m, f.kunde, daten.art, daten.wert, daten.datum or app.state.uhr().date(), a, "kunde", daten.notiz))
+        portal._kommunikation(s, f, f"Zählerstand gemeldet: {zaehler.ARTEN[daten.art][0]} {daten.wert:g} {zaehler.ARTEN[daten.art][1]}", app.state.uhr())
+        s.commit()
+        return zaehler._aus(z)
 
     return app

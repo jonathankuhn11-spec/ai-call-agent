@@ -29,6 +29,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from core.dienstplan import arbeitszeit, dienstkarte
+from core.qualifikationen import gueltig as qualifikation_gueltig
 from core.disposition import ZEITZONE
 from core.domaene import als_utc, outbox_schreiben, protokollieren
 from core.modelle import Abwesenheit, Mandant, Ressource, Termin
@@ -220,8 +222,10 @@ def problem_laden(s: Session, m: Mandant, tag: date, router: Router, toleranz_mi
     termine = s.scalars(select(Termin).where(Termin.mandant_id == m.id, Termin.beginn >= von, Termin.beginn < von + timedelta(days=1),
                                              Termin.status.in_(("vorgeschlagen", "bestaetigt"))).order_by(Termin.beginn)).all()
     abwesend = {a.ressource_id for a in s.scalars(select(Abwesenheit).where(Abwesenheit.mandant_id == m.id, Abwesenheit.von <= tag, Abwesenheit.bis >= tag))}
+    dienste = dienstkarte(s, m.id, tag, tag)
     ressourcen = [r for r in s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv).order_by(Ressource.name))
-                  if tag.weekday() in (r.arbeitstage or []) and r.id not in abwesend]
+                  if arbeitszeit(r, tag, dienste, m.stammdaten) and r.id not in abwesend]
+    zeiten = {r.id: arbeitszeit(r, tag, dienste, m.stammdaten) for r in ressourcen}
     betrieb = _betrieb(m)
     punkte: list[Punkt] = [betrieb] if betrieb else []
     index: dict[Punkt, int] = {betrieb: 0} if betrieb else {}
@@ -242,8 +246,8 @@ def problem_laden(s: Session, m: Mandant, tag: date, router: Router, toleranz_mi
             fenster = (0, 24 * 60)
         auftraege.append(Auftrag(t.id, t.servicefall_id, k.name, dauer, t.servicefall.benoetigte_qualifikation, t.servicefall.dringlichkeit,
                                  t.status, fenster[0], fenster[1], p, t.ressource_id, beginn))
-    fahrzeuge = [Fahrzeug(r.id, r.name, set(r.qualifikationen or []), r.arbeitsbeginn.hour * 60 + r.arbeitsbeginn.minute,
-                          r.arbeitsende.hour * 60 + r.arbeitsende.minute, 0 if betrieb else None) for r in ressourcen]
+    fahrzeuge = [Fahrzeug(r.id, r.name, {q for q in (r.qualifikationen or []) if qualifikation_gueltig(r, q, tag)}, zeiten[r.id][0].hour * 60 + zeiten[r.id][0].minute,
+                          zeiten[r.id][1].hour * 60 + zeiten[r.id][1].minute, 0 if betrieb else None) for r in ressourcen]
     minuten, _, quelle = router.matrix(punkte) if len(punkte) >= 2 else ([[0.0] * len(punkte)] * len(punkte), None, "luftlinie")
     problem = Problem(auftraege, fahrzeuge, minuten, float(m.puffer_minuten), int(m.puffer_minuten))
     plan: list[list[int]] = [[] for _ in fahrzeuge]

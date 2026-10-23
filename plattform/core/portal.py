@@ -52,7 +52,24 @@ def daten(s: Session, m: Mandant, f: Servicefall) -> dict[str, Any]:
             "vorgang": {"id": f.id, "anliegen": f.anliegen, "status": f.status, "dringlichkeit": f.dringlichkeit},
             "termine": [_termin(t) for t in sorted(f.termine, key=lambda t: t.beginn) if t.status != "abgesagt"],
             "angebote": [{"id": a.id, "nummer": a.nummer, "titel": a.titel, "brutto": a.brutto, "status": a.status, "gueltig_bis": a.gueltig_bis.isoformat()} for a in angebote],
-            "rechnungen": [{"id": r.id, "nummer": r.nummer, "brutto": r.brutto, "status": r.status, "faellig": r.faellig.isoformat()} for r in rechnungen]}
+            "rechnungen": [{"id": r.id, "nummer": r.nummer, "brutto": r.brutto, "status": r.status, "faellig": r.faellig.isoformat()} for r in rechnungen],
+            "haus": _haus(s, m, f)}
+
+
+def _haus(s: Session, m: Mandant, f: Servicefall) -> dict[str, Any]:
+    """„Ihr Haus“: Anlagen des Kunden mit anstehenden Erneuerungen/Prüfungen und meldbaren Zählerarten."""
+    from core import lebenszyklus, zaehler   # später Import (Zyklus über portal)
+    from core.modelle import Anlage, Objekt
+    from core.ontologie import ANLAGENTYPEN
+    heute = datetime.now(ZEITZONE).date()
+    kal = lebenszyklus.kalender(s, m, f.kunde, heute, jahre=3)
+    anlagen = s.scalars(select(Anlage).join(Objekt, Objekt.id == Anlage.objekt_id).where(Objekt.kunde_id == f.kunde_id)).all()
+    return {"anlagen": [{"id": a.id, "typ": getattr(ANLAGENTYPEN.get(a.anlagentyp), "bezeichnung", a.anlagentyp), "hersteller": a.hersteller, "modell": a.modell, "baujahr": a.baujahr} for a in anlagen],
+            "anstehend": [{"jahr": j["jahr"], "eintraege": [{"bezeichnung": e["bezeichnung"], "pflicht": e["pflicht"], "faellig": e["faellig"], "kosten": e["kosten_schaetzung"]} for e in j["eintraege"]]}
+                          for j in kal["jahre"] if j["eintraege"]][:3],
+            "ueberfaellig": [{"bezeichnung": e["bezeichnung"], "faellig": e["faellig"]} for e in kal["ueberfaellig"]],
+            "zaehlerarten": {k: {"bezeichnung": b, "einheit": e} for k, (b, e, _) in zaehler.ARTEN.items()},
+            "letzte_staende": zaehler.liste(s, f.kunde)[-5:]}
 
 
 def _kommunikation(s: Session, f: Servicefall, text: str, jetzt: datetime) -> None:

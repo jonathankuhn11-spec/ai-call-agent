@@ -26,7 +26,8 @@ from sqlalchemy.orm import Session
 from core import domaene, portal
 from core.disposition import ZEITZONE, _belegungen
 from core.domaene import als_utc
-from core.feiertage import feiertag
+from core.dienstplan import arbeitszeit, dienstkarte
+from core.qualifikationen import gueltig as qualifikation_gueltig
 from core.modelle import Kunde, Mandant, Ressource, Servicefall, Termin, Wartelisteneintrag
 from core.routing import haversine_km
 
@@ -61,13 +62,16 @@ def luecken(s: Session, m: Mandant, ab: datetime, tage: int = 7, mindest_minuten
     puffer = timedelta(minutes=m.puffer_minuten)
     bis = ab + timedelta(days=tage)
     belegt = _belegungen(s, m.id, [r.id for r in ressourcen], ab, bis, puffer)
+    erster_tag = ab.astimezone(ZEITZONE).date()
+    dienste = dienstkarte(s, m.id, erster_tag, erster_tag + timedelta(days=tage), [r.id for r in ressourcen])
     ergebnis = []
     for r in ressourcen:
-        tag = ab.astimezone(ZEITZONE).date()
+        tag = erster_tag
         for _ in range(tage):
-            if tag.weekday() in (r.arbeitstage or []) and not feiertag(tag, m.stammdaten):
-                von = max(als_utc(datetime.combine(tag, r.arbeitsbeginn, ZEITZONE)), ab)
-                ende_tag = als_utc(datetime.combine(tag, r.arbeitsende, ZEITZONE))
+            az = arbeitszeit(r, tag, dienste, m.stammdaten)
+            if az:
+                von = max(als_utc(datetime.combine(tag, az[0], ZEITZONE)), ab)
+                ende_tag = als_utc(datetime.combine(tag, az[1], ZEITZONE))
                 blocks = sorted((max(b, von), min(e, ende_tag)) for b, e in belegt[r.id] if e > von and b < ende_tag)
                 zeiger = von
                 for b, e in blocks + [(ende_tag, ende_tag)]:
@@ -92,7 +96,7 @@ def bewerten(e: Wartelisteneintrag, r: Ressource, beginn: datetime, ende: dateti
     luecke = int((als_utc(ende) - als_utc(beginn)).total_seconds() // 60)
     if e.dauer_minuten + puffer > luecke + puffer:   # Dauer muss in die Lücke passen (Puffer ist bereits in der Belegung berücksichtigt)
         return None
-    if e.qualifikation and e.qualifikation not in (r.qualifikationen or []):
+    if e.qualifikation and not qualifikation_gueltig(r, e.qualifikation, als_utc(beginn).astimezone(ZEITZONE).date()):
         return None
     lokal = als_utc(beginn).astimezone(ZEITZONE)
     if not (e.wunsch_von <= lokal.date() <= e.wunsch_bis):

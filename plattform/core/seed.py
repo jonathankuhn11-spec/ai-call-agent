@@ -13,7 +13,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from core import domaene, einsatz
+from core import domaene, einsatz, lebenszyklus
 from core.disposition import ZEITZONE
 from core.modelle import (Anlage, Beleg, Ereignis, ExternalRef, Frist, Kommunikation, Kunde, Mandant, Objekt, Ressource, Servicefall,
                           Termin)
@@ -137,6 +137,8 @@ def demodaten_anlegen(s: Session, jetzt_: datetime | None = None) -> str:
                        wartungsintervall_monate=None if typ == "sanitaer" else (24 if typ in ("solarthermie", "warmwasser") else 12),
                        letzte_wartung=_monate_zurueck(heute, monate) if monate is not None else None)
             s.add(a)
+            s.flush()
+            lebenszyklus.bauteile_anlegen(s, m, a)
             liste.append(a)
         kunden.append(k)
         anlagen_je_kunde.append(liste)

@@ -121,6 +121,9 @@ class Ressource(_Mandantenbezug, Basis):
     aktiv: Mapped[bool] = mapped_column(default=True)
     # Anmeldename (preferred_username) des Monteurs in Keycloak; damit sieht er nur seine eigenen Einsätze
     benutzer: Mapped[str | None] = mapped_column(String(100), index=True)
+    qualifikationen_ablauf: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)   # {"gas": "2027-05-01"} Ablauf/Nachschulung, siehe qualifikationen.py
+    wochenstunden: Mapped[float] = mapped_column(Float, default=40.0)                    # Soll für das Zeitkonto
+    urlaubsanspruch_tage: Mapped[int] = mapped_column(Integer, default=30)
 
 
 class Servicefall(_Mandantenbezug, Basis):
@@ -455,6 +458,59 @@ class Wartelisteneintrag(_Mandantenbezug, Basis):
 
     servicefall: Mapped[Servicefall] = relationship()
     kunde: Mapped[Kunde] = relationship()
+
+
+class Bauteil(_Mandantenbezug, Basis):
+    """Bauteil oder Prüfpflicht einer Anlage mit Nutzungsdauer bzw. Intervall – Grundlage des Erneuerungskalenders (lebenszyklus.py)."""
+    __tablename__ = "bauteil"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    anlage_id: Mapped[str] = mapped_column(String(32), ForeignKey("anlage.id"), index=True)
+    art: Mapped[str] = mapped_column(String(50))                 # Schlüssel aus dem Katalog oder frei
+    bezeichnung: Mapped[str] = mapped_column(String(200))
+    pflicht: Mapped[bool] = mapped_column(default=False)         # True: wiederkehrende Prüfung, False: Verschleißteil mit Nutzungsdauer
+    nutzungsdauer_jahre: Mapped[int | None] = mapped_column(Integer)
+    intervall_monate: Mapped[int | None] = mapped_column(Integer)
+    einbau: Mapped[date | None] = mapped_column(Date)
+    letzte_erneuerung: Mapped[date | None] = mapped_column(Date)   # bzw. letzte Prüfung
+    kosten_schaetzung: Mapped[str | None] = mapped_column(String(20))
+    rechtsgrundlage: Mapped[str | None] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(20), default="aktiv")   # aktiv, entfernt
+    notiz: Mapped[str | None] = mapped_column(String(300))
+    erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
+
+    anlage: Mapped[Anlage] = relationship()
+
+
+class Dienst(_Mandantenbezug, Basis):
+    """Dienstplan: geplante Arbeits-, Bereitschafts- und Freizeiten je Mitarbeiter und Tag (dienstplan.py)."""
+    __tablename__ = "dienst"
+    __table_args__ = (UniqueConstraint("ressource_id", "datum", "beginn"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    ressource_id: Mapped[str] = mapped_column(String(32), ForeignKey("ressource.id"), index=True)
+    datum: Mapped[date] = mapped_column(Date, index=True)
+    beginn: Mapped[time] = mapped_column(Time)
+    ende: Mapped[time] = mapped_column(Time)
+    art: Mapped[str] = mapped_column(String(20), default="arbeit")   # arbeit, bereitschaft, frei
+    pause_minuten: Mapped[int] = mapped_column(Integer, default=30)
+    schicht: Mapped[str | None] = mapped_column(String(20))          # frueh, spaet, tag, bereitschaft
+    notiz: Mapped[str | None] = mapped_column(String(200))
+    erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
+
+    ressource: Mapped[Ressource] = relationship()
+
+
+class Zaehlerstand(_Mandantenbezug, Basis):
+    """Zähler- und Betriebswerte je Anlage/Kunde (Gas, Strom, Wasser, Betriebsstunden, Brennerstarts) für die Verbrauchsanalyse (zaehler.py)."""
+    __tablename__ = "zaehlerstand"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    kunde_id: Mapped[str] = mapped_column(String(32), ForeignKey("kunde.id"), index=True)
+    anlage_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("anlage.id"), index=True)
+    art: Mapped[str] = mapped_column(String(30))                 # gas_kwh, gas_m3, strom_kwh, wasser_m3, waerme_kwh, betriebsstunden, brennerstarts
+    wert: Mapped[float] = mapped_column(Float)
+    datum: Mapped[date] = mapped_column(Date)
+    quelle: Mapped[str] = mapped_column(String(20), default="buero")   # buero, monteur, kunde, import
+    notiz: Mapped[str | None] = mapped_column(String(200))
+    erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
 
 
 class Angebot(_Mandantenbezug, Basis):

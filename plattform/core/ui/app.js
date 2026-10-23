@@ -135,7 +135,7 @@ $("#abmelden").addEventListener("click", () => abmelden());
 const ANSICHTEN = { cockpit, anruf, freigaben, vorgaenge, plantafel, kunden, wartung, ontologie, rechnungen, protokoll, einstellungen,
   einsatz: einsatzAnsicht, belege: belegeAnsicht, zeiten: zeitenAnsicht, betrieb: betriebAnsicht, angebote: angeboteAnsicht,
   forderungen: forderungenAnsicht, vertraege: vertraegeAnsicht, anfragen: anfragenAnsicht, auswertungen: auswertungenAnsicht, lager: lagerAnsicht, gutscheine: gutscheineAnsicht,
-  warteliste: wartelisteAnsicht };
+  warteliste: wartelisteAnsicht, dienstplan: dienstplanAnsicht };
 async function zeigen() {
   if (!speicher("mandant")) return anmelden();
   $("#mandant-name").textContent = speicher("mandantName") || "";
@@ -442,6 +442,7 @@ async function fallDetail(id) {
     <div id="terminwahl"></div><div id="wartelisteform"></div>
     <h3>Ereignisse</h3><ul class="verlauf">${d.ereignisse.map((e) => `<li>${tag(e.akteur, "neutral")} <code>${esc(e.typ)}</code> · ${zeit(e.zeit)}${e.payload?.grund ? ` · ${esc(e.payload.grund)}` : ""}</li>`).join("")}</ul>`);
   fallErgaenzungen(wurzel, id);
+  fallGarantie(wurzel, id);
   wurzel.querySelectorAll("[data-absage]").forEach((b) => b.addEventListener("click", async () => {
     const grund = prompt("Grund der Absage (optional):"); if (grund === null) return;
     try { await api(`/termine/${b.dataset.absage}/absagen`, { methode: "POST", daten: { grund: grund || null } }); await fallDetail(id); zeigen(); } catch (e) { alert(e.message); }
@@ -711,6 +712,7 @@ async function kundeDetail(id) {
     $("#kd-af", wurzel).addEventListener("submit", async (ev) => { ev.preventDefault(); const daten = Object.fromEntries([...new FormData(ev.target).entries()].filter(([, v]) => v !== "")); if (daten.baujahr) daten.baujahr = Number(daten.baujahr); try { await api(`/objekte/${b.dataset.anlageNeu}/anlagen`, { methode: "POST", daten }); kundeDetail(id); } catch (e) { alert(e.message); } });
   }));
   kundeDokumente(wurzel, id);
+  if (BRANCHE?.begriffe?.anlagen !== false) kundeLebenszyklus(wurzel, id, anlagen);
 }
 
 // --- Wartungsplanung -------------------------------------------------------------------------
@@ -1576,3 +1578,149 @@ async function gutscheineAnsicht(ziel) {
   ziel.querySelectorAll("[data-pdf]").forEach((b) => b.addEventListener("click", () => dateiLaden(`/gutscheine/${b.dataset.pdf}/pdf`, `gutschein-${b.dataset.pdf}.pdf`)));
   ziel.querySelectorAll("[data-storno]").forEach((b) => b.addEventListener("click", async () => { if (!confirm("Gutschein stornieren?")) return; try { await api(`/gutscheine/${b.dataset.storno}/storno`, { methode: "POST" }); zeigen(); } catch (e) { alert(e.message); } }));
 }
+
+// --- Runde 6: Lebenszyklus, Zähler, Gewährleistung im Kundendetail ----------------------------------
+const BAUTEIL_STATUS = { faellig: "ueberfaellig", bald: "bald_faellig", aktuell: "aktuell", ohne_termin: "neutral" };
+const BAUTEIL_TEXT = { faellig: "fällig", bald: "bald", aktuell: "aktuell", ohne_termin: "ohne Termin" };
+async function kundeLebenszyklus(wurzel, id, anlagen) {
+  if (!anlagen.length && !(BRANCHE?.begriffe?.anlagen !== false)) return;
+  const teil = document.createElement("div");
+  teil.innerHTML = `<h3 style="margin-top:16px">Erneuerungskalender</h3><div id="lz">Wird geladen …</div>
+    <h3 style="margin-top:16px">Zählerstände und Verbrauch</h3><div id="zs">Wird geladen …</div>
+    <h3 style="margin-top:16px">Gewährleistung und Garantie</h3><div id="gw">Wird geladen …</div>`;
+  wurzel.append(teil);
+  const [kal, zs, gw, wir] = await Promise.all([
+    api(`/kunden/${id}/erneuerungskalender?jahre=10`).catch((e) => ({ fehler: e.message })),
+    api(`/kunden/${id}/zaehlerstaende`).catch((e) => ({ fehler: e.message })),
+    api(`/kunden/${id}/gewaehrleistung`).catch((e) => ({ fehler: e.message })), ich()]);
+  const darf = wir.rechte.includes("einsatz") || wir.rechte.includes("bearbeiten");
+  // Erneuerungskalender
+  if (kal.fehler) $("#lz", teil).innerHTML = `<span class="fehler">${esc(kal.fehler)}</span>`;
+  else {
+    const alle = await Promise.all(anlagen.map((a) => api(`/anlagen/${a.id}/bauteile`)));
+    $("#lz", teil).innerHTML = `<p class="unterzeile">Rücklage für Erneuerungen: <strong>${esc(EURO.format(kal.ruecklage_monat))}/Monat</strong> (${esc(EURO.format(kal.ruecklage_jahr))}/Jahr, lineare Abschreibung über die Nutzungsdauer) · Kosten der nächsten 10 Jahre ca. ${esc(EURO.format(kal.kosten_horizont))}.</p>
+      ${kal.ueberfaellig.length ? `<p>${tag(`${kal.ueberfaellig.length} überfällig`, "ueberfaellig")} ${kal.ueberfaellig.map((e) => esc(e.bezeichnung)).join(" · ")}</p>` : ""}
+      <div class="raster">${alle.map((u, i) => `<div><strong>${esc(u.anlage.bezeichnung || u.anlage.anlagentyp)}</strong>${u.anlage.baujahr ? ` · Bj. ${u.anlage.baujahr}` : ""}
+        <table><thead><tr><th>Bauteil / Prüfung</th><th>Fällig</th><th>Kosten</th><th></th></tr></thead><tbody>
+        ${u.bauteile.map((b) => `<tr><td>${esc(b.bezeichnung)}${b.pflicht ? ` <small title="${esc(b.rechtsgrundlage || "")}">Prüfpflicht${b.intervall_monate ? `, alle ${b.intervall_monate} Mon.` : ""}</small>` : ` <small>${b.nutzungsdauer_jahre} J. Nutzungsdauer</small>`}</td>
+          <td>${b.faellig ? esc(b.faellig.split("-").reverse().join(".")) : "–"} ${tag(BAUTEIL_TEXT[b.status], BAUTEIL_STATUS[b.status])}</td><td>${b.kosten_schaetzung ? esc(EURO.format(b.kosten_schaetzung)) : "–"}</td>
+          <td>${darf ? `<button class="leise" data-erneuert="${esc(b.id)}" data-pflicht="${b.pflicht}" style="padding:2px 8px">${b.pflicht ? "Geprüft" : "Erneuert"}</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="4">Keine Bauteile${darf ? ` – <button class="leise" data-katalog="${esc(anlagen[i].id)}" style="padding:2px 8px">aus Katalog anlegen</button>` : ""}</td></tr>`}</tbody></table></div>`).join("")}</div>
+      <details style="margin-top:8px"><summary>Kalender nach Jahren</summary><table><tbody>${kal.jahre.filter((j) => j.eintraege.length).map((j) => `<tr><td><strong>${j.jahr}</strong><br><small>${esc(EURO.format(j.kosten))}</small></td><td>${j.eintraege.map((e) => `${esc(e.bezeichnung)}${e.pflicht ? " (Prüfung)" : ""}`).join(", ")}</td></tr>`).join("")}</tbody></table></details>
+      <p class="unterzeile">Nutzungsdauern nach VDI 2067/Herstellerangaben, Rechtsgrundlagen als Hinweis – keine Rechtsberatung.</p>`;
+    $("#lz", teil).querySelectorAll("[data-erneuert]").forEach((b) => b.addEventListener("click", async () => {
+      const am = prompt(b.dataset.pflicht === "true" ? "Geprüft am (JJJJ-MM-TT):" : "Erneuert am (JJJJ-MM-TT):", TAGESSCHLUESSEL.format(new Date())); if (am === null) return;
+      const kosten = b.dataset.pflicht === "true" ? null : prompt("Tatsächliche Kosten brutto (optional, z. B. 480.00):") || null;
+      try { await api(`/bauteile/${b.dataset.erneuert}/erneuert`, { methode: "POST", daten: { am, kosten } }); kundeDetail(id); } catch (e) { alert(e.message); }
+    }));
+    $("#lz", teil).querySelectorAll("[data-katalog]").forEach((b) => b.addEventListener("click", async () => { try { await api(`/anlagen/${b.dataset.katalog}/bauteile/anlegen`, { methode: "POST" }); kundeDetail(id); } catch (e) { alert(e.message); } }));
+  }
+  // Zählerstände
+  if (zs.fehler) $("#zs", teil).innerHTML = `<span class="fehler">${esc(zs.fehler)}</span>`;
+  else {
+    const BEW = { auffaellig: ["auffällig", "ueberfaellig"], verbessert: ["verbessert", "aktuell"], unauffaellig: ["unauffällig", "aktuell"], zu_wenig_daten: ["zu wenig Daten", "neutral"] };
+    $("#zs", teil).innerHTML = `${zs.hinweise.map((h) => `<p class="hinweis">${esc(h.text)}</p>`).join("")}
+      ${zs.reihen.length ? `<table><thead><tr><th>Zähler</th><th>Stände</th><th>Jahresverbrauch${zs.reihen.some((r) => r.klimabereinigt) ? " (klimabereinigt)" : ""}</th><th>Referenz</th><th>Bewertung</th></tr></thead><tbody>
+        ${zs.reihen.map((r) => `<tr><td>${esc(r.bezeichnung)}${r.anlagentyp ? ` <small>${esc(r.anlagentyp)}</small>` : ""}</td><td>${r.staende}</td><td>${r.jahresverbrauch_normiert != null ? `${esc(Math.round(r.jahresverbrauch_normiert).toLocaleString("de-DE"))} ${esc(r.einheit)}/a${r.kwh_je_m2 ? `<br><small>${r.kwh_je_m2} kWh/m²a · ${esc(r.effizienzklasse_hinweis)}</small>` : ""}` : "–"}</td>
+          <td>${r.referenz != null ? `${esc(Math.round(r.referenz).toLocaleString("de-DE"))} ${esc(r.einheit)}/a${r.abweichung != null ? ` (${r.abweichung > 0 ? "+" : ""}${Math.round(r.abweichung * 100)} %)` : ""}` : "–"}</td><td>${tag(BEW[r.bewertung][0], BEW[r.bewertung][1])}</td></tr>`).join("")}</tbody></table>` : "<p>Noch keine Zählerstände. Zwei Stände im Abstand von mindestens zwei Wochen ergeben eine Periode; ab zwei Perioden wird verglichen.</p>"}
+      ${zs.staende.length ? `<details><summary>${zs.staende.length} Stände</summary><table><tbody>${zs.staende.slice().reverse().slice(0, 30).map((z) => `<tr><td>${esc(z.datum.split("-").reverse().join("."))}</td><td>${esc(z.bezeichnung)}</td><td style="text-align:right">${esc(z.wert.toLocaleString("de-DE"))} ${esc(z.einheit)}</td><td><small>${esc(z.quelle)}${z.notiz ? ` · ${esc(z.notiz)}` : ""}</small></td></tr>`).join("")}</tbody></table></details>` : ""}
+      ${darf ? `<form id="zs-form" class="zeile" style="margin-top:8px"><select name="art">${Object.entries(zs.arten).map(([k, a]) => `<option value="${k}">${esc(a.bezeichnung)} (${esc(a.einheit)})</option>`).join("")}</select>
+        <input name="wert" type="number" step="0.1" min="0" placeholder="Stand" required style="width:120px"><input name="datum" type="date" value="${TAGESSCHLUESSEL.format(new Date())}">
+        ${anlagen.length ? `<select name="anlage_id"><option value="">ohne Anlage</option>${anlagen.map((a) => `<option value="${esc(a.id)}">${esc(a.anlagentyp)}${a.hersteller ? ` ${esc(a.hersteller)}` : ""}</option>`).join("")}</select>` : ""}
+        <input name="notiz" placeholder="Notiz (z. B. Zählerwechsel)" style="width:180px"><button type="submit" class="leise">Erfassen</button></form>` : ""}`;
+    $("#zs-form", teil)?.addEventListener("submit", async (ev) => {
+      ev.preventDefault(); const daten = Object.fromEntries([...new FormData(ev.target).entries()].filter(([, v]) => v !== "")); daten.wert = Number(daten.wert);
+      try { await api(`/kunden/${id}/zaehlerstaende`, { methode: "POST", daten }); kundeDetail(id); } catch (e) { alert(e.message); }
+    });
+  }
+  // Gewährleistung
+  if (gw.fehler) $("#gw", teil).innerHTML = `<span class="fehler">${esc(gw.fehler)}</span>`;
+  else $("#gw", teil).innerHTML = `${gw.herstellergarantien.map((g) => `<p>${tag(g.aktiv ? "Herstellergarantie läuft" : "Herstellergarantie abgelaufen", g.aktiv ? "aktuell" : "neutral")} ${esc(g.hersteller || "")} ${esc(g.modell || "")} bis ${esc(g.ende.split("-").reverse().join("."))} <small>(${esc(g.quelle)})</small></p>`).join("")}
+    ${gw.leistungen.length ? `<table><thead><tr><th>Eigene Leistung</th><th>Datum</th><th>Gewährleistung bis</th><th>Grundlage</th></tr></thead><tbody>${gw.leistungen.map((l) => `<tr><td>${esc(l.nummer)} · ${esc(l.taetigkeiten)}</td><td>${esc(l.datum.split("-").reverse().join("."))}</td><td>${esc(l.ende.split("-").reverse().join("."))} <small>(${l.resttage} Tage)</small></td><td><small>${esc(l.grundlage)}</small></td></tr>`).join("")}</tbody></table>` : "<p>Keine eigenen Leistungen in laufender Gewährleistung.</p>"}`;
+}
+
+async function fallGarantie(wurzel, id) {
+  try {
+    const g = await api(`/servicefaelle/${id}/garantie`);
+    if (!g.hinweise.length) return;
+    const p = document.createElement("div");
+    p.innerHTML = g.hinweise.map((h) => `<p class="hinweis">⚖️ ${esc(h)}</p>`).join("");
+    wurzel.querySelector("h3")?.before(p);
+  } catch { /* kein Recht oder kein Kunde */ }
+}
+
+// --- Runde 6: Dienstplan, Zeitkonto, Urlaub, Qualifikationsmatrix -----------------------------------
+const SCHICHT_TEXT = { frueh: "Früh", spaet: "Spät", tag: "Tag", bereitschaft: "Bereitschaft" };
+const QSTATUS = { gueltig: ["gültig", "aktuell"], laeuft_ab: ["läuft ab", "bald_faellig"], abgelaufen: ["abgelaufen", "ueberfaellig"], fehlt: ["fehlt", "neutral"], unbefristet: ["unbefristet", "aktuell"], ohne_datum: ["ohne Datum", "offen"] };
+let DIENSTPLAN_MONTAG = null;
+async function dienstplanAnsicht(ziel) {
+  const wir = await ich();
+  const verwalten = wir.rechte.includes("verwalten");
+  const von = DIENSTPLAN_MONTAG || TAGESSCHLUESSEL.format(new Date());
+  const [w, zk, ul, mtx, schichten] = await Promise.all([api(`/dienstplan?von=${von}`), api("/zeitkonto").catch(() => []), api("/urlaub").catch(() => []),
+    api("/qualifikationen/matrix").catch(() => null), api("/dienstplan/schichten")]);
+  DIENSTPLAN_MONTAG = w.montag;
+  const TAGE = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+  const verstoesse = w.warnungen.filter((x) => x.schwere === "verstoss"), hinweise = w.warnungen.filter((x) => x.schwere !== "verstoss");
+  ziel.innerHTML = `<h1>Dienstplan</h1><p class="unterzeile">Schichten je Mitarbeiter und Tag; ohne Eintrag gilt die Regelarbeitszeit. Disposition, Warteliste, Optimierer und Prognose rechnen mit diesem Plan. Prüfung gegen das Arbeitszeitgesetz (§§ 3–5, 11 ArbZG) als Hinweis, keine Rechtsberatung.</p>
+    <div class="karte" style="margin-bottom:16px"><div class="aktionen" style="justify-content:space-between"><span><button class="leise" id="dp-zurueck">◀</button> <strong>KW ${w.kw}</strong> · ${esc(w.montag.split("-").reverse().join("."))} – ${esc(w.sonntag.split("-").reverse().join("."))} <button class="leise" id="dp-vor">▶</button></span>
+      ${verwalten ? `<span><button class="leise" id="dp-vorschlag">Wochenvorschlag</button></span>` : ""}</div>
+      <div class="tabelle-rahmen"><table class="dienstplan"><thead><tr><th>Mitarbeiter</th>${w.zeilen[0]?.tage.map((t, i) => `<th>${TAGE[i]} ${esc(t.datum.slice(8))}.${esc(t.datum.slice(5, 7))}.${t.feiertag ? `<br><small>${esc(t.feiertag)}</small>` : ""}</th>`).join("") || ""}<th>Σ</th></tr></thead><tbody>
+      ${w.zeilen.map((z) => `<tr><td>${esc(z.name.split(" (")[0])}<br><small>${z.wochenstunden} h/Woche</small></td>${z.tage.map((t) => `<td class="${verwalten ? "klickbar" : ""} ${t.abwesenheit ? "abwesend" : t.dienste.some((d) => d.art === "frei") ? "frei" : ""}" data-r="${esc(z.ressource_id)}" data-tag="${esc(t.datum)}">
+        ${t.abwesenheit ? `<small>${esc(t.abwesenheit)}</small>` : t.dienste.length ? t.dienste.map((d) => `<span class="dienst ${esc(d.art)}" title="${esc(d.notiz || "")}">${d.art === "frei" ? "frei" : d.art === "bereitschaft" ? "Bereitsch." : `${esc(d.beginn)}–${esc(d.ende)}`}${d.schicht && d.art === "arbeit" ? ` <small>${esc(SCHICHT_TEXT[d.schicht] || d.schicht)}</small>` : ""}</span>`).join("") : t.beginn ? `<span class="dienst regel">${esc(t.beginn)}–${esc(t.ende)}</span>` : `<small>–</small>`}
+        ${t.gebucht_h ? `<br><small>${t.gebucht_h} h Termine</small>` : ""}</td>`).join("")}<td><strong>${z.summe_h}</strong><br><small class="${z.abweichung_h > 0 ? "fehler" : ""}">${z.abweichung_h > 0 ? "+" : ""}${z.abweichung_h} h</small></td></tr>`).join("") || `<tr><td colspan="9">Keine aktiven Mitarbeiter.</td></tr>`}</tbody></table></div>
+      <div id="dp-form"></div><div id="dp-vorschlag-box"></div>
+      ${verstoesse.length ? `<h3 style="margin-top:12px">Verstöße (${verstoesse.length})</h3><ul class="pruefliste">${verstoesse.map((x) => `<li>${tag("ArbZG", "ueberfaellig")} ${esc(x.name.split(" (")[0])}, ${esc(x.datum.split("-").reverse().join("."))}: ${esc(x.text)}</li>`).join("")}</ul>` : `<p class="hinweis" style="margin-top:12px">Keine Verstöße gegen das Arbeitszeitgesetz im geprüften Zeitraum.</p>`}
+      ${hinweise.length ? `<details><summary>${hinweise.length} Hinweise</summary><ul class="pruefliste">${hinweise.map((x) => `<li>${esc(x.name.split(" (")[0])}, ${esc(x.datum.split("-").reverse().join("."))}: ${esc(x.text)}</li>`).join("")}</ul></details>` : ""}</div>
+    <div class="raster">
+      <div class="karte"><h2>Zeitkonto (laufender Monat)</h2><table><thead><tr><th>Mitarbeiter</th><th>Soll</th><th>Ist</th><th>Gutschrift</th><th>Saldo</th></tr></thead><tbody>
+        ${zk.map((k) => `<tr><td>${esc(k.name.split(" (")[0])}</td><td>${k.soll_h} h</td><td>${k.ist_h} h</td><td>${k.gutschrift_h} h</td><td><strong class="${k.saldo_h < -8 ? "fehler" : ""}">${k.saldo_h > 0 ? "+" : ""}${k.saldo_h} h</strong></td></tr>`).join("") || "<tr><td colspan='5'>–</td></tr>"}</tbody></table>
+        <p class="unterzeile">Soll aus Diensten bzw. Regelarbeitszeit, Ist aus der Zeiterfassung (Arbeit + Fahrt), Gutschrift für Urlaub/Krankheit/Schulung.</p></div>
+      <div class="karte"><h2>Urlaubskonten ${new Date().getFullYear()}</h2><table><thead><tr><th>Mitarbeiter</th><th>Anspruch</th><th>Genommen</th><th>Geplant</th><th>Rest</th></tr></thead><tbody>
+        ${ul.map((u) => `<tr><td>${esc(u.name.split(" (")[0])}</td><td>${u.anspruch}</td><td>${u.genommen}</td><td>${u.geplant}</td><td><strong>${u.rest}</strong></td></tr>`).join("") || "<tr><td colspan='5'>–</td></tr>"}</tbody></table>
+        <p class="unterzeile">Urlaub wird über Abwesenheiten (Art „urlaub“) gezählt, nur Arbeitstage ohne Feiertag. Anspruch je Mitarbeiter in den Stammdaten der Ressource.</p></div>
+    </div>
+    ${mtx ? `<div class="karte" style="margin-top:16px"><h2>Qualifikationsmatrix</h2>
+      ${mtx.risiken.map((r) => `<p class="hinweis">${esc(r)}</p>`).join("")}
+      <div class="tabelle-rahmen"><table><thead><tr><th>Mitarbeiter</th>${mtx.spalten.map((sp) => `<th title="${esc(sp.grundlage)}">${esc(sp.bezeichnung.split(" (")[0])}${sp.pflicht ? " *" : ""}${sp.nachschulung_monate ? `<br><small>alle ${sp.nachschulung_monate} Mon.</small>` : ""}</th>`).join("")}</tr></thead><tbody>
+      ${mtx.zeilen.map((z) => `<tr><td>${esc(z.name.split(" (")[0])}</td>${mtx.spalten.map((sp) => { const c = z.zellen[sp.schluessel]; return `<td class="${verwalten ? "klickbar" : ""}" data-qr="${esc(z.ressource_id)}" data-q="${esc(sp.schluessel)}" data-hat="${c.status !== "fehlt"}">${tag(QSTATUS[c.status][0], QSTATUS[c.status][1])}${c.ablauf ? `<br><small>${esc(c.ablauf.split("-").reverse().join("."))}</small>` : ""}</td>`; }).join("")}</tr>`).join("")}</tbody></table></div>
+      <p class="unterzeile">* Pflicht für alle (Stammdatum pflichtqualifikationen). Abgelaufene Qualifikationen zählen in Disposition und Optimierer nicht mehr. ${verwalten ? "Klick auf eine Zelle setzt Qualifikation und Ablaufdatum." : ""}</p></div>` : ""}`;
+  $("#dp-zurueck").addEventListener("click", () => { DIENSTPLAN_MONTAG = verschieben(w.montag, -7); zeigen(); });
+  $("#dp-vor").addEventListener("click", () => { DIENSTPLAN_MONTAG = verschieben(w.montag, 7); zeigen(); });
+  if (!verwalten) return;
+  ziel.querySelectorAll("td[data-tag]").forEach((td) => td.addEventListener("click", () => {
+    const zeile = w.zeilen.find((z) => z.ressource_id === td.dataset.r), t = zeile.tage.find((x) => x.datum === td.dataset.tag);
+    $("#dp-form").innerHTML = `<form id="dp-f" class="zeile" style="margin-top:8px"><strong>${esc(zeile.name.split(" (")[0])}, ${esc(td.dataset.tag.split("-").reverse().join("."))}</strong>
+      <select name="schicht"><option value="">eigene Zeiten</option>${Object.entries(schichten).map(([k, s]) => `<option value="${k}">${esc(SCHICHT_TEXT[k] || k)} ${s.beginn}–${s.ende}</option>`).join("")}</select>
+      <input name="beginn" type="time" value="${esc(t.beginn || "07:30")}"><input name="ende" type="time" value="${esc(t.ende || "16:30")}"><input name="pause_minuten" type="number" min="0" max="180" value="30" style="width:70px" title="Pause in Minuten">
+      <button type="submit" class="leise">Dienst speichern</button><button type="button" class="leise" id="dp-frei">Frei</button>${t.dienste.map((d) => `<button type="button" class="leise gefahr" data-loeschen="${esc(d.id)}">Löschen ${esc(d.beginn)}</button>`).join("")}</form>`;
+    $("#dp-f").addEventListener("submit", async (ev) => {
+      ev.preventDefault(); const fd = new FormData(ev.target); const schicht = fd.get("schicht") || null;
+      const daten = { ressource_id: td.dataset.r, datum: td.dataset.tag, art: "arbeit", schicht, pause_minuten: Number(fd.get("pause_minuten")) };
+      if (!schicht) { daten.beginn = fd.get("beginn"); daten.ende = fd.get("ende"); }
+      try { await api("/dienste", { methode: "POST", daten }); zeigen(); } catch (e) { alert(e.message); }
+    });
+    $("#dp-frei").addEventListener("click", async () => { try { await api("/dienste", { methode: "POST", daten: { ressource_id: td.dataset.r, datum: td.dataset.tag, art: "frei" } }); zeigen(); } catch (e) { alert(e.message); } });
+    $("#dp-f").querySelectorAll("[data-loeschen]").forEach((b) => b.addEventListener("click", async () => { try { await api(`/dienste/${b.dataset.loeschen}`, { methode: "DELETE" }); zeigen(); } catch (e) { alert(e.message); } }));
+  }));
+  $("#dp-vorschlag")?.addEventListener("click", async () => {
+    const box = $("#dp-vorschlag-box"); box.innerHTML = "Berechne …";
+    try {
+      const v = await api(`/dienstplan/vorschlag?von=${w.montag}`);
+      box.innerHTML = `<div class="karte" style="margin-top:8px"><h3>Vorschlag KW ${v.kw}${v.schichtbetrieb ? " (Schichtbetrieb)" : ""}</h3><p class="unterzeile">Bedarf aus gebuchten Terminen und Prognose (${v.bedarf_woche_h} h/Woche, +15 % Reserve); wer zuletzt am wenigsten Stunden hatte, wird zuerst eingeteilt. Bestehende Dienste bleiben.</p>
+        <table><thead><tr><th>Tag</th><th>Bedarf</th><th>Bereits geplant</th><th>Vorschlag</th></tr></thead><tbody>${v.tage.map((t) => `<tr><td>${esc(t.datum.split("-").reverse().join("."))}</td><td>${t.bedarf_h} h (${t.benoetigt} Pers.)${t.unterdeckung_h ? ` <span class="fehler">−${t.unterdeckung_h} h</span>` : ""}</td><td>${esc(t.geplant.join(", ") || "–")}</td><td>${t.vorschlag.map((d) => `${esc(d.name.split(" (")[0])} ${esc(SCHICHT_TEXT[d.schicht])} ${d.beginn}–${d.ende}`).join("<br>") || "–"}</td></tr>`).join("")}</tbody></table>
+        <div class="aktionen" style="margin-top:8px">${v.dienste.length ? `<button id="dp-uebernehmen">${v.dienste.length} Dienste übernehmen</button>` : "<span>Nichts zu ergänzen.</span>"}</div></div>`;
+      $("#dp-uebernehmen")?.addEventListener("click", async () => { try { await api("/dienstplan/vorschlag", { methode: "POST", daten: { dienste: v.dienste } }); zeigen(); } catch (e) { alert(e.message); } });
+    } catch (e) { box.innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
+  ziel.querySelectorAll("td[data-q]").forEach((td) => td.addEventListener("click", async () => {
+    const r = mtx.zeilen.find((z) => z.ressource_id === td.dataset.qr), q = td.dataset.q;
+    const hat = td.dataset.hat === "true";
+    const ablauf = prompt(`${r.name.split(" (")[0]} – ${q}: Ablauf/Nachschulung (JJJJ-MM-TT, leer = unbefristet, „-“ = Qualifikation entfernen)`, r.zellen[q].ablauf || "");
+    if (ablauf === null) return;
+    const res = await api("/ressourcen").then((l) => l.find((x) => x.id === r.ressource_id));
+    const quals = new Set(res.qualifikationen);
+    if (ablauf === "-") quals.delete(q); else quals.add(q);
+    try { await api(`/ressourcen/${r.ressource_id}`, { methode: "PATCH", daten: { qualifikationen: [...quals], qualifikationen_ablauf: { [q]: ablauf && ablauf !== "-" ? ablauf : null } } }); zeigen(); } catch (e) { alert(e.message); }
+  }));
+}
+function verschieben(iso, tage) { const d = new Date(`${iso}T12:00:00`); d.setDate(d.getDate() + tage); return TAGESSCHLUESSEL.format(d); }

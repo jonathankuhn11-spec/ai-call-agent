@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from core import branchen
-from core.feiertage import feiertag
+from core.dienstplan import arbeitszeit, dienstkarte
 from core.modelle import Abwesenheit, Mandant, Rapport, Ressource, Servicefall, Termin
 
 SAISON = 52
@@ -143,15 +143,14 @@ def kapazitaet(s: Session, m: Mandant, woche: date) -> dict[str, float]:
     brutto, gebucht = 0.0, 0.0
     ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv)).all()
     abwesenheiten = s.scalars(select(Abwesenheit).where(Abwesenheit.mandant_id == m.id, Abwesenheit.bis >= woche, Abwesenheit.von < woche + timedelta(days=7))).all()
+    dienste = dienstkarte(s, m.id, woche, woche + timedelta(days=6))
     for r in ressourcen:
-        stunden = (datetime.combine(date.min, r.arbeitsende) - datetime.combine(date.min, r.arbeitsbeginn)).seconds / 3600
         for i in range(7):
             tag = woche + timedelta(days=i)
-            if tag.weekday() not in (r.arbeitstage or []) or feiertag(tag, m.stammdaten):
+            az = arbeitszeit(r, tag, dienste, m.stammdaten)
+            if az is None or any(a.ressource_id == r.id and a.von <= tag <= a.bis for a in abwesenheiten):
                 continue
-            if any(a.ressource_id == r.id and a.von <= tag <= a.bis for a in abwesenheiten):
-                continue
-            brutto += stunden
+            brutto += (datetime.combine(date.min, az[1]) - datetime.combine(date.min, az[0])).seconds / 3600
     von = datetime.combine(woche, datetime.min.time())
     for t in s.scalars(select(Termin).where(Termin.mandant_id == m.id, Termin.status.in_(("vorgeschlagen", "bestaetigt")),
                                             Termin.beginn >= von, Termin.beginn < von + timedelta(days=7))):

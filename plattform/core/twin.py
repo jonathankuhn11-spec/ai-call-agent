@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from core.dienstplan import arbeitszeit, dienstkarte
 from core.disposition import BLOCKIERENDE_STATUS
 from core.domaene import als_utc
 from core.modelle import Anlage, Ereignis, Mandant, Ressource, Servicefall, Termin
@@ -74,13 +75,17 @@ def betriebs_zwilling(s: Session, mandant: Mandant, jetzt_: datetime, tage: int 
         Servicefall.mandant_id == m, Servicefall.dringlichkeit == "notdienst", Servicefall.status.in_(OFFENE_STATUS)))
     bis = als_utc(jetzt_) + timedelta(days=tage)
     auslastung = []
+    stammdaten = mandant.stammdaten
+    dienste = dienstkarte(s, m, jetzt_.date(), jetzt_.date() + timedelta(days=tage))
     for r in s.scalars(select(Ressource).where(Ressource.mandant_id == m, Ressource.aktiv)):
         termine = s.scalars(select(Termin).where(Termin.ressource_id == r.id, Termin.status.in_(BLOCKIERENDE_STATUS),
                                                  Termin.beginn >= als_utc(jetzt_), Termin.beginn < bis)).all()
         gebucht = sum((als_utc(t.ende) - als_utc(t.beginn)).total_seconds() for t in termine) / 3600
-        tagesstunden = (datetime.combine(date.min, r.arbeitsende) - datetime.combine(date.min, r.arbeitsbeginn)).seconds / 3600
-        arbeitstage = sum(1 for i in range(tage) if (jetzt_.date() + timedelta(days=i)).weekday() in (r.arbeitstage or []))
-        kapazitaet = tagesstunden * arbeitstage
+        kapazitaet = 0.0
+        for i in range(tage):
+            az = arbeitszeit(r, jetzt_.date() + timedelta(days=i), dienste, stammdaten)
+            if az:
+                kapazitaet += (datetime.combine(date.min, az[1]) - datetime.combine(date.min, az[0])).seconds / 3600
         auslastung.append({"ressource_id": r.id, "name": r.name, "gebucht_h": round(gebucht, 1),
                            "kapazitaet_h": round(kapazitaet, 1),
                            "quote": round(gebucht / kapazitaet, 2) if kapazitaet else None})

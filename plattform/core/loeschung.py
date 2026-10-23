@@ -26,8 +26,8 @@ from sqlalchemy import delete, exists, select
 from sqlalchemy.orm import Session
 
 from core.domaene import protokollieren
-from core.modelle import (Abwesenheit, Anfrage, Angebot, Anhang, Anlage, Beleg, Ereignis, Kommunikation, Kunde, Mandant, Objekt,
-                          OutboxEintrag, Rapport, Rechnung, Servicefall, Termin, Vertrag, Zeiteintrag)
+from core.modelle import (Abwesenheit, Anfrage, Angebot, Anhang, Anlage, Bauteil, Beleg, Ereignis, Kommunikation, Kunde, Mandant, Objekt,
+                          OutboxEintrag, Rapport, Rechnung, Servicefall, Termin, Vertrag, Zaehlerstand, Zeiteintrag)
 
 STANDARD_FRISTEN = {"transkript_tage": 90, "kommunikation_lose_tage": 30, "outbox_tage": 90, "outbox_tot_tage": 365,
                     "ereignis_tage": 1095, "vorgang_tage": 1095, "kunde_inaktiv_tage": 1095, "rechnung_tage": 3650,
@@ -104,9 +104,12 @@ def kunde_loeschen(s: Session, kunde: Kunde, jetzt: datetime, akteur: str = "men
     objekte = list(s.scalars(select(Objekt.id).where(Objekt.kunde_id == kunde.id)))
     s.execute(delete(Anhang).where(((Anhang.bezug_typ == "kunde") & (Anhang.bezug_id == kunde.id))
                                    | ((Anhang.bezug_typ == "objekt") & Anhang.bezug_id.in_(objekte))))
+    anlagen = list(s.scalars(select(Anlage.id).where(Anlage.objekt_id.in_(objekte))))
+    s.execute(delete(Bauteil).where(Bauteil.anlage_id.in_(anlagen)))
+    s.execute(delete(Zaehlerstand).where(Zaehlerstand.kunde_id == kunde.id))
     s.execute(delete(Anlage).where(Anlage.objekt_id.in_(objekte)))
     s.execute(delete(Objekt).where(Objekt.id.in_(objekte)))
-    s.execute(delete(Ereignis).where(Ereignis.mandant_id == kunde.mandant_id, Ereignis.entitaet_id.in_([kunde.id, *ids, *objekte])))
+    s.execute(delete(Ereignis).where(Ereignis.mandant_id == kunde.mandant_id, Ereignis.entitaet_id.in_([kunde.id, *ids, *objekte, *anlagen])))
     kunde_id, mandant_id = kunde.id, kunde.mandant_id
     s.delete(kunde)
     protokollieren(s, mandant_id, "kunde.geloescht", "kunde", kunde_id, akteur, {"grund": "Löschantrag", "art": "vollständig",
@@ -141,6 +144,8 @@ def auskunft(s: Session, kunde: Kunde) -> dict[str, Any]:
                       for v in s.scalars(select(Vertrag).where(Vertrag.kunde_id == kunde.id))],
         "anfragen": [{"kanal": a.kanal, "eingegangen": a.eingegangen.isoformat(), "betreff": a.betreff, "status": a.status}
                      for a in s.scalars(select(Anfrage).where(Anfrage.kunde_id == kunde.id))],
+        "zaehlerstaende": [{"art": z.art, "wert": z.wert, "datum": z.datum.isoformat(), "quelle": z.quelle}
+                           for z in s.scalars(select(Zaehlerstand).where(Zaehlerstand.kunde_id == kunde.id))],
         "empfaenger_der_daten": ["Buchhaltungssoftware und Steuerkanzlei (Rechnungen)", "E-Mail-/SMS-Dienstleister (Benachrichtigungen)",
                                  "Sprach- und KI-Dienste während des Telefonats (keine dauerhafte Speicherung dort)"],
         "speicherdauer": STANDARD_FRISTEN,
