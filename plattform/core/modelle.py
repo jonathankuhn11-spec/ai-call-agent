@@ -398,6 +398,20 @@ class Artikel(_Mandantenbezug, Basis):
     aktiv: Mapped[bool] = mapped_column(default=True)
 
 
+class Bestand(_Mandantenbezug, Basis):
+    """Lagerbestand je Artikel und Lagerort (zentral oder Fahrzeug = Ressourcen-ID); Rapportmaterial bucht ab."""
+    __tablename__ = "bestand"
+    __table_args__ = (UniqueConstraint("mandant_id", "artikel_id", "lager"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    artikel_id: Mapped[str] = mapped_column(String(32), ForeignKey("artikel.id"), index=True)
+    lager: Mapped[str] = mapped_column(String(32), default="zentral")  # "zentral" oder Ressourcen-ID (Fahrzeug)
+    menge: Mapped[float] = mapped_column(Float, default=0)
+    mindestbestand: Mapped[float] = mapped_column(Float, default=0)
+    geaendert: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt, onupdate=jetzt)
+
+    artikel: Mapped[Artikel] = relationship()
+
+
 class Angebot(_Mandantenbezug, Basis):
     """Angebot mit eigenem Nummernkreis; Annahme erzeugt den Auftrag (Servicefall), Rechnung über Freigabe C."""
     __tablename__ = "angebot"

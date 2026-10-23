@@ -141,3 +141,15 @@ a.kachel { text-decoration: none; color: inherit; }
 .geo-linien { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
 .geo-marker { position: absolute; inset: 0; z-index: 2; }
 .pt-feiertag { background: var(--warn-fläche); color: var(--warn); }
+
+/* Globale Suche */
+.suche { position: relative; margin: 4px 0 8px; }
+.suche input { width: 100%; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--linie); background: var(--fläche); color: var(--text); font: inherit; }
+.suche-treffer { position: absolute; left: 0; right: 0; top: 100%; z-index: 30; background: var(--karte); border: 1px solid var(--linie); border-radius: 8px; box-shadow: 0 8px 24px rgba(10,15,20,.18); max-height: 60vh; overflow: auto; min-width: 320px; }
+.suche-treffer .gruppe { padding: 6px 10px 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-leise, #6b7a88); }
+.suche-treffer button { display: block; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--linie); padding: 7px 10px; color: var(--text); font: inherit; cursor: pointer; }
+.suche-treffer button:hover, .suche-treffer button:focus { background: var(--fläche); outline: none; }
+.suche-treffer small { display: block; color: var(--text-leise, #6b7a88); }
+.pruefpunkte { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: center; }
+.pruefpunkte .norm { font-size: 11px; color: var(--text-leise, #6b7a88); }
+.pruefpunkte input, .pruefpunkte select { width: 9em; }

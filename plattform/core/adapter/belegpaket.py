@@ -119,6 +119,29 @@ def extf_buchungsstapel(m: Mandant, rechnungen: list[Rechnung], von: date, bis: 
     return puffer.getvalue().encode("cp1252", errors="replace")
 
 
+def debitorenliste(s: Session, m: Mandant, rechnungen: list[Rechnung]) -> bytes:
+    """Debitoren-Stammdaten der im Zeitraum berechneten Kunden als Hilfsliste für die Kanzlei (Konto-Vorschlag ab
+    10000 in Reihenfolge der Kundennummer; die Vergabe erfolgt in DATEV). Spalten lehnen sich an die ersten Felder des
+    DATEV-Formats Debitoren/Kreditoren an, ohne die vollständige 243-spaltige EXTF-Struktur zu behaupten."""
+    puffer = io.StringIO()
+    w = csv.writer(puffer, delimiter=";", lineterminator="\r\n")
+    w.writerow(["Konto (Vorschlag)", "Unternehmensname", "Name", "Vorname", "Straße", "PLZ", "Ort", "Land", "E-Mail", "Telefon", "Kundennummer", "Rechnungen"])
+    kunden: dict[str, list[Rechnung]] = {}
+    for r in rechnungen:
+        kunden.setdefault(r.kunde_id, []).append(r)
+    start = int((m.stammdaten or {}).get("debitoren_ab", 10000) or 10000)
+    for i, (kunde_id, liste) in enumerate(sorted(kunden.items(), key=lambda kv: kv[1][0].empfaenger.get("name", ""))):
+        k = liste[0].kunde
+        name = (k.name if k else liste[0].empfaenger.get("name", "")) or ""
+        firma = name.lower().endswith(("gmbh", "kg", "ag", "e.k.", "ug", "ohg", "gbr", "e.v."))
+        teile = name.rsplit(" ", 1) if not firma and " " in name else [name]
+        w.writerow([start + i, name if firma else "", teile[-1] if not firma else "", teile[0] if not firma and len(teile) == 2 else "",
+                    (k.strasse if k else liste[0].empfaenger.get("strasse")) or "", (k.plz if k else liste[0].empfaenger.get("plz")) or "",
+                    (k.ort if k else liste[0].empfaenger.get("ort")) or "", "DE", (k.email if k else "") or "", (k.telefon if k else "") or "",
+                    kunde_id, ", ".join(r.nummer for r in liste)])
+    return puffer.getvalue().encode("utf-8-sig")
+
+
 def paket_erzeugen(s: Session, m: Mandant, p: dict[str, Any], heute: date | None = None) -> tuple[str, bytes, str]:
     heute = heute or datetime.now(timezone.utc).date()
     von, bis, kennung = zeitraum(p, heute)
@@ -139,6 +162,7 @@ def paket_erzeugen(s: Session, m: Mandant, p: dict[str, Any], heute: date | None
             z.writestr(f"rechnungen/{r.nummer}.pdf", pdf(r, m))
             z.writestr(f"rechnungen/{r.nummer}.xml", xrechnung(r, m))
         z.writestr("uebersicht.csv", uebersicht.getvalue().encode("utf-8-sig"))
+        z.writestr("debitoren.csv", debitorenliste(s, m, rechnungen))
         eingang = io.StringIO()
         w = csv.writer(eingang, delimiter=";", lineterminator="\r\n")
         w.writerow(["Lieferant", "Nummer", "Datum", "Fällig", "Netto", "USt", "Brutto", "USt-Satz", "Kategorie", "Auftrag", "Datei", "Status"])

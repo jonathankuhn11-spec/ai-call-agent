@@ -3,12 +3,13 @@
 Ziele der Outbox und ihre Standardbelegung:
   fachsoftware  webhook | csv (Standard)            Termine, Aufträge an openHandwerk, pds, n8n …
   endkunde      email | sms | csv (Standard)        Terminbestätigung, Nachricht, Rechnung an den Kunden
-  finanz        lexware | sevdesk | csv (Standard)  Rechnung und Storno in die Buchhaltungssoftware
+  finanz        lexware | sevdesk | datev | csv (Standard)  Rechnung und Storno in die Buchhaltungssoftware bzw. als
+                                                   Rechnungsausgang an DATEV Unternehmen online (Belegbilderservice)
   inhaber       ntfy | webhook                       Push-Hinweise (Notdienst, Klasse C, Dead Letter) an den Inhaber
-  kanzlei       email | belegpaket (Standard) | belegtransfer
+  kanzlei       email | belegpaket (Standard) | belegtransfer | datev
                                                    Belegpaket an die Steuerkanzlei (DATEV-Format); Einzelbelege in den
                                                    DATEV-Belegtransfer-Ordner oder per Upload-Mail (email mit upload_email)
-Eingangsbelege (beleg_uebermitteln) nehmen finanz: lexware, sevdesk; kanzlei: belegtransfer, email(upload_email).
+Eingangsbelege (beleg_uebermitteln) nehmen finanz: lexware, sevdesk, datev; kanzlei: belegtransfer, datev, email(upload_email).
 Ein Ziel kann mehrere Kanäle haben (endkunde: ["email", "sms"]); der erste, der zustellt, zählt.
 """
 from __future__ import annotations
@@ -22,6 +23,7 @@ from sqlalchemy.orm import Session
 from core.adapter.basis import AdapterFehler, Konfigurationsfehler
 from core.adapter.belegpaket import BelegpaketAdapter
 from core.adapter.belegtransfer import BelegtransferAdapter
+from core.adapter.datev import DatevAdapter
 from core.adapter.email import EmailAdapter
 from core.adapter.lexware import LexwareAdapter
 from core.adapter.ntfy import NtfyAdapter
@@ -34,12 +36,12 @@ from core.zustellung import Adapter, CsvAdapter
 
 TYPEN: dict[str, Callable[[dict[str, Any]], Adapter]] = {
     "webhook": WebhookAdapter, "email": EmailAdapter, "sms": SmsAdapter, "lexware": LexwareAdapter,
-    "sevdesk": SevdeskAdapter, "belegpaket": BelegpaketAdapter, "belegtransfer": BelegtransferAdapter, "ntfy": NtfyAdapter,
+    "sevdesk": SevdeskAdapter, "belegpaket": BelegpaketAdapter, "belegtransfer": BelegtransferAdapter, "ntfy": NtfyAdapter, "datev": DatevAdapter,
 }
 ZIELE = ("fachsoftware", "endkunde", "finanz", "kanzlei", "inhaber")
 STANDARD = {"fachsoftware": ["csv"], "endkunde": ["csv"], "finanz": ["csv"], "kanzlei": ["belegpaket"], "inhaber": ["csv"]}
-ERLAUBT = {"fachsoftware": {"webhook", "csv"}, "endkunde": {"email", "sms", "csv"}, "finanz": {"lexware", "sevdesk", "csv"},
-           "kanzlei": {"email", "belegpaket", "belegtransfer"}, "inhaber": {"ntfy", "webhook", "csv"}}
+ERLAUBT = {"fachsoftware": {"webhook", "csv"}, "endkunde": {"email", "sms", "csv"}, "finanz": {"lexware", "sevdesk", "datev", "csv"},
+           "kanzlei": {"email", "belegpaket", "belegtransfer", "datev"}, "inhaber": {"ntfy", "webhook", "csv"}}
 
 
 class Mehrkanal:
@@ -71,7 +73,7 @@ class Register:
             raise Konfigurationsfehler(f"Unbekannter Adaptertyp {typ!r}")
         konfig = konfiguration_entschluesseln(konfig)
         try:
-            return TYPEN[typ](konfig, **self.zusatz) if typ in ("webhook", "sms", "lexware", "sevdesk", "ntfy") else TYPEN[typ](konfig)
+            return TYPEN[typ](konfig, **self.zusatz) if typ in ("webhook", "sms", "lexware", "sevdesk", "ntfy", "datev") else TYPEN[typ](konfig)
         except TypeError:
             return TYPEN[typ](konfig)
 

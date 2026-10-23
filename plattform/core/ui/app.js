@@ -134,7 +134,7 @@ $("#abmelden").addEventListener("click", () => abmelden());
 // --- Routing ---------------------------------------------------------------------------------
 const ANSICHTEN = { cockpit, anruf, freigaben, vorgaenge, plantafel, kunden, wartung, ontologie, rechnungen, protokoll, einstellungen,
   einsatz: einsatzAnsicht, belege: belegeAnsicht, zeiten: zeitenAnsicht, betrieb: betriebAnsicht, angebote: angeboteAnsicht,
-  forderungen: forderungenAnsicht, vertraege: vertraegeAnsicht, anfragen: anfragenAnsicht, auswertungen: auswertungenAnsicht };
+  forderungen: forderungenAnsicht, vertraege: vertraegeAnsicht, anfragen: anfragenAnsicht, auswertungen: auswertungenAnsicht, lager: lagerAnsicht };
 async function zeigen() {
   if (!speicher("mandant")) return anmelden();
   $("#mandant-name").textContent = speicher("mandantName") || "";
@@ -150,6 +150,35 @@ async function zeigen() {
   freigabenZaehlen();
 }
 window.addEventListener("hashchange", zeigen);
+
+// --- Globale Suche (Strg+K) ---------------------------------------------------------------------
+const SUCHE_TYP = { kunde: "Kunden", servicefall: "Vorgänge", rechnung: "Rechnungen", angebot: "Angebote", beleg: "Belege", anfrage: "Anfragen", artikel: "Artikel" };
+async function sucheOeffnen(t) {
+  $("#suche-treffer").hidden = true;
+  if (t.typ === "kunde") return kundeDetail(t.id);
+  if (t.typ === "servicefall") return fallDetail(t.id);
+  if (t.typ === "beleg") return belegDetail(t.id);
+  location.hash = { rechnung: "#rechnungen", angebot: "#angebote", anfrage: "#anfragen", artikel: "#lager" }[t.typ] || "#cockpit";
+}
+(() => {
+  const feld = $("#suche"), kasten = $("#suche-treffer"); let warte;
+  const suchen = async () => {
+    const q = feld.value.trim();
+    if (q.length < 2) { kasten.hidden = true; return; }
+    try {
+      const { treffer } = await api(`/suche?q=${encodeURIComponent(q)}`);
+      const gruppen = {}; treffer.forEach((t) => (gruppen[t.typ] ||= []).push(t));
+      kasten.innerHTML = Object.entries(gruppen).map(([typ, liste]) => `<div class="gruppe">${esc(SUCHE_TYP[typ] || typ)}</div>${liste.map((t, i) => `<button type="button" data-typ="${esc(typ)}" data-id="${esc(t.id)}">${esc(t.titel)} ${t.status ? tag(t.status, "neutral") : ""}<small>${esc(t.untertitel || "")}</small></button>`).join("")}`).join("") || `<div class="gruppe">Keine Treffer</div>`;
+      kasten.hidden = false;
+      kasten.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => sucheOeffnen({ typ: b.dataset.typ, id: b.dataset.id })));
+    } catch { kasten.hidden = true; }
+  };
+  feld.addEventListener("input", () => { clearTimeout(warte); warte = setTimeout(suchen, 200); });
+  feld.addEventListener("keydown", (ev) => { if (ev.key === "Escape") { kasten.hidden = true; feld.blur(); } if (ev.key === "ArrowDown") kasten.querySelector("button")?.focus(); if (ev.key === "Enter") kasten.querySelector("button")?.click(); });
+  kasten.addEventListener("keydown", (ev) => { const b = [...kasten.querySelectorAll("button")]; const i = b.indexOf(document.activeElement); if (ev.key === "ArrowDown") b[i + 1]?.focus(); if (ev.key === "ArrowUp") (b[i - 1] || feld).focus(); if (ev.key === "Escape") { kasten.hidden = true; feld.focus(); } });
+  document.addEventListener("keydown", (ev) => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "k") { ev.preventDefault(); feld.focus(); feld.select(); } });
+  document.addEventListener("click", (ev) => { if (!ev.target.closest(".suche")) kasten.hidden = true; });
+})();
 async function freigabenZaehlen() {
   try { const n = (await api("/freigaben")).length; $("#zaehler-freigaben").innerHTML = n ? tag(n, "offen", n) : ""; } catch { /* Anmeldung läuft */ }
   try { if (ICH?.rechte.includes("finanzen")) { const n = (await api("/belege?status=erfasst")).length; $("#zaehler-belege").innerHTML = n ? tag(n, "offen", n) : ""; } } catch { /* Anmeldung läuft */ }
@@ -653,9 +682,10 @@ const FELDER_STAMM = [["inhaber", "Inhaber/in"], ["strasse", "Straße"], ["plz",
   ["kontenrahmen", "Kontenrahmen (SKR03/SKR04)"], ["datev_beraternummer", "DATEV Beraternummer"], ["datev_mandantennummer", "DATEV Mandantennummer"], ["kanzlei_email", "E-Mail der Kanzlei"],
   ["stundensatz_kosten", "Stundensatz intern (€/h, Nachkalkulation)"], ["stundensatz_verrechnung", "Stundensatz Verrechnung (€/h)"], ["materialaufschlag_prozent", "Materialaufschlag (%)"],
   ["angebotsnummer_praefix", "Angebotsnummer-Präfix"], ["angebot_gueltig_tage", "Angebote gültig (Tage)"], ["mahn_karenz_tage", "Karenz nach Fälligkeit (Tage)"], ["mahn_frist_tage", "Zahlungsfrist je Mahnstufe (Tage)"],
-  ["mahngebuehr_stufe2", "Mahngebühr Stufe 2 (€)"], ["mahngebuehr_stufe3", "Mahngebühr Stufe 3 (€)"], ["bewertungslink", "Bewertungslink (Google/ProvenExpert, Anfrage nach erledigtem Rapport)"], ["basis_url", "Öffentliche Adresse der Plattform (für Formular-URL)"],
+  ["mahngebuehr_stufe2", "Mahngebühr Stufe 2 (€)"], ["mahngebuehr_stufe3", "Mahngebühr Stufe 3 (€)"], ["bewertungslink", "Bewertungslink (Google/ProvenExpert, Anfrage nach erledigtem Rapport)"], ["basis_url", "Öffentliche Adresse der Plattform (Formular, Kundenportal, Push-Links, DATEV-Rückruf)"],
   ["lat", "Betriebsstandort Breitengrad (leer: Geokodierung)"], ["lon", "Betriebsstandort Längengrad"], ["karte_kacheln", "Kachelserver der Kundenkarte ({z}/{x}/{y}, Standard OpenStreetMap; CSP img-src anpassen)"], ["karte_hinweis", "Urhebervermerk auf der Karte"],
-  ["bundesland", "Bundesland für Feiertage (NW, BY, HE …)"], ["routing_url", "OSRM-Server für Fahrzeiten (leer: ROUTING_URL / Demo-Server)"], ["kontoinhaber", "Kontoinhaber auf dem GiroCode (leer: Betriebsname)"]];
+  ["bundesland", "Bundesland für Feiertage (NW, BY, HE …)"], ["routing_url", "OSRM-Server für Fahrzeiten (leer: ROUTING_URL / Demo-Server)"], ["kontoinhaber", "Kontoinhaber auf dem GiroCode (leer: Betriebsname)"],
+  ["ids_shop_url", "IDS-Connect-Adresse des Großhandels-Shops (Warenkorbübergabe, https)"], ["absage_frist_stunden", "Portal: Absage online bis (Stunden vor Termin)"], ["impressum_url", "Impressum-URL (Kundenportal)"], ["datenschutz_url", "Datenschutz-URL (Kundenportal)"]];
 const ANBINDUNGEN = {
   inhaber: { titel: "Push an den Inhaber", hinweis: "Hinweise auf das Telefon bei Notdienst, Freigaben der Klasse C und gescheiterten Zustellungen (ntfy-App; Server selbst betreiben mit Profil push oder ntfy.sh). Ohne Kanal entsteht kein Hinweis.",
     typen: { ntfy: [["basis_url", "ntfy-Server (Standard https://ntfy.sh)"], ["topic", "Topic (geheimer, schwer erratbarer Name)"], ["token", "Zugriffstoken (optional)", true]], webhook: [["url", "Webhook-URL"], ["signatur_schluessel", "Signaturschlüssel (HMAC)", true]] } },
@@ -664,11 +694,11 @@ const ANBINDUNGEN = {
   endkunde: { titel: "Kundenkommunikation", hinweis: "Terminbestätigung, Nachrichten, Rechnungen. Reihenfolge: E-Mail, dann SMS (nur mit Einwilligung).",
     typen: { email: [["absender", "Absenderadresse"], ["host", "SMTP-Server"], ["port", "Port (587 STARTTLS / 465 SMTPS)"], ["benutzer", "SMTP-Benutzer"], ["passwort", "SMTP-Passwort", true], ["antwort_an", "Antwort an (optional)"]],
       sms: [["api_key", "seven.io API-Key", true], ["absender", "Absenderkennung (max. 11 Zeichen)"]], csv: [] } },
-  finanz: { titel: "Buchhaltung", hinweis: "Rechnungen und Stornos als Entwurf in die Buchhaltungssoftware; geprüfte Eingangsbelege landen dort im Belegeingang (Lexware Office: Files-API, sevDesk: Beleg-Entwurf), kontiert wird im Zielsystem.",
-    typen: { lexware: [["api_key", "Lexware Office API-Key", true]], sevdesk: [["api_token", "sevDesk API-Token", true]], csv: [] } },
-  kanzlei: { titel: "Steuerkanzlei", hinweis: "Monatliches Belegpaket (PDF, XRechnung, DATEV-Buchungsstapel) per E-Mail oder als Datei. Einzelne geprüfte Eingangsbelege zusätzlich sofort: in den DATEV-Belegtransfer-Ordner oder per Upload-Mail an DATEV Unternehmen online.",
+  finanz: { titel: "Buchhaltung", hinweis: "Rechnungen und Stornos als Entwurf in die Buchhaltungssoftware; geprüfte Eingangsbelege landen dort im Belegeingang (Lexware Office: Files-API, sevDesk: Beleg-Entwurf, DATEV: Belegbilderservice nach Unternehmen online), kontiert wird im Zielsystem. DATEV: nach dem Speichern unten „DATEV verbinden“ (Anmeldung mit DATEV-Login).",
+    typen: { lexware: [["api_key", "Lexware Office API-Key", true]], sevdesk: [["api_token", "sevDesk API-Token", true]], datev: [["client_id", "DATEV Client-ID (Developer Portal)"], ["client_secret", "DATEV Client-Secret", true], ["berater_nr", "Beraternummer"], ["mandant_nr", "Mandantennummer"], ["umgebung", "Umgebung (sandbox | produktion)"], ["rechnungsdaten", "XRechnung zusätzlich an den Rechnungsdatenservice (true/false)"]], csv: [] } },
+  kanzlei: { titel: "Steuerkanzlei", hinweis: "Monatliches Belegpaket (PDF, XRechnung, Debitorenliste, DATEV-Buchungsstapel) per E-Mail oder als Datei. Einzelne geprüfte Eingangsbelege zusätzlich sofort: in den DATEV-Belegtransfer-Ordner, per Upload-Mail oder direkt über die DATEV-Datenservices (datev: Belegbilder sofort, Buchungsstapel monatlich).",
     typen: { email: [["kanzlei_email", "E-Mail der Kanzlei"], ["upload_email", "Upload-Adresse DATEV Unternehmen online (optional, Einzelbelege)"], ["absender", "Absenderadresse"], ["host", "SMTP-Server"], ["port", "Port"], ["benutzer", "SMTP-Benutzer"], ["passwort", "SMTP-Passwort", true]],
-      belegpaket: [["verzeichnis", "Ablageverzeichnis auf dem Server"]], belegtransfer: [["verzeichnis", "DATEV-Belegtransfer-Ordner (gemountet)"], ["belegtyp", "Belegtyp-Ordner (Standard Rechnungseingang)"]] } },
+      belegpaket: [["verzeichnis", "Ablageverzeichnis auf dem Server"]], belegtransfer: [["verzeichnis", "DATEV-Belegtransfer-Ordner (gemountet)"], ["belegtyp", "Belegtyp-Ordner (Standard Rechnungseingang)"]], datev: [["client_id", "DATEV Client-ID (Developer Portal)"], ["client_secret", "DATEV Client-Secret", true], ["berater_nr", "Beraternummer"], ["mandant_nr", "Mandantennummer"], ["umgebung", "Umgebung (sandbox | produktion)"], ["rechnungsdaten", "XRechnung zusätzlich an den Rechnungsdatenservice (true/false)"]] } },
 };
 async function einstellungen(ziel) {
   const [betrieb, integ] = await Promise.all([api("/betrieb"), api("/integrationen")]);
@@ -689,7 +719,7 @@ async function einstellungen(ziel) {
   $("#e-stamm").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const fd = new FormData(ev.target); const daten = {};
-    for (const [k, v] of fd.entries()) if (k !== "kleinunternehmer" && v !== "") daten[k] = ["lat", "lon", "zahlungsziel_tage", "stundensatz_kosten", "stundensatz_verrechnung", "materialaufschlag_prozent", "angebot_gueltig_tage", "mahn_karenz_tage", "mahn_frist_tage", "mahngebuehr_stufe2", "mahngebuehr_stufe3"].includes(k) ? Number(String(v).replace(",", ".")) : v;
+    for (const [k, v] of fd.entries()) if (k !== "kleinunternehmer" && v !== "") daten[k] = ["lat", "lon", "zahlungsziel_tage", "absage_frist_stunden", "stundensatz_kosten", "stundensatz_verrechnung", "materialaufschlag_prozent", "angebot_gueltig_tage", "mahn_karenz_tage", "mahn_frist_tage", "mahngebuehr_stufe2", "mahngebuehr_stufe3"].includes(k) ? Number(String(v).replace(",", ".")) : v;
     daten.kleinunternehmer = fd.has("kleinunternehmer");
     try { await api("/betrieb/stammdaten", { methode: "PUT", daten }); alert("Gespeichert"); } catch (e) { alert(e.message); }
   });
@@ -703,6 +733,15 @@ async function einstellungen(ziel) {
   }));
   await monteureVerwalten(ziel);
   await einstellungenErgaenzen(ziel);
+  const datevKarte = document.createElement("div");
+  datevKarte.className = "karte"; datevKarte.style.marginBottom = "16px";
+  datevKarte.innerHTML = `<h2>DATEV-Datenservices verbinden</h2><p class="unterzeile">Nach dem Speichern der DATEV-Zugangsdaten (Buchhaltung oder Steuerkanzlei → datev) meldet sich der Betrieb einmalig mit dem DATEV-Login an; die Plattform speichert nur das verschlüsselte Refresh-Token. Voraussetzung: Stammdatum „Öffentliche Adresse“ und Freischaltung der Datenservices durch die Kanzlei.</p>
+    <div class="aktionen"><button class="leise" id="datev-verbinden">DATEV verbinden</button><span id="datev-status"></span></div>`;
+  ziel.append(datevKarte);
+  $("#datev-verbinden").addEventListener("click", async () => {
+    try { const a = await api("/integrationen/datev/anmeldung"); $("#datev-status").textContent = `Anmeldung (${a.umgebung}) wird geöffnet; Rückruf an ${a.redirect_uri}`; window.open(a.url, "_blank", "noopener"); }
+    catch (e) { $("#datev-status").innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
 }
 
 async function protokoll(ziel) {
@@ -788,13 +827,26 @@ function unterschriftFeld(canvas) {
 async function rapportFormular(fallId, terminId, ressourceId) {
   const d = await api(`/servicefaelle/${fallId}`);
   const zeiten = await api(`/zeiten?servicefall_id=${fallId}`);
+  let checkliste = null;
+  if (d.servicefall.anlage_id) {
+    try {
+      const kd = await api(`/kunden/${d.servicefall.kunde_id}`);
+      const anlage = kd.objekte.flatMap((o) => o.anlagen).find((a) => a.id === d.servicefall.anlage_id);
+      if (anlage) checkliste = await api(`/checklisten/${anlage.anlagentyp}`);
+    } catch { /* ohne Checkliste weiter */ }
+  }
   const summe = (art) => zeiten.filter((z) => z.art === art).reduce((a, z) => a + z.minuten, 0);
   const wurzel = detail(`<h2>Rapport · ${esc(d.servicefall.anliegen)}</h2>
     <label>Ausgeführte Arbeiten <textarea id="rp-taetigkeiten" style="font-family:inherit" placeholder="Was wurde gemacht, welche Ursache, welche Teile?"></textarea></label>
     <div class="zeile"><label>Arbeitszeit (min) <input id="rp-arbeit" type="number" min="0" value="${summe("arbeit")}"></label>
       <label>Fahrzeit (min) <input id="rp-fahrt" type="number" min="0" value="${summe("fahrt")}"></label>
       <label>Ergebnis <select id="rp-ergebnis">${Object.entries(ERGEBNIS_TEXT).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></label></div>
-    <label>Material (eine Zeile je Position: Menge; Bezeichnung) <textarea id="rp-material" style="font-family:inherit" placeholder="1; Umwälzpumpe Grundfos UPM3&#10;2; Dichtung 3/4&quot;"></textarea></label>
+    <label>Material (eine Zeile je Position: Menge; Bezeichnung – oder Menge; Artikelnummer; Bezeichnung, dann bucht das Fahrzeuglager ab) <textarea id="rp-material" style="font-family:inherit" placeholder="1; Umwälzpumpe Grundfos UPM3&#10;2; M-210; Dichtung 3/4&quot;"></textarea></label>
+    ${checkliste ? `<details open class="karte" style="margin:8px 0"><summary><strong>Wartungs-Checkliste ${esc(checkliste.bezeichnung)}</strong> <small>(${checkliste.punkte.length} Prüfpunkte; Grenzwerte als Richtwert)</small></summary><div class="pruefpunkte" id="rp-checkliste">
+      ${checkliste.punkte.map((p) => `<label for="cl-${esc(p.schluessel)}">${esc(p.titel)}${p.pflicht ? " *" : ""}${p.norm ? `<br><span class="norm">${esc(p.norm)}</span>` : ""}</label>
+        ${p.art === "ja_nein" ? `<select id="cl-${esc(p.schluessel)}" data-cl="${esc(p.schluessel)}"><option value="">–</option><option value="ja">ja / i. O.</option><option value="nein">nein / Mangel</option></select>`
+        : p.art === "messwert" ? `<input id="cl-${esc(p.schluessel)}" data-cl="${esc(p.schluessel)}" inputmode="decimal" placeholder="${esc([p.min != null ? `≥ ${p.min}` : "", p.max != null ? `≤ ${p.max}` : ""].filter(Boolean).join(" "))} ${esc(p.einheit || "")}">`
+        : `<input id="cl-${esc(p.schluessel)}" data-cl="${esc(p.schluessel)}">`}`).join("")}</div></details>` : ""}
     <label>Hinweise an den Kunden <input id="rp-hinweise" placeholder="z. B. Wartung in 12 Monaten, Druck beobachten"></label>
     <div class="zeile"><label>Abgasverlust (%) <input id="rp-abgas" inputmode="decimal"></label><label>CO (ppm) <input id="rp-co" inputmode="decimal"></label><label>Anlagendruck (bar) <input id="rp-druck" inputmode="decimal"></label></div>
     <label>Fotos (vorher/nachher, Typenschild) <input id="rp-fotos" type="file" accept="image/*" capture="environment" multiple></label>
@@ -812,13 +864,15 @@ async function rapportFormular(fallId, terminId, ressourceId) {
         const fd = new FormData(); fd.append("datei", foto); fd.append("bezug_typ", "servicefall"); fd.append("bezug_id", fallId); fd.append("art", "foto");
         await api("/anhaenge", { methode: "POST", daten: fd });
       }
-      const material = $("#rp-material", wurzel).value.split("\n").map((z) => z.trim()).filter(Boolean).map((z) => { const [menge, ...rest] = z.split(";"); return rest.length ? { menge: menge.trim(), bezeichnung: rest.join(";").trim() } : { menge: "1", bezeichnung: z }; });
+      const material = $("#rp-material", wurzel).value.split("\n").map((z) => z.trim()).filter(Boolean).map((z) => { const teile = z.split(";").map((x) => x.trim()); if (teile.length >= 3) return { menge: teile[0], nummer: teile[1], bezeichnung: teile.slice(2).join("; ") }; return teile.length === 2 ? { menge: teile[0], bezeichnung: teile[1] } : { menge: "1", bezeichnung: z }; });
       const messwerte = {}; for (const [id, k] of [["rp-abgas", "abgasverlust_prozent"], ["rp-co", "co_ppm"], ["rp-druck", "druck_bar"]]) { const v = $(`#${id}`, wurzel).value.trim(); if (v) messwerte[k] = v; }
+      const cl = {}; wurzel.querySelectorAll("[data-cl]").forEach((el) => { if (el.value.trim()) cl[el.dataset.cl] = el.value.trim(); }); if (Object.keys(cl).length) messwerte.checkliste = cl;
       const r = await api(`/servicefaelle/${fallId}/rapport`, { methode: "POST", daten: {
         taetigkeiten: $("#rp-taetigkeiten", wurzel).value, arbeitszeit_minuten: Number($("#rp-arbeit", wurzel).value || 0), fahrzeit_minuten: Number($("#rp-fahrt", wurzel).value || 0),
         ergebnis: $("#rp-ergebnis", wurzel).value, material, hinweise_kunde: $("#rp-hinweise", wurzel).value || null, messwerte, termin_id: terminId || null,
         ressource_id: ressourceId || null, unterschrift: u.wert(), unterzeichnet_von: $("#rp-name", wurzel).value || null } });
-      $("#rp-status", wurzel).innerHTML = `Rapport <strong>${esc(r.nummer)}</strong> gespeichert${fotos.length ? `, ${fotos.length} Foto(s) abgelegt` : ""}. <button class="leise" id="rp-pdf">PDF</button>`;
+      const bef = r.messwerte?.befunde;
+      $("#rp-status", wurzel).innerHTML = `Rapport <strong>${esc(r.nummer)}</strong> gespeichert${fotos.length ? `, ${fotos.length} Foto(s) abgelegt` : ""}${bef ? ` · Checkliste ${bef.gesamt === "ok" ? tag("ohne Befund", "aktuell") : bef.gesamt === "auffaellig" ? tag(`${bef.auffaellig} auffällig`, "ueberfaellig") : tag(`${bef.offen} Pflichtpunkte offen`, "offen")}` : ""}${r.messwerte?.lagerbuchungen?.length ? ` · ${r.messwerte.lagerbuchungen.length} Lagerbuchung(en)` : ""}. <button class="leise" id="rp-pdf">PDF</button>`;
       $("#rp-pdf", wurzel).addEventListener("click", () => dateiLaden(`/rapporte/${r.id}/pdf`, `${r.nummer}.pdf`));
       zeigen();
     } catch (e) { $("#rp-status", wurzel).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; knopf.disabled = false; }
@@ -833,8 +887,10 @@ async function fallErgaenzungen(wurzel, id) {
   teil.innerHTML = `<h3 style="margin-top:16px">Rapporte</h3>${rapporte.length ? `<ul class="verlauf">${rapporte.map((r) => `<li><strong>${esc(r.nummer)}</strong> · ${esc(ERGEBNIS_TEXT[r.ergebnis] || r.ergebnis)} · ${esc(dauerText(r.arbeitszeit_minuten))} Arbeit${r.unterzeichnet_am ? ` · unterschrieben von ${esc(r.unterzeichnet_von || "Kunde")}` : " · ohne Unterschrift"} <button class="leise" data-rpdf="${esc(r.id)}" data-nr="${esc(r.nummer)}">PDF</button></li>`).join("")}</ul>` : "<p>Noch kein Rapport.</p>"}
     ${fotos.filter((a) => a.art === "foto").length ? `<h3 style="margin-top:16px">Fotos</h3><div class="galerie">${fotos.filter((a) => a.art === "foto").map((a) => `<figure><img data-bild="${esc(a.id)}" alt="${esc(a.name)}"><figcaption>${esc(a.name)}</figcaption></figure>`).join("")}</div>` : ""}
     ${wir.rechte.includes("einsatz") ? `<div class="aktionen" style="margin-top:8px"><button class="leise" data-rapport-neu="${esc(id)}">Rapport erfassen</button></div>` : ""}
+    <p id="portal-link" class="unterzeile"></p>
     ${wir.rechte.includes("finanzen") ? `<h3 style="margin-top:16px">Nachkalkulation</h3><div id="kalk">Wird geladen …</div>` : ""}`;
   wurzel.append(teil);
+  api(`/servicefaelle/${id}/portal`).then((pl) => { $("#portal-link", teil).innerHTML = pl.link ? `Kundenportal: <a href="${esc(pl.link)}" target="_blank" rel="noopener">${esc(pl.link)}</a> (steht in Terminbestätigung und Erinnerung)` : `Kundenportal: <a href="${esc(pl.pfad)}" target="_blank" rel="noopener">lokal öffnen</a> · für Links in E-Mails das Stammdatum „Öffentliche Adresse“ setzen`; }).catch(() => {});
   teil.querySelectorAll("[data-rpdf]").forEach((b) => b.addEventListener("click", () => dateiLaden(`/rapporte/${b.dataset.rpdf}/pdf`, `${b.dataset.nr}.pdf`)));
   teil.querySelectorAll("[data-bild]").forEach(async (img) => { img.src = await bildUrl(img.dataset.bild); });
   teil.querySelector("[data-rapport-neu]")?.addEventListener("click", () => rapportFormular(id, null, null));
@@ -1045,6 +1101,18 @@ async function angeboteAnsicht(ziel) {
       <label style="grid-column:1/-1">Einleitung <textarea name="einleitung" rows="2" placeholder="Sehr geehrte …, wie besprochen bieten wir an:"></textarea></label></div>
       <table id="an-positionen"><thead><tr><th>Artikel / Bezeichnung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis netto</th><th>USt %</th><th></th></tr></thead><tbody></tbody></table>
       <div class="aktionen"><button type="button" class="leise" id="an-zeile">+ Position</button><button type="submit">Als Entwurf anlegen</button></div><p id="an-status"></p></form></div>` : ""}
+    ${darf ? `<details class="karte" style="margin-bottom:16px"><summary><strong>BEG-Förderrechner</strong> <small>Heizungsförderung (KfW 458) und Einzelmaßnahmen (BAFA) als Richtwert für die Angebotseinleitung</small></summary>
+      <form id="fr" class="raster" style="margin-top:10px">
+        <label>Programm <select name="programm"><option value="heizung">Heizungstausch (KfW 458)</option><option value="einzelmassnahme">Einzelmaßnahme (BAFA BEG EM)</option></select></label>
+        <label>Förderfähige Kosten brutto (€) <input name="kosten" type="number" step="0.01" min="1" required></label>
+        <label>Wohneinheiten <input name="wohneinheiten" type="number" min="1" value="1"></label>
+        <label>Heizungsart <select name="heizungsart"><option value="waermepumpe">Wärmepumpe</option><option value="biomasse">Biomasse</option><option value="solarthermie">Solarthermie</option><option value="fernwaerme">Wärmenetz</option><option value="hybrid">Hybrid</option><option value="brennstoffzelle">Brennstoffzelle</option></select></label>
+        <label><span><input type="checkbox" name="selbstnutzend" checked> selbstnutzender Eigentümer</span></label>
+        <label><span><input type="checkbox" name="alte_heizung_ersetzt"> fossile Altheizung wird ersetzt (Klimageschwindigkeits-Bonus)</span></label>
+        <label><span><input type="checkbox" name="einkommen_unter_40k"> Haushaltseinkommen ≤ 40.000 € (Einkommens-Bonus)</span></label>
+        <label><span><input type="checkbox" name="natuerliches_kaeltemittel"> natürliches Kältemittel / Erd- oder Wasserquelle (Effizienz-Bonus)</span></label>
+        <label><span><input type="checkbox" name="isfp"> Maßnahme aus iSFP (Einzelmaßnahme +5 %)</span></label>
+        <div class="aktionen" style="align-self:end"><button type="submit" class="leise">Berechnen</button></div></form><div id="fr-ergebnis"></div></details>` : ""}
     <div class="karte"><div class="tabelle-rahmen"><table><thead><tr><th>Nummer</th><th>Datum</th><th>Kunde</th><th>Titel</th><th style="text-align:right">Brutto</th><th>Gültig bis</th><th>Status</th><th></th></tr></thead><tbody>
     ${liste.map((a) => `<tr><td><strong>${esc(a.nummer)}</strong></td><td>${esc(DATUM.format(new Date(a.datum)))}</td><td>${esc(a.empfaenger.name || "")}</td><td>${esc(a.titel)}<br><small>${a.positionen.length} Positionen</small></td>
       <td style="text-align:right">${esc(EURO.format(a.brutto))}</td><td>${esc(DATUM.format(new Date(a.gueltig_bis)))}</td><td>${tag(a.status, ANGEBOTSTATUS_KLASSE[a.status], ANGEBOTSTATUS_TEXT[a.status])}${a.rechnung_id ? "<br><small>abgerechnet</small>" : ""}</td>
@@ -1054,6 +1122,20 @@ async function angeboteAnsicht(ziel) {
         ${darf && a.status === "angenommen" && !a.rechnung_id ? `<button data-rechnung="${esc(a.id)}">Rechnung</button>` : ""}
         ${a.servicefall_id ? `<button class="leise" data-fall="${esc(a.servicefall_id)}">Vorgang</button>` : ""}</div></td></tr>`).join("") || `<tr><td colspan="8">Noch keine Angebote.</td></tr>`}
     </tbody></table></div></div>`;
+  $("#fr")?.addEventListener("submit", async (ev) => {
+    ev.preventDefault(); const fd = new FormData(ev.target);
+    const daten = { programm: fd.get("programm"), kosten: Number(fd.get("kosten")), wohneinheiten: Number(fd.get("wohneinheiten") || 1), heizungsart: fd.get("heizungsart") };
+    for (const k of ["selbstnutzend", "alte_heizung_ersetzt", "einkommen_unter_40k", "isfp"]) daten[k] = fd.has(k);
+    daten.natuerliches_kaeltemittel = fd.has("natuerliches_kaeltemittel");
+    try {
+      const e = await api("/foerderung/rechner", { methode: "POST", daten });
+      $("#fr-ergebnis").innerHTML = `<p><strong>${esc(e.programm)}</strong>: Fördersatz ${e.foerdersatz_prozent} % auf ${esc(EURO.format(e.foerderfaehige_kosten))} (Deckel ${esc(EURO.format(e.kostendeckel))}) → Zuschuss <strong>${esc(EURO.format(e.zuschuss_gesamt))}</strong>, Eigenanteil ${esc(EURO.format(e.eigenanteil))}${e.gedeckelt_auf_maximum ? " · auf 70 % gedeckelt" : ""}</p>
+        ${e.bausteine ? `<p><small>${e.bausteine.map((b) => `${esc(b.titel)} ${b.satz} %`).join(" · ")}</small></p>` : ""}
+        <ul>${e.hinweise.map((h) => `<li><small>${esc(h)}</small></li>`).join("")}</ul><p><small>${esc(e.stand)}</small></p>
+        <div class="aktionen"><button type="button" class="leise" id="fr-uebernehmen">Text in die Angebotseinleitung übernehmen</button></div>`;
+      $("#fr-uebernehmen").addEventListener("click", () => { const ta = document.querySelector('#an-neu [name="einleitung"]'); if (ta) { ta.value = (ta.value ? ta.value + "\n\n" : "") + e.angebotstext; ta.scrollIntoView({ behavior: "smooth" }); } });
+    } catch (err) { $("#fr-ergebnis").innerHTML = `<span class="fehler">${esc(err.message)}</span>`; }
+  });
   const artikelOptionen = `<option value="">frei</option>${artikel.map((a) => `<option value="${esc(a.id)}" data-preis="${esc(a.verkauf_netto)}" data-einheit="${esc(a.einheit)}" data-ust="${esc(a.ust_satz)}" data-bez="${esc(a.bezeichnung)}">${esc(a.nummer)} ${esc(a.bezeichnung)} (${esc(EURO.format(a.verkauf_netto))})</option>`).join("")}`;
   const zeile = () => {
     const tr = document.createElement("tr");
@@ -1267,4 +1349,59 @@ async function einstellungenErgaenzen(ziel) {
     ev.preventDefault(); const daten = Object.fromEntries(new FormData(ev.target).entries()); daten.port = Number(daten.port) || 993;
     try { await api("/betrieb/posteingang", { methode: "PUT", daten }); $("#pe-status", teil).innerHTML = `<span class="hinweis">Gespeichert</span>`; } catch (e) { $("#pe-status", teil).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
   });
+}
+
+
+// --- Lager & Großhandel: Bestände, Buchungen, Bestellvorschlag, IDS-Connect, DATANORM -------------
+async function lagerAnsicht(ziel) {
+  const wir = await ich();
+  const darfBuero = wir.rechte.includes("bearbeiten");
+  const [bestand, vorschlag, artikel, ressourcen, betrieb] = await Promise.all([api("/lager"), api("/lager/bestellvorschlag"), api("/artikel?alle=true"), api("/ressourcen"), api("/betrieb")]);
+  const lagerOptionen = `<option value="zentral">Zentrallager</option>${ressourcen.map((r) => `<option value="${esc(r.id)}">Fahrzeug ${esc(r.name)}</option>`).join("")}`;
+  const material = artikel.filter((a) => a.kategorie === "material");
+  ziel.innerHTML = `<h1>Lager &amp; Großhandel</h1><p class="unterzeile">Bestände je Zentrallager und Fahrzeug; Rapportmaterial mit Artikelnummer bucht automatisch ab. Fehlmengen unter Mindestbestand bilden den Bestellvorschlag je Lieferant, der per IDS-Connect als Warenkorb an den Shop des Großhändlers übergeben wird. Preislisten kommen als DATANORM in den Artikelstamm.</p>
+    <div class="raster" style="margin-bottom:16px">
+      <div class="karte"><h2>Buchung</h2><form id="lg-buchen" class="raster">
+        <label>Artikel <select name="artikel_id" required><option value="">– wählen –</option>${material.map((a) => `<option value="${esc(a.id)}">${esc(a.nummer)} ${esc(a.bezeichnung)}</option>`).join("")}</select></label>
+        <label>Lagerort <select name="lager">${lagerOptionen}</select></label>
+        <label>Menge (+ Zugang / − Abgang) <input name="menge" type="number" step="0.01" required></label>
+        <label>Mindestbestand (optional) <input name="mindestbestand" type="number" step="0.01" min="0"></label>
+        <label>Grund <input name="grund" value="Wareneingang"></label>
+        <div class="aktionen" style="align-self:end"><button type="submit">Buchen</button></div></form><p id="lg-status"></p></div>
+      ${darfBuero ? `<div class="karte"><h2>DATANORM-Preisliste einlesen</h2><p class="unterzeile">DATANORM 4 (Satzarten A/P, CP850) oder DATANORM 5 (XML). Erst Trockenlauf, dann Import; Verkaufspreis = Einkauf × (1 + Aufschlag).</p>
+        <form id="lg-datanorm" class="raster"><label>Datei <input name="datei" type="file" accept=".001,.dat,.txt,.xml,.datanorm" required></label><label>Lieferant <input name="lieferant" required placeholder="z. B. GC-Gruppe"></label>
+        <label>Aufschlag % (leer: Stammdatum) <input name="aufschlag_prozent" inputmode="decimal"></label><label><span><input type="checkbox" name="trocken" checked> Trockenlauf (nichts speichern)</span></label>
+        <div class="aktionen" style="align-self:end"><button type="submit" class="leise">Einlesen</button></div></form><div id="lg-dn"></div></div>` : ""}
+    </div>
+    <div class="karte" style="margin-bottom:16px"><div class="zeile" style="justify-content:space-between"><h2 style="margin:0">Bestellvorschlag</h2><small>${vorschlag.positionen} Position(en) unter Mindestbestand${betrieb.stammdaten.ids_shop_url ? "" : " · IDS-Shop-Adresse in den Stammdaten setzen, um Warenkörbe zu übergeben"}</small></div>
+      ${vorschlag.gruppen.map((g, gi) => `<h3>${esc(g.lieferant)} <small>Einkauf netto ca. ${esc(EURO.format(g.summe_einkauf))}</small></h3>
+        <div class="tabelle-rahmen"><table><thead><tr><th>Artikel</th><th>Fehlmenge</th><th>Lagerorte</th></tr></thead><tbody>${g.positionen.map((p) => `<tr><td>${esc(p.nummer)} ${esc(p.bezeichnung)}</td><td>${esc(String(p.menge))} ${esc(p.einheit)}</td><td><small>${p.lager.map((l) => `${esc(l.lagername)}: ${esc(String(l.fehlmenge))}`).join(", ")}</small></td></tr>`).join("")}</tbody></table></div>
+        ${darfBuero ? `<div class="aktionen"><button class="leise" data-ids="${gi}">Warenkorb an Shop übergeben (IDS-Connect)</button></div>` : ""}`).join("") || "<p>Alle Bestände über Mindestbestand.</p>"}</div>
+    <div class="karte"><div class="zeile" style="justify-content:space-between"><h2 style="margin:0">Bestände</h2><button class="leise" id="lg-csv">CSV</button></div>
+      <div class="tabelle-rahmen"><table><thead><tr><th>Lagerort</th><th>Artikel</th><th style="text-align:right">Bestand</th><th style="text-align:right">Mindestbestand</th><th>Lieferant</th><th>Stand</th></tr></thead><tbody>
+      ${bestand.map((b) => `<tr><td>${esc(b.lagername)}</td><td>${esc(b.nummer)} ${esc(b.bezeichnung)}</td><td style="text-align:right">${b.unter_minimum ? tag(`${b.menge} ${esc(b.einheit)}`, "ueberfaellig") : `${esc(String(b.menge))} ${esc(b.einheit)}`}</td><td style="text-align:right">${esc(String(b.mindestbestand))}</td><td>${esc(b.lieferant || "")}</td><td><small>${zeit(b.geaendert)}</small></td></tr>`).join("") || `<tr><td colspan="6">Noch keine Bestände. Erste Buchung oben erfassen (Zugang mit Mindestbestand).</td></tr>`}</tbody></table></div></div>`;
+  $("#lg-buchen").addEventListener("submit", async (ev) => {
+    ev.preventDefault(); const fd = new FormData(ev.target);
+    const daten = { artikel_id: fd.get("artikel_id"), lager: fd.get("lager"), menge: Number(String(fd.get("menge")).replace(",", ".")), grund: fd.get("grund") || "manuell" };
+    if (fd.get("mindestbestand")) daten.mindestbestand = Number(String(fd.get("mindestbestand")).replace(",", "."));
+    try { await api("/lager/buchen", { methode: "POST", daten }); zeigen(); } catch (e) { $("#lg-status").innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
+  $("#lg-datanorm")?.addEventListener("submit", async (ev) => {
+    ev.preventDefault(); const fd = new FormData(ev.target); if (!fd.get("trocken")) fd.delete("trocken"); else fd.set("trocken", "true");
+    $("#lg-dn").textContent = "Wird gelesen …";
+    try {
+      const e = await api("/artikel/datanorm", { methode: "POST", daten: fd });
+      $("#lg-dn").innerHTML = `<p class="${e.trocken ? "hinweis" : ""}">${e.trocken ? "Trockenlauf: " : "Importiert: "}${e.gelesen} Zeilen gelesen, ${e.neu} neu, ${e.geaendert} geändert, ${e.deaktiviert} deaktiviert, ${e.uebersprungen} ohne Preis (Aufschlag ${e.aufschlag_prozent} %).</p>
+        ${e.beispiele.length ? `<table><thead><tr><th>Nummer</th><th>Bezeichnung</th><th>EK</th><th>VK</th></tr></thead><tbody>${e.beispiele.map((b) => `<tr><td>${esc(b.nummer)}</td><td>${esc(b.bezeichnung)}</td><td>${b.einkauf_netto != null ? esc(EURO.format(b.einkauf_netto)) : "–"}</td><td>${b.verkauf_netto != null ? esc(EURO.format(b.verkauf_netto)) : "–"}</td></tr>`).join("")}</tbody></table>` : ""}`;
+      if (!e.trocken) setTimeout(zeigen, 1500);
+    } catch (e) { $("#lg-dn").innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
+  $("#lg-csv").addEventListener("click", () => dateiLaden("/lager/export.csv", "lagerbestand.csv"));
+  ziel.querySelectorAll("[data-ids]").forEach((b) => b.addEventListener("click", async () => {
+    const g = vorschlag.gruppen[Number(b.dataset.ids)];
+    const positionen = g.positionen.map((p) => ({ nummer: p.nummer, menge: p.menge, einheit: p.einheit, bezeichnung: p.bezeichnung }));
+    const r = await fetch("/lager/warenkorb", { method: "POST", headers: { ...authKopf(), "Content-Type": "application/json" }, body: JSON.stringify({ positionen }) });
+    if (!r.ok) { const d = await r.json().catch(() => ({})); return alert(d.detail || `HTTP ${r.status}`); }
+    const fenster = window.open("", "_blank"); fenster.document.write(await r.text()); fenster.document.close();
+  }));
 }

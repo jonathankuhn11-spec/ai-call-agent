@@ -74,6 +74,12 @@ Danach `http://localhost:8100/` öffnen (Oberfläche) bzw. `/docs` (OpenAPI). Oh
 | Wartungsverträge | Laufzeit, Kündigungsfrist, Verlängerung, periodische Abrechnung als Freigabe C im Tageslauf, Kündigungsfrist als Frist, Kündigung zum nächstmöglichen Termin |
 | Offene Posten | Restbeträge und Überfälligkeit, Zahlung buchen (Teilzahlung, Skonto, Ausbuchung), CSV-Bankimport mit Zuordnung über die Rechnungsnummer, Mahnlauf (Erinnerung B, Mahnung mit Gebühr C), Mahnungs-PDF |
 | Auswertungen | Umsatz und Zahlungseingang je Monat, offene Posten, Angebotsquote, Vertragsbestand, Deckungsbeitrag je Monteur, Anfragen je Kanal |
+| Lager & Großhandel | Bestände je Zentrallager und Fahrzeug mit Mindestbestand, Buchungen (Zugang/Abgang), automatische Abbuchung aus dem Rapport (Material mit Artikelnummer), Bestellvorschlag je Lieferant mit Übergabe als **IDS-Connect-Warenkorb** an den Shop des Großhändlers, **DATANORM**-Preislisten (Version 4 und 5) mit Trockenlauf in den Artikelstamm, CSV-Export |
+| Globale Suche | Suchfeld in der Seitenleiste (Strg+K) über Kunden (auch Rufnummer), Vorgänge, Rechnungen, Angebote, Belege, Anfragen und Artikel, nach Rechten gefiltert; Treffer öffnen die Detailansicht |
+| Rapport (Ergänzung) | **Wartungs-Checkliste** je Anlagentyp (Gas-Brennwert, Öl, Wärmepumpe, Solarthermie, Klima, Trinkwasser, Warmwasser, Sanitär) mit Prüfpunkten, Messwertgrenzen und Normbezug; Befunde (ok/auffällig/offen) landen am Rapport, Auffälligkeiten als Kundenhinweis |
+| Angebote (Ergänzung) | **BEG-Förderrechner** (KfW 458 Heizungsförderung mit Grund-, Klimageschwindigkeits-, Einkommens- und Effizienz-Bonus; BAFA-Einzelmaßnahmen mit iSFP-Bonus) mit Übernahme als Vorbehaltstext in die Angebotseinleitung |
+| Kundenportal (öffentlich) | `/portal/#<vorgang>/<token>`: Termin bestätigen oder absagen (Absage setzt den Vorgang zurück und meldet dem Inhaber), Angebote und Rechnungen als PDF, Betriebskontakt; Link steht in Terminbestätigung und Terminerinnerung (Tageslauf, Vortag) |
+| Einstellungen (Ergänzung 2) | DATEV-Datenservices (Client-ID/-Secret, Berater-/Mandantennummer, Sandbox/Produktion) mit „DATEV verbinden“ (DATEV-Login, OAuth2 mit PKCE), IDS-Shop-Adresse, Portal-Absagefrist, Impressum-/Datenschutz-Links |
 | Plantafel (Ergänzung) | Abwesenheiten (Urlaub, Krankheit, Schulung) sperren den Monteur ganztägig in Disposition und Sprachagent |
 | Einstellungen (Ergänzung) | Bundesland (Feiertage), OSRM-Server, Kontoinhaber (GiroCode), Push an den Inhaber (ntfy), Artikel- und Leistungsstamm, Kontaktformular (Token, Snippet, Danke-Seite), IMAP-Posteingang, Angebots- und Mahnparameter, Bewertungslink (Bewertungsanfrage nach erledigtem Rapport als Freigabe B) |
 
@@ -139,6 +145,10 @@ Fachendpunkte verlangen einen Mandantenkontext: bei Maschinen `X-Mandant`, bei P
 | Forderungen | `GET /offene-posten`, `GET/POST /zahlungen`, `POST /zahlungen/bankimport` (Multipart CSV), `POST /mahnlauf`, `GET /mahnungen`, `GET /mahnungen/{id}/pdf` |
 | Verträge, Abwesenheiten | `GET/POST /vertraege`, `GET /vertraege/{id}`, `POST /vertraege/{id}/kuendigen`, `GET/POST /abwesenheiten`, `DELETE /abwesenheiten/{id}` |
 | Anfragen | `GET /anfragen`, `POST /anfragen/web/{token}` (öffentlich, Formular oder JSON), `GET/PUT /betrieb/webformular`, `GET/PUT /betrieb/posteingang`, `POST /posteingang/abrufen` |
+| Lager, Großhandel | `GET /lager?lager=`, `POST /lager/buchen`, `GET /lager/bestellvorschlag`, `GET /lager/export.csv`, `POST /lager/warenkorb` (IDS-Connect-Formular als HTML), `POST /artikel/datanorm` (Multipart `datei`, `lieferant`, `aufschlag_prozent`, `trocken`) |
+| Suche, Checklisten, Förderung | `GET /suche?q=`, `GET /checklisten`, `GET /checklisten/{anlagentyp}`, `POST /foerderung/rechner`, `GET /foerderung/heizungsarten` |
+| Kundenportal (öffentlich, Token) | `GET /portal/` (Seite), `GET /portal/faelle/{id}?token=`, `POST /portal/faelle/{id}/termine/{termin_id}?token=` (`bestaetigen`/`absagen`), `…/angebote/{id}.pdf`, `…/rechnungen/{id}.pdf`; Büro: `GET /servicefaelle/{id}/portal` (Link) |
+| DATEV-Datenservices | `PUT /integrationen/finanz` bzw. `/kanzlei` mit Kanal `datev`, `GET /integrationen/datev/anmeldung` (Anmelde-URL), `GET /integrationen/datev/rueckruf?code=&state=` (öffentlich, OAuth-Rückruf); Outbox-Aktionen `rechnung_uebermitteln` (Belegbilderservice, Rechnungsausgang), `beleg_uebermitteln` (Rechnungseingang), `belegpaket` (EXTF-Buchungsstapel an den Buchungsdatenservice) |
 | Auswertung, Tageslauf | `GET /auswertungen?monate=12`, `POST /tagesaufgaben` (auch `python -m core tagesaufgaben`, Cron 06:30; `python -m core posteingang` und `python -m core scaneingang` alle 15 Minuten) |
 
 Ontologie in Fuseki laden (Profil `ontologie`):
@@ -166,6 +176,8 @@ Row-Level Security trennt Mandanten auch ohne Filter im Code, `shk_app` darf kei
 arbeitet mandantenübergreifend. Manuell: Browser-Anmeldung gegen Keycloak 26.0.7 mit dem
 mitgelieferten Realm, Oberfläche hinter Caddy mit Produktions-CSP. In CI zusätzlich: Docker-Build,
 Import des Voice-Agenten, `docker compose config`, `caddy validate`.
+
+Zusätzlich getestet (Runde 3): DATANORM-4/5-Import, Lagerbuchung und Rapport-Abbuchung, Bestellvorschlag, IDS-Formular, Checklisten-Befunde, Suche nach Rechten, Förderrechner, Kundenportal (Bestätigung, Absage mit Rückstufung, Frist, fremdes Token, Terminerinnerung idempotent), DATEV-Anmeldung mit PKCE-State, Rückruf, Token-Erneuerung, Belegbild- und Buchungsstapel-Upload mit Attrappe, Debitorenliste im Belegpaket.
 
 Zusätzlich getestet: Rechnungsnummern, XRechnung 3.0 (UBL, Pflichtfelder), PDF, Storno, Adapter
 Lexware/sevDesk/E-Mail/SMS/Webhook mit Attrappen, DATEV-Buchungsstapel im Belegpaket, verschlüsselte

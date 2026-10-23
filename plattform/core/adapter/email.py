@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from core.adapter.basis import (AdapterFehler, Konfigurationsfehler, beleg_dateiname, beleg_laden, beleg_referenz, beleg_uebergeben,
                                 kunde_laden, rechnung_laden, termin_laden)
+from core import portal
 from core.disposition import ZEITZONE
 from core.domaene import als_utc
 from core.modelle import Mandant, OutboxEintrag
@@ -78,7 +79,8 @@ class EmailAdapter:
             beginn = als_utc(t.beginn).astimezone(ZEITZONE)
             text = (f"Guten Tag {kunde.name},\n\nwir bestätigen Ihren Termin am {beginn.strftime('%A, %d.%m.%Y')} "
                     f"um {beginn.strftime('%H:%M')} Uhr.\nAnliegen: {fall.anliegen}\nMonteur: {t.ressource.name}\n\n"
-                    f"Sollte der Termin nicht passen, rufen Sie uns bitte an.{gruss}")
+                    + (f"Termin online bestätigen oder absagen: {portal_link}\n" if (portal_link := portal.link(m, fall.id)) else "")
+                    + f"Sollte der Termin nicht passen, rufen Sie uns bitte an.{gruss}")
             return self._senden(self._nachricht(kunde.email, f"Terminbestätigung {beginn.strftime('%d.%m.%Y %H:%M')}", text))
         if e.aktion == "nachricht":
             kunde = kunde_laden(s, e)

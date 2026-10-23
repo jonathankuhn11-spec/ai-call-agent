@@ -13,22 +13,24 @@ from pathlib import Path
 from typing import Any, Literal
 
 import base64
+import html
 import time
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from core import (anfragen, angebote, belege, domaene, einsatz, feiertage, forderungen, hinweise, kalender, karte, loeschung, management,
-                  metriken, routing, scanner, tagesaufgaben, twin, vertraege)
+from core import (anfragen, angebote, belege, checklisten, domaene, einsatz, feiertage, foerderung, forderungen, grosshandel, hinweise,
+                  kalender, karte, loeschung, management, metriken, portal, routing, scanner, suche, tagesaufgaben, twin, vertraege)
 from core.auth import Abgewiesen, Authentifizierung, Prinzipal
 from core.db import Datenbank, mandant_binden
 from core.disposition import ZEITZONE, freie_zeitfenster, kollidiert
 from core.adapter import ERLAUBT, ZIELE, konfiguration_pruefen
-from core.geheimnisse import GEHEIME_FELDER, konfiguration_maskieren, konfiguration_verschluesseln
+from core.adapter import datev as datev_api
+from core.geheimnisse import GEHEIME_FELDER, konfiguration_entschluesseln, konfiguration_maskieren, konfiguration_verschluesseln
 from core.modelle import (Abwesenheit, Anfrage, Angebot, Anhang, Anlage, Artikel, Beleg, Bereitschaft, Ereignis, Freigabe, Frist,
                           Kommunikation, Kunde, Mahnung, Mandant, Objekt, OutboxEintrag, Rapport, Rechnung, Ressource, Servicefall,
                           Termin, Vertrag, Zahlung, Zeiteintrag)
@@ -298,6 +300,11 @@ class Stammdaten(_Schema):
     bundesland: str | None = Field(None, max_length=2)   # Feiertage: NW, BY, … (Standard NW)
     routing_url: str | None = None     # eigener OSRM-Server (Profil routing); leer: ROUTING_URL bzw. Demo-Server
     kontoinhaber: str | None = None    # Name auf dem GiroCode, Standard Betriebsname
+    basis_url: str | None = None       # öffentliche Adresse der Plattform (Portal-Links, Push-Links, DATEV-Rückruf)
+    ids_shop_url: str | None = None    # IDS-Connect-Einstiegsadresse des Großhändlers (Warenkorbübergabe)
+    absage_frist_stunden: int = Field(24, ge=0, le=168)  # Portal: kürzere Absagen nur telefonisch
+    impressum_url: str | None = None
+    datenschutz_url: str | None = None
     # Nachkalkulation (core/einsatz.py): interne Kosten und Verrechnungssatz je Stunde, Aufschlag auf Materialnetto
     stundensatz_kosten: float = Field(55, ge=0, le=500)
     stundensatz_verrechnung: float = Field(69, ge=0, le=500)
@@ -324,6 +331,49 @@ class Integration(_Schema):
     belegpaket: dict[str, Any] = {}
     belegtransfer: dict[str, Any] = {}
     ntfy: dict[str, Any] = {}
+    datev: dict[str, Any] = {}
+
+
+class LagerBuchung(_Schema):
+    artikel_id: str
+    lager: str = "zentral"
+    menge: float
+    grund: str = Field("manuell", max_length=200)
+    mindestbestand: float | None = Field(None, ge=0)
+
+
+class WarenkorbPosition(_Schema):
+    nummer: str
+    menge: float = Field(1, gt=0)
+    einheit: str = "Stk"
+    bezeichnung: str = ""
+    kommission: str = ""
+
+
+class Warenkorb(_Schema):
+    positionen: list[WarenkorbPosition] = Field(..., min_length=1)
+    shop_url: str | None = None
+    kennung: str | None = None
+
+
+class FoerderAnfrage(_Schema):
+    programm: Literal["heizung", "einzelmassnahme"] = "heizung"
+    kosten: float = Field(..., gt=0)
+    wohneinheiten: int = Field(1, ge=1, le=500)
+    heizungsart: str = "waermepumpe"
+    selbstnutzend: bool = True
+    alte_heizung_ersetzt: bool = False
+    einkommen_unter_40k: bool = False
+    natuerliches_kaeltemittel: bool = False
+    erd_oder_wasserquelle: bool = False
+    biomasse_staubarm: bool = False
+    isfp: bool = False
+    massnahme: str = "anlagentechnik"
+
+
+class PortalAktion(_Schema):
+    aktion: Literal["bestaetigen", "absagen"]
+    grund: str | None = Field(None, max_length=300)
 
 
 class RechnungAus(_Schema):
@@ -697,6 +747,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     app.state.geocoder = None   # Tests und Betrieb ohne Netz setzen hier eine eigene Funktion (Adresse → (lat, lon))
     app.state.router = None     # routing.Router; Tests setzen Router(None) (Luftlinie)
     app.state.metriken = metriken.Metriken(system_db.sitzungen, uhr)
+    app.state.datev_transport = None  # Tests: httpx.MockTransport für den DATEV-Login
 
     @app.middleware("http")
     async def messen(request: Request, call_next):
@@ -1279,7 +1330,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
             raise HTTPException(404, "Unbekanntes Ziel")
         bisher = m.integrationen.get(ziel) or {}
         neu: dict[str, Any] = {"kanaele": daten.kanaele}
-        for typ in ("email", "sms", "webhook", "lexware", "sevdesk", "belegpaket", "belegtransfer", "ntfy"):
+        for typ in ("email", "sms", "webhook", "lexware", "sevdesk", "belegpaket", "belegtransfer", "ntfy", "datev"):
             konfig = dict(getattr(daten, typ))
             for feld in GEHEIME_FELDER:  # maskierte oder leere Geheimnisse behalten den gespeicherten Wert
                 if konfig.get(feld) in ("", "••••", None) and (bisher.get(typ) or {}).get(feld):
@@ -2209,5 +2260,191 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         ergebnis = tagesaufgaben.tagesaufgaben(s, m, app.state.uhr())
         s.commit()
         return ergebnis
+
+    # --- Globale Suche, Checklisten, Förderung ------------------------------------------------
+    @app.get("/suche")
+    def suchen(q: str = Query(..., min_length=2, max_length=80), m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+               p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        rechte = {r for r in ("lesen", "bearbeiten", "finanzen", "einsatz", "verwalten") if p.darf(r)}
+        return {"q": q, "treffer": suche.suchen(s, m, q, rechte, eigene_ressourcen(p, s, m))}
+
+    @app.get("/checklisten")
+    def checklisten_liste() -> list[dict[str, Any]]:
+        return checklisten.alle()
+
+    @app.get("/checklisten/{anlagentyp}")
+    def checkliste_lesen(anlagentyp: str) -> dict[str, Any]:
+        return fachlich(lambda: checklisten.checkliste(anlagentyp))
+
+    @app.get("/foerderung/heizungsarten")
+    def foerderung_heizungsarten() -> dict[str, Any]:
+        return {"heizungsarten": foerderung.HEIZUNGSARTEN, "stand": foerderung.STAND}
+
+    @app.post("/foerderung/rechner")
+    def foerderung_rechner(daten: FoerderAnfrage) -> dict[str, Any]:
+        if daten.programm == "heizung":
+            ergebnis = fachlich(lambda: foerderung.heizung(daten.kosten, daten.heizungsart, daten.wohneinheiten, daten.selbstnutzend, daten.alte_heizung_ersetzt,
+                                                           daten.einkommen_unter_40k, daten.natuerliches_kaeltemittel, daten.erd_oder_wasserquelle, daten.biomasse_staubarm))
+        else:
+            ergebnis = fachlich(lambda: foerderung.einzelmassnahme(daten.kosten, daten.wohneinheiten, daten.isfp, daten.massnahme))
+        return {**ergebnis, "angebotstext": foerderung.angebotstext(ergebnis)}
+
+    # --- Großhandel: DATANORM, Lager, IDS-Connect ---------------------------------------------
+    @app.post("/artikel/datanorm", dependencies=[Depends(recht("bearbeiten"))])
+    async def datanorm_import(datei: UploadFile = File(...), lieferant: str = Form(...), aufschlag_prozent: str | None = Form(None),
+                              trocken: bool = Form(False), m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                              p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        inhalt = await datei.read()
+        if len(inhalt) > 50_000_000:
+            raise HTTPException(413, "DATANORM-Datei größer als 50 MB; bitte aufteilen")
+        from decimal import Decimal, InvalidOperation
+        try:
+            aufschlag = Decimal(aufschlag_prozent.replace(",", ".")) if aufschlag_prozent not in (None, "") else None
+        except InvalidOperation as e:
+            raise HTTPException(422, "aufschlag_prozent ist keine Zahl") from e
+        try:
+            ergebnis = grosshandel.datanorm_importieren(s, m, inhalt, lieferant, aufschlag, trocken, p.name)
+        except Exception as e:  # defekte Datei soll 422 liefern, nicht 500
+            raise HTTPException(422, f"DATANORM-Datei nicht lesbar: {e}") from e
+        if trocken:
+            s.rollback()
+        else:
+            s.commit()
+        return ergebnis
+
+    @app.get("/lager")
+    def lager_listen(lager: str | None = None, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> list[dict[str, Any]]:
+        return grosshandel.bestand_listen(s, m, lager)
+
+    @app.get("/lager/export.csv")
+    def lager_export(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> Response:
+        return Response(grosshandel.bestand_csv(s, m), media_type="text/csv", headers={"Content-Disposition": 'attachment; filename="lagerbestand.csv"'})
+
+    @app.get("/lager/bestellvorschlag")
+    def lager_bestellvorschlag(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        return grosshandel.bestellvorschlag(s, m)
+
+    @app.post("/lager/buchen")
+    def lager_buchen(daten: LagerBuchung, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                     p: Prinzipal = Depends(recht("einsatz"))) -> dict[str, Any]:
+        eigene = eigene_ressourcen(p, s, m)
+        if eigene is not None and daten.lager not in eigene:
+            raise HTTPException(403, "Monteure buchen nur auf das eigene Fahrzeuglager")
+        b = fachlich(lambda: grosshandel.buchen(s, m, daten.artikel_id, daten.lager, daten.menge, daten.grund, daten.mindestbestand, p.name))
+        s.commit()
+        return {"artikel_id": b.artikel_id, "lager": b.lager, "menge": b.menge, "mindestbestand": b.mindestbestand}
+
+    @app.post("/lager/warenkorb", response_class=HTMLResponse, dependencies=[Depends(recht("bearbeiten"))])
+    def lager_warenkorb(daten: Warenkorb, m: Mandant = Depends(mandant_kontext)) -> HTMLResponse:
+        """IDS-Connect: HTML-Seite mit Formular, die den Warenkorb an den Shop des Großhändlers übergibt."""
+        shop = daten.shop_url or m.stammdaten.get("ids_shop_url")
+        if not shop or not shop.startswith("https://"):
+            raise HTTPException(422, "IDS-Shop-Adresse fehlt (Stammdatum ids_shop_url, https)")
+        kennung = daten.kennung or f"{m.id[:8]}-{app.state.uhr().strftime('%Y%m%d%H%M')}"
+        return HTMLResponse(grosshandel.ids_formular(shop, [p.model_dump() for p in daten.positionen], kennung))
+
+    # --- Kundenportal (öffentlich, Token je Vorgang) -------------------------------------------
+    def portal_fall(s: Session, fall_id: str, token: str | None) -> tuple[Servicefall, Mandant]:
+        if not portal.gueltig(fall_id, token):
+            raise HTTPException(404, "Vorgang nicht gefunden")
+        f = s.get(Servicefall, fall_id)
+        if f is None:
+            raise HTTPException(404, "Vorgang nicht gefunden")
+        mandant_binden(s, f.mandant_id)
+        return f, s.get(Mandant, f.mandant_id)
+
+    @app.get("/portal/", include_in_schema=False)
+    def portal_seite() -> FileResponse:
+        return FileResponse(UI_VERZEICHNIS / "portal.html", media_type="text/html")
+
+    @app.get("/portal/portal.js", include_in_schema=False)
+    def portal_skript() -> FileResponse:
+        return FileResponse(UI_VERZEICHNIS / "portal.js", media_type="text/javascript")
+
+    @app.get("/portal/faelle/{fall_id}")
+    def portal_daten(fall_id: str, token: str | None = None, s: Session = Depends(sitzung)) -> dict[str, Any]:
+        f, m = portal_fall(s, fall_id, token)
+        return portal.daten(s, m, f)
+
+    @app.post("/portal/faelle/{fall_id}/termine/{termin_id}")
+    def portal_termin(fall_id: str, termin_id: str, daten: PortalAktion, token: str | None = None, s: Session = Depends(sitzung)) -> dict[str, Any]:
+        f, m = portal_fall(s, fall_id, token)
+        t = s.get(Termin, termin_id)
+        if t is None or t.servicefall_id != f.id:
+            raise HTTPException(404, "Termin nicht gefunden")
+        if daten.aktion == "bestaetigen":
+            ergebnis = fachlich(lambda: portal.termin_bestaetigen(s, m, f, t, app.state.uhr()))
+        else:
+            ergebnis = fachlich(lambda: portal.termin_absagen(s, m, f, t, app.state.uhr(), daten.grund))
+        s.commit()
+        return ergebnis
+
+    @app.get("/portal/faelle/{fall_id}/angebote/{angebot_id}.pdf")
+    def portal_angebot_pdf(fall_id: str, angebot_id: str, token: str | None = None, s: Session = Depends(sitzung)) -> Response:
+        f, m = portal_fall(s, fall_id, token)
+        a = s.get(Angebot, angebot_id)
+        if a is None or a.servicefall_id != f.id or a.status not in ("versendet", "angenommen"):
+            raise HTTPException(404, "Angebot nicht gefunden")
+        return Response(angebote.pdf(a, m), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{a.nummer}.pdf"'})
+
+    @app.get("/portal/faelle/{fall_id}/rechnungen/{rechnung_id}.pdf")
+    def portal_rechnung_pdf(fall_id: str, rechnung_id: str, token: str | None = None, s: Session = Depends(sitzung)) -> Response:
+        f, m = portal_fall(s, fall_id, token)
+        r = s.get(Rechnung, rechnung_id)
+        if r is None or r.servicefall_id != f.id:
+            raise HTTPException(404, "Rechnung nicht gefunden")
+        return Response(rechnung_pdf(r, m), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{r.nummer}.pdf"'})
+
+    @app.get("/servicefaelle/{fall_id}/portal")
+    def portal_link(fall_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        f = holen(s, Servicefall, fall_id, m)
+        eigener_fall(p, s, m, f)
+        return {"link": portal.link(m, f.id), "pfad": f"/portal/#{f.id}/{portal.token(f.id)}", "basis_url_gesetzt": bool(m.stammdaten.get("basis_url"))}
+
+    # --- DATEV-Datenservices: Anmeldung (OAuth2 Authorization Code) ------------------------------
+    def datev_konfig(m: Mandant) -> tuple[str, dict[str, Any]]:
+        for ziel in ("kanzlei", "finanz"):
+            konfig = (m.integrationen.get(ziel) or {}).get("datev")
+            if konfig:
+                return ziel, konfiguration_entschluesseln(konfig)
+        raise HTTPException(409, "DATEV ist noch nicht konfiguriert (Einstellungen → Steuerkanzlei oder Buchhaltung → datev)")
+
+    @app.get("/integrationen/datev/anmeldung", dependencies=[Depends(recht("verwalten"))])
+    def datev_anmeldung(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        basis = m.stammdaten.get("basis_url")
+        if not basis:
+            raise HTTPException(409, "Stammdatum basis_url fehlt (öffentliche Adresse für den DATEV-Rückruf)")
+        ziel, konfig = datev_konfig(m)
+        verifier, challenge = datev_api.pkce()
+        redirect = f"{basis.rstrip('/')}/integrationen/datev/rueckruf"
+        url = fachlich(lambda: datev_api.anmelde_url(konfig, m.id, redirect, challenge))
+        block = {**(m.integrationen[ziel]["datev"]), "pkce_verifier": verifier}
+        m.integrationen = {**m.integrationen, ziel: {**m.integrationen[ziel], "datev": block}}
+        s.commit()
+        return {"url": url, "redirect_uri": redirect, "umgebung": konfig.get("umgebung", "sandbox")}
+
+    @app.get("/integrationen/datev/rueckruf", include_in_schema=False, response_class=HTMLResponse)
+    def datev_rueckruf(code: str | None = None, state: str | None = None, error: str | None = None, error_description: str | None = None,
+                       s: Session = Depends(sitzung)) -> HTMLResponse:
+        seite = "<!doctype html><html lang='de'><meta charset='utf-8'><title>DATEV-Verbindung</title><body style='font-family:system-ui;padding:2rem'>{}</body></html>"
+        mandant_id = datev_api.zustand_pruefen(state)
+        if error or not code or not mandant_id:
+            return HTMLResponse(seite.format(f"<h1>DATEV-Verbindung fehlgeschlagen</h1><p>{html.escape(error_description or error or 'Ungültiger Rückruf')}</p>"), status_code=400)
+        mandant_binden(s, mandant_id)
+        m = s.get(Mandant, mandant_id)
+        if m is None:
+            return HTMLResponse(seite.format("<h1>Betrieb unbekannt</h1>"), status_code=404)
+        ziel, konfig = datev_konfig(m)
+        redirect = f"{m.stammdaten.get('basis_url', '').rstrip('/')}/integrationen/datev/rueckruf"
+        try:
+            token = datev_api.code_einloesen(konfig, code, redirect, konfig.get("pkce_verifier"), app.state.datev_transport)
+        except Exception as e:  # Fehlertext dem Nutzer zeigen, kein 500
+            return HTMLResponse(seite.format(f"<h1>DATEV-Verbindung fehlgeschlagen</h1><p>{html.escape(str(e))}</p>"), status_code=502)
+        block = {k: v for k, v in m.integrationen[ziel]["datev"].items() if k != "pkce_verifier"}
+        block.update(konfiguration_verschluesseln({"refresh_token": token["refresh_token"]}))
+        m.integrationen = {**m.integrationen, ziel: {**m.integrationen[ziel], "datev": block}}
+        domaene.protokollieren(s, m.id, "integration.datev_verbunden", "mandant", m.id, "mensch", {"ziel": ziel, "umgebung": konfig.get("umgebung", "sandbox")})
+        s.commit()
+        return HTMLResponse(seite.format("<h1>DATEV-Verbindung hergestellt</h1><p>Sie können dieses Fenster schließen. Belege und Buchungsstapel werden ab jetzt über die DATEV-Datenservices übertragen.</p>"))
 
     return app

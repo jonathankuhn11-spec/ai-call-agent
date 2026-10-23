@@ -14,7 +14,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from core import domaene
+from core import checklisten, domaene, grosshandel
 from core.disposition import ZEITZONE
 from core.feiertage import feiertag
 from core.routing import navigation
@@ -166,8 +166,17 @@ def rapport_erzeugen(s: Session, m: Mandant, fall: Servicefall, r: Ressource, da
                       material=daten.get("material") or [], arbeitszeit_minuten=int(daten.get("arbeitszeit_minuten") or 0),
                       fahrzeit_minuten=int(daten.get("fahrzeit_minuten") or 0), ergebnis=daten.get("ergebnis") or "erledigt",
                       hinweise_kunde=daten.get("hinweise_kunde"), messwerte=daten.get("messwerte") or {}, erstellt=jetzt)
+    if (rapport.messwerte or {}).get("checkliste") and fall.anlage is not None:
+        # Prüfpunkte der Wartungs-Checkliste → Befunde (ok/auffaellig/offen) am Rapport, Auffälligkeiten als Kundenhinweis
+        befund = checklisten.auswerten(fall.anlage.anlagentyp, rapport.messwerte["checkliste"])
+        rapport.messwerte = {**rapport.messwerte, "befunde": befund}
+        if befund["empfehlung"] and not rapport.hinweise_kunde:
+            rapport.hinweise_kunde = f"Auffällig: {befund['empfehlung']}"[:1000]
     s.add(rapport)
     s.flush()
+    gebucht = grosshandel.rapport_abbuchen(s, m, rapport, akteur_name)
+    if gebucht:
+        rapport.messwerte = {**rapport.messwerte, "lagerbuchungen": gebucht}
     if unterschrift_png:
         a = anhang_anlegen(s, m, "rapport", rapport.id, "unterschrift", f"{rapport.nummer}-unterschrift.png", "image/png",
                            unterschrift_png, akteur_name)

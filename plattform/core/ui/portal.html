@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Ihr Termin</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root { --tinte: #1c2733; --leise: #5b6b7a; --rand: #d9e0e7; --akzent: #1b6ec2; --ok: #1f7a4d; --warn: #b4541a; --flaeche: #f5f7f9; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--tinte); background: var(--flaeche); line-height: 1.45; }
+    main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+    header { margin-bottom: 16px; } header h1 { font-size: 1.4rem; margin: 0 0 4px; } header p { margin: 0; color: var(--leise); }
+    .karte { background: #fff; border: 1px solid var(--rand); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+    .karte h2 { font-size: 1.05rem; margin: 0 0 8px; }
+    .termin { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; padding: 10px 0; border-top: 1px solid var(--rand); }
+    .termin:first-of-type { border-top: 0; }
+    .status { font-size: .8rem; padding: 2px 8px; border-radius: 999px; background: #eef2f6; color: var(--leise); }
+    .status.bestaetigt { background: #e3f3ea; color: var(--ok); } .status.vorgeschlagen { background: #fff2e5; color: var(--warn); }
+    button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--akzent); background: var(--akzent); color: #fff; cursor: pointer; }
+    button.leise { background: #fff; color: var(--akzent); } button:disabled { opacity: .5; cursor: default; }
+    .aktionen { display: flex; gap: 8px; flex-wrap: wrap; }
+    .hinweis { padding: 10px 12px; border-radius: 8px; background: #e3f3ea; color: var(--ok); margin-top: 10px; }
+    .fehler { padding: 10px 12px; border-radius: 8px; background: #fde8e8; color: #9b1c1c; margin-top: 10px; }
+    textarea { width: 100%; font: inherit; padding: 8px; border: 1px solid var(--rand); border-radius: 8px; margin: 8px 0; }
+    table { width: 100%; border-collapse: collapse; } td { padding: 6px 0; border-top: 1px solid var(--rand); } td:last-child { text-align: right; }
+    footer { color: var(--leise); font-size: .85rem; margin-top: 24px; } footer a { color: var(--leise); }
+    a { color: var(--akzent); }
+  </style>
+</head>
+<body>
+<main id="inhalt"><p>Wird geladen …</p></main>
+<script src="/portal/portal.js"></script>
+</body>
+</html>
