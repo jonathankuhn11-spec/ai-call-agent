@@ -58,6 +58,7 @@ def anonymisieren(s: Session, kunde: Kunde, akteur: str, grund: str) -> dict[str
     """Personenbezug entfernen, Fachdaten (Anlagen, Vorgänge, Rechnungen) bleiben für Nachweis und Statistik."""
     kunde.name, kunde.telefon, kunde.email, kunde.strasse, kunde.notiz = ANONYM, None, None, None, None
     kunde.einwilligungen = {}
+    kunde.kartei = {}
     kunde.vertragsstatus = "ohne"
     for o in kunde.objekte:
         o.strasse, o.bezeichnung = None, "Objekt (anonymisiert)"
@@ -118,7 +119,7 @@ def auskunft(s: Session, kunde: Kunde) -> dict[str, Any]:
     faelle = s.scalars(select(Servicefall).where(Servicefall.kunde_id == kunde.id)).all()
     return {
         "kunde": {"name": kunde.name, "telefon": kunde.telefon, "email": kunde.email, "strasse": kunde.strasse, "plz": kunde.plz,
-                  "ort": kunde.ort, "vertragsstatus": kunde.vertragsstatus, "einwilligungen": kunde.einwilligungen,
+                  "ort": kunde.ort, "vertragsstatus": kunde.vertragsstatus, "einwilligungen": kunde.einwilligungen, "kartei": kunde.kartei,
                   "erstellt": kunde.erstellt.isoformat()},
         "objekte": [{"bezeichnung": o.bezeichnung, "ort": o.ort, "anlagen": [{"typ": a.anlagentyp, "hersteller": a.hersteller,
                      "baujahr": a.baujahr, "letzte_wartung": a.letzte_wartung.isoformat() if a.letzte_wartung else None}

@@ -10,7 +10,7 @@ Das Verzeichnis ist in sich geschlossen und kann unverändert in ein eigenes Rep
 ```
 plattform/
 ├── core/                 Core-Service (FastAPI, SQLAlchemy)
-│   ├── modelle.py        kanonisches Datenmodell (12 Entitäten)
+│   ├── modelle.py        kanonisches Datenmodell (28 Entitäten)
 │   ├── domaene.py        Statusautomat, Event-Log, Outbox, Freigabe-Policies
 │   ├── disposition.py    freie Zeitfenster: Qualifikation, Arbeitszeit, Fahrzeitpuffer, Kollision
 │   ├── regeln.py         deterministische Regeln: Rufnummern, Dringlichkeit, Sicherheitsfälle
@@ -80,6 +80,11 @@ Danach `http://localhost:8100/` öffnen (Oberfläche) bzw. `/docs` (OpenAPI). Oh
 | Angebote (Ergänzung) | **BEG-Förderrechner** (KfW 458 Heizungsförderung mit Grund-, Klimageschwindigkeits-, Einkommens- und Effizienz-Bonus; BAFA-Einzelmaßnahmen mit iSFP-Bonus) mit Übernahme als Vorbehaltstext in die Angebotseinleitung |
 | Kundenportal (öffentlich) | `/portal/#<vorgang>/<token>`: Termin bestätigen oder absagen (Absage setzt den Vorgang zurück und meldet dem Inhaber), Angebote und Rechnungen als PDF, Betriebskontakt; Link steht in Terminbestätigung und Terminerinnerung (Tageslauf, Vortag) |
 | Einstellungen (Ergänzung 2) | DATEV-Datenservices (Client-ID/-Secret, Berater-/Mandantennummer, Sandbox/Produktion) mit „DATEV verbinden“ (DATEV-Login, OAuth2 mit PKCE), IDS-Shop-Adresse, Portal-Absagefrist, Impressum-/Datenschutz-Links |
+| Einstellungen (Branche) | **Branchenprofil** (SHK, Elektro, Friseur/Barbier, Kosmetik, Nagelstudio, Massage, Physiotherapie, Fußpflege, Hundesalon, Fahrradwerkstatt, Kfz-Werkstatt): setzt Begriffe der Oberfläche (Monteur/Stylist/Therapeut, Einsatz/Termin, Kundenkartei), legt den Leistungskatalog mit Terminlänge, Qualifikation und Bruttopreis an, Takt und Puffer der Disposition, Wiederkehr-Intervall, Rolle des Sprachagenten, rechtliche Hinweise (Art. 9 DSGVO, KassenSichV, Heilmittel); Online-Buchung aktivieren/erneuern/abschalten |
+| Kundenkartei (Branche) | Branchenspezifische Karteifelder (Farbrezeptur, Hauttyp, Kontraindikationen, Tier, Fahrzeug …); Gesundheitsdaten sind mit 🔒 markiert und nur mit Einwilligung „gesundheitsdaten“ beschreibbar; No-Show-Zähler je Kunde; Objekte/Anlagen nur in Handwerksprofilen |
+| Gutscheine | Wertgutscheine ausstellen (Code XXXX-XXXX-XXXX, gültig bis Ende des dritten Folgejahres, § 195 BGB), teilweise einlösen, stornieren (nur ungenutzt), PDF mit QR-Code; Übersicht offener Gutscheinwerte |
+| Vorgang (Ergänzung) | „Nicht erschienen“ für vergangene bestätigte Termine: Termin wird markiert, Zähler am Kunden erhöht, Vorgang zurück auf „qualifiziert“ |
+| Online-Buchung (öffentlich) | `/buchung/#<token>`: Leistung wählen, optional Mitarbeiter, freie Zeiten je Tag (über den Tag verteilt, Mindestvorlauf, Buchungshorizont), Daten mit Einwilligung; erzeugt Kunde (Dublette über Rufnummer), Vorgang (Quelle web) und Terminvorschlag, der per Freigabe `termin_bestaetigen` (Klasse B, per Policy automatisch) verbindlich wird; Terminbestätigung mit Branchenhinweisen und No-Show-Hinweis; Drosselung je Token, Honeypot |
 | Plantafel (Ergänzung) | Abwesenheiten (Urlaub, Krankheit, Schulung) sperren den Monteur ganztägig in Disposition und Sprachagent |
 | Einstellungen (Ergänzung) | Bundesland (Feiertage), OSRM-Server, Kontoinhaber (GiroCode), Push an den Inhaber (ntfy), Artikel- und Leistungsstamm, Kontaktformular (Token, Snippet, Danke-Seite), IMAP-Posteingang, Angebots- und Mahnparameter, Bewertungslink (Bewertungsanfrage nach erledigtem Rapport als Freigabe B) |
 
@@ -148,6 +153,9 @@ Fachendpunkte verlangen einen Mandantenkontext: bei Maschinen `X-Mandant`, bei P
 | Lager, Großhandel | `GET /lager?lager=`, `POST /lager/buchen`, `GET /lager/bestellvorschlag`, `GET /lager/export.csv`, `POST /lager/warenkorb` (IDS-Connect-Formular als HTML), `POST /artikel/datanorm` (Multipart `datei`, `lieferant`, `aufschlag_prozent`, `trocken`) |
 | Suche, Checklisten, Förderung | `GET /suche?q=`, `GET /checklisten`, `GET /checklisten/{anlagentyp}`, `POST /foerderung/rechner`, `GET /foerderung/heizungsarten` |
 | Kundenportal (öffentlich, Token) | `GET /portal/` (Seite), `GET /portal/faelle/{id}?token=`, `POST /portal/faelle/{id}/termine/{termin_id}?token=` (`bestaetigen`/`absagen`), `…/angebote/{id}.pdf`, `…/rechnungen/{id}.pdf`; Büro: `GET /servicefaelle/{id}/portal` (Link) |
+| Branche, Kartei, No-Show | `GET /branchen`, `GET/PUT /betrieb/branche` (`leistungen_anlegen`), `GET /voice/kontext` (Branchenkontext für den Sprachagenten), `PUT /kunden/{id}/kartei`, `POST /termine/{id}/nicht-erschienen` |
+| Gutscheine | `GET/POST /gutscheine`, `GET /gutscheine/{code}`, `POST /gutscheine/{code}/einloesen`, `POST /gutscheine/{code}/storno`, `GET /gutscheine/{code}/pdf` |
+| Online-Buchung (öffentlich, Token) | `GET/PUT /betrieb/buchung?aktiv=` (Büro), `GET /buchung/` (Seite), `GET /buchung/{token}` (Betrieb, Leistungen, Mitarbeiter), `GET /buchung/{token}/zeiten?leistung_id=&ressource_id=&ab=`, `POST /buchung/{token}` |
 | DATEV-Datenservices | `PUT /integrationen/finanz` bzw. `/kanzlei` mit Kanal `datev`, `GET /integrationen/datev/anmeldung` (Anmelde-URL), `GET /integrationen/datev/rueckruf?code=&state=` (öffentlich, OAuth-Rückruf); Outbox-Aktionen `rechnung_uebermitteln` (Belegbilderservice, Rechnungsausgang), `beleg_uebermitteln` (Rechnungseingang), `belegpaket` (EXTF-Buchungsstapel an den Buchungsdatenservice) |
 | Auswertung, Tageslauf | `GET /auswertungen?monate=12`, `POST /tagesaufgaben` (auch `python -m core tagesaufgaben`, Cron 06:30; `python -m core posteingang` und `python -m core scaneingang` alle 15 Minuten) |
 
@@ -178,6 +186,8 @@ mitgelieferten Realm, Oberfläche hinter Caddy mit Produktions-CSP. In CI zusät
 Import des Voice-Agenten, `docker compose config`, `caddy validate`.
 
 Zusätzlich getestet (Runde 3): DATANORM-4/5-Import, Lagerbuchung und Rapport-Abbuchung, Bestellvorschlag, IDS-Formular, Checklisten-Befunde, Suche nach Rechten, Förderrechner, Kundenportal (Bestätigung, Absage mit Rückstufung, Frist, fremdes Token, Terminerinnerung idempotent), DATEV-Anmeldung mit PKCE-State, Rückruf, Token-Erneuerung, Belegbild- und Buchungsstapel-Upload mit Attrappe, Debitorenliste im Belegpaket.
+
+Zusätzlich getestet (Runde 4): Branchenliste und Umstellung mit Leistungskatalog (idempotent), Sprachagent-Kontext, Kartei (unbekannte Felder, Gesundheitsdaten ohne/mit Einwilligung, Auskunft, Anonymisierung), No-Show (Zukunft abgelehnt, Zähler, Rückstufung), Online-Buchung (Angebot, Zeiten nach Qualifikation und Mitarbeiter, Mindestvorlauf, Honeypot, Dublette, Freigabe, Terminbestätigung mit Hinweisen, Abschalten), SHK-Buchung mit Adresse, Gutscheine (Teileinlösung, Storno, Ablauf, PDF), Wiederkehr-Erinnerung im Tageslauf (idempotent, Einwilligung).
 
 Zusätzlich getestet: Rechnungsnummern, XRechnung 3.0 (UBL, Pflichtfelder), PDF, Storno, Adapter
 Lexware/sevDesk/E-Mail/SMS/Webhook mit Attrappen, DATEV-Buchungsstapel im Belegpaket, verschlüsselte

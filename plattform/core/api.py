@@ -23,11 +23,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from core import (anfragen, angebote, belege, checklisten, domaene, einsatz, feiertage, foerderung, forderungen, grosshandel, hinweise,
-                  kalender, karte, loeschung, management, metriken, portal, routing, scanner, suche, tagesaufgaben, twin, vertraege)
+from core import (anfragen, angebote, belege, branchen, buchung, checklisten, domaene, einsatz, feiertage, foerderung, forderungen, grosshandel,
+                  gutscheine, hinweise, kalender, karte, loeschung, management, metriken, portal, routing, scanner, suche, tagesaufgaben, twin, vertraege)
 from core.auth import Abgewiesen, Authentifizierung, Prinzipal
 from core.db import Datenbank, mandant_binden
 from core.disposition import ZEITZONE, freie_zeitfenster, kollidiert
+from core.domaene import als_utc
 from core.adapter import ERLAUBT, ZIELE, konfiguration_pruefen
 from core.adapter import datev as datev_api
 from core.geheimnisse import GEHEIME_FELDER, konfiguration_entschluesseln, konfiguration_maskieren, konfiguration_verschluesseln
@@ -73,6 +74,8 @@ class KundeNeu(_Schema):
     ort: str | None = None
     vertragsstatus: str = "ohne"
     notiz: str | None = None
+    kartei: dict[str, Any] = {}
+    nicht_erschienen: int = 0
     lat: float | None = Field(None, ge=-90, le=90)
     lon: float | None = Field(None, ge=-180, le=180)
 
@@ -104,6 +107,7 @@ class Einwilligungen(_Schema):
     sms: bool | None = None
     kontakt: bool | None = None
     bewertung: bool | None = None
+    gesundheitsdaten: bool | None = None   # Art. 9 Abs. 2 lit. a DSGVO: Kartei mit Allergien, Kontraindikationen, Befunden
 
 
 class ObjektNeu(_Schema):
@@ -305,6 +309,9 @@ class Stammdaten(_Schema):
     absage_frist_stunden: int = Field(24, ge=0, le=168)  # Portal: kürzere Absagen nur telefonisch
     impressum_url: str | None = None
     datenschutz_url: str | None = None
+    buchung_vorlauf_tage: int = Field(14, ge=1, le=90)      # Online-Buchung: wie weit voraus
+    buchung_vorlauf_stunden: int = Field(2, ge=0, le=72)    # Online-Buchung: Mindestvorlauf
+    no_show_hinweis: str | None = None                      # Text in Terminbestätigung (z. B. Ausfallgebühr bei Nichterscheinen)
     # Nachkalkulation (core/einsatz.py): interne Kosten und Verrechnungssatz je Stunde, Aufschlag auf Materialnetto
     stundensatz_kosten: float = Field(55, ge=0, le=500)
     stundensatz_verrechnung: float = Field(69, ge=0, le=500)
@@ -369,6 +376,41 @@ class FoerderAnfrage(_Schema):
     biomasse_staubarm: bool = False
     isfp: bool = False
     massnahme: str = "anlagentechnik"
+
+
+class BrancheSetzen(_Schema):
+    branche: str
+    leistungen_anlegen: bool = True
+
+
+class KarteiAenderung(_Schema):
+    felder: dict[str, Any]
+
+
+class GutscheinNeu(_Schema):
+    wert: float = Field(..., gt=0, le=10000)
+    kunde_id: str | None = None
+    empfaenger: str | None = Field(None, max_length=200)
+
+
+class GutscheinEinloesen(_Schema):
+    betrag: float = Field(..., gt=0)
+    rechnung_id: str | None = None
+
+
+class BuchungNeu(_Schema):
+    leistung_id: str
+    ressource_id: str
+    beginn: datetime
+    name: str = Field(..., min_length=2, max_length=200)
+    telefon: str | None = None
+    email: str | None = None
+    strasse: str | None = None
+    plz: str | None = None
+    ort: str | None = None
+    hinweis: str | None = Field(None, max_length=500)
+    einwilligung_email: bool = False
+    website: str | None = None  # Honeypot
 
 
 class PortalAktion(_Schema):
@@ -558,24 +600,28 @@ class VoiceGespraechBeendet(_Schema):
 class ArtikelNeu(_Schema):
     nummer: str = Field(..., min_length=1, max_length=40)
     bezeichnung: str = Field(..., min_length=2, max_length=200)
-    kategorie: Literal["material", "arbeit", "fahrt", "pauschale"] = "material"
+    kategorie: Literal["material", "arbeit", "fahrt", "pauschale", "leistung"] = "material"
     einheit: str = Field("Stk", max_length=10)
     einkauf_netto: float | None = None
     verkauf_netto: float = Field(..., ge=0)
     ust_satz: str = "19"
     lieferant: str | None = None
     aktiv: bool = True
+    dauer_minuten: int | None = Field(None, ge=5, le=600)
+    qualifikation: str | None = Field(None, max_length=50)
 
 
 class ArtikelAenderung(_Schema):
     bezeichnung: str | None = Field(None, min_length=2, max_length=200)
-    kategorie: Literal["material", "arbeit", "fahrt", "pauschale"] | None = None
+    kategorie: Literal["material", "arbeit", "fahrt", "pauschale", "leistung"] | None = None
     einheit: str | None = None
     einkauf_netto: float | None = None
     verkauf_netto: float | None = Field(None, ge=0)
     ust_satz: str | None = None
     lieferant: str | None = None
     aktiv: bool | None = None
+    dauer_minuten: int | None = Field(None, ge=5, le=600)
+    qualifikation: str | None = Field(None, max_length=50)
 
 
 class ArtikelAus(_Schema):
@@ -589,6 +635,8 @@ class ArtikelAus(_Schema):
     ust_satz: str
     lieferant: str | None
     aktiv: bool
+    dauer_minuten: int | None = None
+    qualifikation: str | None = None
 
 
 class AngebotNeu(_Schema):
@@ -2446,5 +2494,187 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         domaene.protokollieren(s, m.id, "integration.datev_verbunden", "mandant", m.id, "mensch", {"ziel": ziel, "umgebung": konfig.get("umgebung", "sandbox")})
         s.commit()
         return HTMLResponse(seite.format("<h1>DATEV-Verbindung hergestellt</h1><p>Sie können dieses Fenster schließen. Belege und Buchungsstapel werden ab jetzt über die DATEV-Datenservices übertragen.</p>"))
+
+    # --- Branchenprofile, Kundenkartei, No-Show ---------------------------------------------------
+    @app.get("/branchen")
+    def branchen_liste() -> list[dict[str, Any]]:
+        return branchen.alle()
+
+    @app.get("/betrieb/branche")
+    def branche_lesen(m: Mandant = Depends(mandant_kontext)) -> dict[str, Any]:
+        return branchen.profil(m)
+
+    @app.put("/betrieb/branche", dependencies=[Depends(recht("verwalten"))])
+    def branche_setzen(daten: BrancheSetzen, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                       p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        ergebnis = fachlich(lambda: branchen.umstellen(s, m, daten.branche.lower(), daten.leistungen_anlegen, p.name))
+        s.commit()
+        return {**ergebnis, "profil": branchen.profil(m)}
+
+    @app.get("/voice/kontext", dependencies=[Depends(recht("bearbeiten"))])
+    def voice_kontext(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        """Branchenkontext für den Sprachagenten: Rolle, Leistungskatalog mit Dauer, Hinweise, Begriffe."""
+        kontext = branchen.prompt(m)
+        kontext["leistungen"] = [{"id": a.id, "nummer": a.nummer, "bezeichnung": a.bezeichnung, "dauer_minuten": a.dauer_minuten or 60,
+                                  "qualifikation": a.qualifikation} for a in branchen.leistungen(s, m)] or kontext["leistungen"]
+        kontext["betrieb"] = m.name
+        return kontext
+
+    @app.put("/kunden/{kunde_id}/kartei", response_model=KundeAus, dependencies=[Depends(recht("bearbeiten"))])
+    def kartei_setzen(kunde_id: str, daten: KarteiAenderung, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                      p: Prinzipal = Depends(prinzipal)):
+        k = holen(s, Kunde, kunde_id, m)
+        felder = fachlich(lambda: branchen.kartei_pruefen(m, k, daten.felder))
+        k.kartei = felder
+        domaene.protokollieren(s, m.id, "kunde.kartei", "kunde", k.id, "mensch", {"felder": sorted(felder)}, p.name)
+        s.commit()
+        return k
+
+    @app.post("/termine/{termin_id}/nicht-erschienen", response_model=TerminAus, dependencies=[Depends(recht("bearbeiten"))])
+    def termin_nicht_erschienen(termin_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                                p: Prinzipal = Depends(prinzipal)):
+        """No-Show: Termin markieren, Zähler am Kunden erhöhen, Vorgang zurück auf „qualifiziert“ (neuer Termin nötig)."""
+        t = holen(s, Termin, termin_id, m)
+        if t.status == "nicht_erschienen":
+            return t
+        if als_utc(t.beginn) > als_utc(app.state.uhr()):
+            raise HTTPException(409, "Termin liegt in der Zukunft")
+        t.status = "nicht_erschienen"
+        f = t.servicefall
+        f.kunde.nicht_erschienen = (f.kunde.nicht_erschienen or 0) + 1
+        domaene.protokollieren(s, m.id, "termin.nicht_erschienen", "termin", t.id, "mensch", {"servicefall_id": f.id, "zaehler": f.kunde.nicht_erschienen}, p.name)
+        if f.status == "eingeplant" and not any(x.status in ("vorgeschlagen", "bestaetigt") for x in f.termine):
+            domaene.uebergang(s, f, "qualifiziert", "mensch", "Kunde nicht erschienen", p.name)
+        s.commit()
+        return t
+
+    # --- Gutscheine ---------------------------------------------------------------------------------
+    @app.get("/gutscheine", dependencies=[Depends(recht("finanzen"))])
+    def gutscheine_liste(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        return gutscheine.uebersicht(s, m, app.state.uhr().date())
+
+    @app.post("/gutscheine", status_code=201, dependencies=[Depends(recht("finanzen"))])
+    def gutschein_ausstellen(daten: GutscheinNeu, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                             p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        if daten.kunde_id:
+            holen(s, Kunde, daten.kunde_id, m)
+        g = fachlich(lambda: gutscheine.ausstellen(s, m, daten.wert, app.state.uhr().date(), daten.kunde_id, daten.empfaenger, akteur_name=p.name))
+        s.commit()
+        return {"id": g.id, "code": g.code, "wert": g.wert, "restwert": g.restwert, "gueltig_bis": g.gueltig_bis.isoformat(), "status": g.status}
+
+    @app.get("/gutscheine/{code}")
+    def gutschein_pruefen(code: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        g = gutscheine.finden(s, m, code)
+        if g is None:
+            raise HTTPException(404, "Gutschein unbekannt")
+        return {"id": g.id, "code": g.code, "wert": g.wert, "restwert": g.restwert, "status": g.status, "gueltig_bis": g.gueltig_bis.isoformat(),
+                "einloesungen": g.einloesungen, "empfaenger": g.empfaenger}
+
+    @app.post("/gutscheine/{code}/einloesen", dependencies=[Depends(recht("finanzen"))])
+    def gutschein_einloesen(code: str, daten: GutscheinEinloesen, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                            p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        if daten.rechnung_id:
+            holen(s, Rechnung, daten.rechnung_id, m)
+        g = fachlich(lambda: gutscheine.einloesen(s, m, code, daten.betrag, app.state.uhr().date(), daten.rechnung_id, p.name))
+        s.commit()
+        return {"code": g.code, "restwert": g.restwert, "status": g.status, "eingeloest": g.einloesungen[-1]["betrag"]}
+
+    @app.post("/gutscheine/{code}/storno", dependencies=[Depends(recht("finanzen"))])
+    def gutschein_storno(code: str, grund: str | None = None, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                         p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        g = gutscheine.finden(s, m, code)
+        if g is None:
+            raise HTTPException(404, "Gutschein unbekannt")
+        fachlich(lambda: gutscheine.stornieren(s, m, g, grund, p.name))
+        s.commit()
+        return {"code": g.code, "status": g.status}
+
+    @app.get("/gutscheine/{code}/pdf", dependencies=[Depends(recht("finanzen"))])
+    def gutschein_pdf(code: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> Response:
+        g = gutscheine.finden(s, m, code)
+        if g is None:
+            raise HTTPException(404, "Gutschein unbekannt")
+        return Response(gutscheine.pdf(g, m), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="gutschein-{g.code}.pdf"'})
+
+    # --- Online-Terminbuchung (öffentlich, Betriebs-Token) ------------------------------------------
+    buchung_zaehler: dict[str, list[float]] = {}
+
+    def buchung_mandant(s: Session, token: str) -> Mandant:
+        import hmac
+        mandant_id = token.split(".", 1)[0]
+        if not mandant_id or len(mandant_id) > 32:
+            raise HTTPException(404, "Buchungsseite unbekannt")
+        mandant_binden(s, mandant_id)
+        m = s.get(Mandant, mandant_id)
+        erwartet = (m.stammdaten.get("buchung_token") if m else None) or ""
+        if not erwartet or not hmac.compare_digest(erwartet, token):
+            raise HTTPException(404, "Buchungsseite unbekannt")
+        return m
+
+    @app.get("/betrieb/buchung", dependencies=[Depends(recht("verwalten"))])
+    def buchung_lesen(m: Mandant = Depends(mandant_kontext)) -> dict[str, Any]:
+        token = m.stammdaten.get("buchung_token")
+        return {"aktiv": bool(token), "token": token, "pfad": f"/buchung/#{token}" if token else None, "link": buchung.link(m),
+                "leistungen": branchen.profil(m)["leistungen"]}
+
+    @app.put("/betrieb/buchung", dependencies=[Depends(recht("verwalten"))])
+    def buchung_setzen(aktiv: bool = True, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        st = dict(m.stammdaten)
+        if aktiv and not st.get("buchung_token"):
+            st["buchung_token"] = f"{m.id}.{buchung.token_erzeugen()}"
+        elif not aktiv:
+            st.pop("buchung_token", None)
+        m.stammdaten = st
+        s.commit()
+        return {"aktiv": bool(st.get("buchung_token")), "pfad": f"/buchung/#{st['buchung_token']}" if st.get("buchung_token") else None, "link": buchung.link(m)}
+
+    @app.get("/buchung/", include_in_schema=False)
+    def buchung_seite() -> FileResponse:
+        return FileResponse(UI_VERZEICHNIS / "buchung.html", media_type="text/html")
+
+    @app.get("/buchung/buchung.js", include_in_schema=False)
+    def buchung_skript() -> FileResponse:
+        return FileResponse(UI_VERZEICHNIS / "buchung.js", media_type="text/javascript")
+
+    @app.get("/buchung/{token}")
+    def buchung_angebot(token: str, s: Session = Depends(sitzung)) -> dict[str, Any]:
+        return buchung.angebot(s, buchung_mandant(s, token))
+
+    @app.get("/buchung/{token}/zeiten")
+    def buchung_zeiten(token: str, leistung_id: str, ressource_id: str | None = None, ab: datetime | None = None,
+                       s: Session = Depends(sitzung)) -> dict[str, Any]:
+        m = buchung_mandant(s, token)
+        le = fachlich(lambda: buchung.leistung_laden(s, m, leistung_id))
+        return buchung.zeiten(s, m, le, ab or app.state.uhr(), ressource_id)
+
+    @app.post("/buchung/{token}", status_code=201)
+    def buchung_anlegen(token: str, daten: BuchungNeu, s: Session = Depends(sitzung)) -> dict[str, Any]:
+        """Öffentlich: Termin buchen. Erzeugt Kunde (Dublette über Rufnummer), Vorgang mit Leistung als Anliegen und den
+        Termin als Vorschlag; Freigabe termin_bestaetigen (Klasse B) macht ihn verbindlich, die Terminbestätigung geht
+        mit Portal-Link an den Kunden."""
+        m = buchung_mandant(s, token)
+        if daten.website:
+            return {"status": "angenommen"}
+        jetzt = time.monotonic()
+        fenster = [x for x in buchung_zaehler.get(token, []) if jetzt - x < 3600]
+        if len(fenster) >= 60:
+            raise HTTPException(429, "Zu viele Buchungen, bitte rufen Sie uns an")
+        buchung_zaehler[token] = fenster + [jetzt]
+        if not (daten.telefon or daten.email):
+            raise HTTPException(422, "Rufnummer oder E-Mail wird benötigt")
+        le = fachlich(lambda: buchung.leistung_laden(s, m, daten.leistung_id))
+        if als_utc(daten.beginn) < als_utc(app.state.uhr()) + timedelta(hours=int(m.stammdaten.get("buchung_vorlauf_stunden", 2) or 2)):
+            raise HTTPException(409, "Zeit liegt zu kurzfristig oder in der Vergangenheit")
+        k, neu = buchung.kunde_finden_oder_anlegen(s, m, daten.name, daten.telefon, daten.email, daten.strasse, daten.plz, daten.ort, daten.einwilligung_email)
+        if neu:
+            domaene.protokollieren(s, m.id, "kunde.angelegt", "kunde", k.id, "system", {"quelle": "buchung"})
+        anliegen = le.bezeichnung + (f" – {daten.hinweis.strip()}" if daten.hinweis else "")
+        f = servicefall_erzeugen(s, m, ServicefallNeu(kunde_id=k.id, anliegen=anliegen, quelle="web", benoetigte_qualifikation=le.qualifikation,
+                                                      dauer_minuten=max(15, le.dauer_minuten or 60), dringlichkeit="normal"), "system")
+        t, freigabe = fachlich(lambda: termin_vorschlagen(s, m, f, TerminNeu(ressource_id=daten.ressource_id, beginn=daten.beginn), "system"))
+        s.commit()
+        return {"servicefall_id": f.id, "termin_id": t.id, "beginn": t.beginn.isoformat(), "verbindlich": freigabe.status == "freigegeben",
+                "portal": f"/portal/#{f.id}/{portal.token(f.id)}", "portal_link": portal.link(m, f.id),
+                "hinweis": "Ihr Termin ist bestätigt." if freigabe.status == "freigegeben" else "Ihr Termin ist vorgemerkt; wir bestätigen ihn in Kürze."}
 
     return app

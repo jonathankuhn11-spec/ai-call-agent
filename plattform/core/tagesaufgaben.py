@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from core import angebote, domaene, forderungen, portal, vertraege
+from core import angebote, branchen, domaene, forderungen, portal, vertraege
 from core.modelle import Mandant
 
 
@@ -19,7 +19,8 @@ def tagesaufgaben(s: Session, m: Mandant, jetzt: datetime) -> dict[str, Any]:
     ergebnis = {"angebote_abgelaufen": angebote.ablauf_pruefen(s, m, heute),
                 "mahnvorschlaege": forderungen.mahnlauf(s, m, heute),
                 "vertragsabrechnungen": vertraege.abrechnungslauf(s, m, heute),
-                "terminerinnerungen": portal.erinnerungen(s, m, jetzt)}
+                "terminerinnerungen": portal.erinnerungen(s, m, jetzt),
+                "wiederkehr": branchen.wiederkehr(s, m, heute)}
     domaene.protokollieren(s, m.id, "tageslauf", "mandant", m.id, "system",
                            {k: (len(v) if isinstance(v, list) else v) for k, v in ergebnis.items()})
     return ergebnis

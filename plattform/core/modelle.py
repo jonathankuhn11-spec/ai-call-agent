@@ -63,6 +63,8 @@ class Kunde(_Mandantenbezug, Basis):
     einwilligungen: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     vertragsstatus: Mapped[str] = mapped_column(String(30), default="ohne")  # ohne, wartungsvertrag
     notiz: Mapped[str | None] = mapped_column(Text)
+    kartei: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)      # Branchenfelder (Rezeptur, Allergien …), siehe branchen.py
+    nicht_erschienen: Mapped[int] = mapped_column(Integer, default=0)       # No-Show-Zähler
     # Geokoordinaten (WGS 84) für Kundenkarte und Anfahrt; geo_quelle: nominatim, manuell, demo
     lat: Mapped[float | None] = mapped_column(Float)
     lon: Mapped[float | None] = mapped_column(Float)
@@ -396,6 +398,8 @@ class Artikel(_Mandantenbezug, Basis):
     ust_satz: Mapped[str] = mapped_column(String(6), default="19")
     lieferant: Mapped[str | None] = mapped_column(String(200))
     aktiv: Mapped[bool] = mapped_column(default=True)
+    dauer_minuten: Mapped[int | None] = mapped_column(Integer)          # Leistungen (Friseur, Massage …): Terminlänge
+    qualifikation: Mapped[str | None] = mapped_column(String(50))       # Leistungen: nötige Qualifikation der Ressource
 
 
 class Bestand(_Mandantenbezug, Basis):
@@ -410,6 +414,22 @@ class Bestand(_Mandantenbezug, Basis):
     geaendert: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt, onupdate=jetzt)
 
     artikel: Mapped[Artikel] = relationship()
+
+
+class Gutschein(_Mandantenbezug, Basis):
+    """Wertgutschein (Friseur, Kosmetik, Massage …): Ausgabe, Teileinlösungen, Restwert; Verjährung 3 Jahre (§ 195 BGB)."""
+    __tablename__ = "gutschein"
+    __table_args__ = (UniqueConstraint("mandant_id", "code"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    code: Mapped[str] = mapped_column(String(20))
+    wert: Mapped[str] = mapped_column(String(20))
+    restwert: Mapped[str] = mapped_column(String(20))
+    kunde_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("kunde.id"))
+    empfaenger: Mapped[str | None] = mapped_column(String(200))
+    gueltig_bis: Mapped[date] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(20), default="aktiv")  # aktiv, eingeloest, abgelaufen, storniert
+    einloesungen: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)  # [{"am","betrag","rechnung_id","wer"}]
+    ausgestellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
 
 
 class Angebot(_Mandantenbezug, Basis):

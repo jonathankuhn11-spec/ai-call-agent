@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Termin buchen</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root { --tinte: #1c2733; --leise: #5b6b7a; --rand: #d9e0e7; --akzent: #1b6ec2; --ok: #1f7a4d; --warn: #b4541a; --flaeche: #f5f7f9; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--tinte); background: var(--flaeche); line-height: 1.45; }
+    main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+    header { margin-bottom: 16px; } header h1 { font-size: 1.4rem; margin: 0 0 4px; } header p { margin: 0; color: var(--leise); }
+    .karte { background: #fff; border: 1px solid var(--rand); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+    .karte h2 { font-size: 1.05rem; margin: 0 0 8px; }
+    .schritt { font-size: .8rem; color: var(--leise); text-transform: uppercase; letter-spacing: .04em; }
+    .leistung { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 10px 12px; margin: 6px 0;
+      border: 1px solid var(--rand); border-radius: 8px; background: #fff; color: var(--tinte); cursor: pointer; font: inherit; }
+    .leistung:hover, .leistung.aktiv { border-color: var(--akzent); background: #eef5fc; }
+    .leistung small { color: var(--leise); }
+    .tag { margin: 10px 0; } .tag h3 { font-size: .95rem; margin: 0 0 6px; }
+    .zeiten { display: flex; flex-wrap: wrap; gap: 6px; }
+    .zeit { font: inherit; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--rand); background: #fff; color: var(--akzent); cursor: pointer; }
+    .zeit.aktiv { background: var(--akzent); color: #fff; border-color: var(--akzent); }
+    label { display: block; margin: 8px 0 4px; font-size: .9rem; }
+    input, select, textarea { width: 100%; font: inherit; padding: 8px; border: 1px solid var(--rand); border-radius: 8px; }
+    .zeile { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; }
+    .kreuz { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; font-size: .9rem; } .kreuz input { width: auto; margin-top: 4px; }
+    button.haupt { font: inherit; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--akzent); background: var(--akzent); color: #fff; cursor: pointer; margin-top: 12px; }
+    button.haupt:disabled { opacity: .5; cursor: default; }
+    .hinweis { padding: 10px 12px; border-radius: 8px; background: #e3f3ea; color: var(--ok); margin-top: 10px; }
+    .fehler { padding: 10px 12px; border-radius: 8px; background: #fde8e8; color: #9b1c1c; margin-top: 10px; }
+    .info { padding: 10px 12px; border-radius: 8px; background: #eef2f6; color: var(--leise); font-size: .9rem; }
+    .honig { position: absolute; left: -9999px; }
+    footer { color: var(--leise); font-size: .85rem; margin-top: 24px; } footer a { color: var(--leise); }
+    a { color: var(--akzent); }
+  </style>
+</head>
+<body>
+<main id="inhalt"><p>Wird geladen …</p></main>
+<script src="/buchung/buchung.js"></script>
+</body>
+</html>

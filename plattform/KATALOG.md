@@ -41,7 +41,9 @@ vorbereitet · `Referenz` = geprüfte Alternative für eine spätere Entscheidun
 | Twenty | AGPL-3.0 | generisches CRM | Referenz | AGPL beim SaaS-Betrieb beachten; kein SHK-Anlagenmodell |
 | EspoCRM / SuiteCRM | AGPL-3.0 | generisches CRM | Referenz | wie oben |
 | Odoo Community | LGPL-3.0 | ERP inkl. CRM; Field Service nur in Enterprise | Referenz | mächtig, aber schwer und modulreich |
-| Cal.com | AGPL-3.0 | Online-Terminbuchung | Referenz | Disposition ist im Core gelöst; für Web-Buchung denkbar |
+| Cal.com | AGPL-3.0 | Online-Terminbuchung | Referenz | durch `core/buchung.py` (eigene Buchungsseite auf der Disposition) ersetzt; AGPL vermieden |
+| Easy!Appointments | GPL-3.0 | Terminbuchung für Salons/Praxen | Referenz | GPL; eigene Buchungsseite deckt Leistung/Mitarbeiter/Zeiten ab |
+| Branchenprofile (`core/branchen.py`) | eigen | Leistungskatalog, Kartei, Begriffe für Friseur, Kosmetik, Nagelstudio, Massage, Physiotherapie, Fußpflege, Hundesalon, Fahrrad, Kfz, Elektro, SHK | aktiv | Heilmittelabrechnung (§ 302 SGB V, Kostenträger) und Kassenpflicht (KassenSichV/TSE) bleiben außerhalb; Gesundheitsdaten nur mit Einwilligung |
 | Google OR-Tools | Apache-2.0 | Tourenplanung, Constraint-Solver | Referenz | Ausbau der Disposition (mehrere Einsätze je Tag) |
 | VROOM | BSD-2-Clause | Vehicle Routing | Referenz | schlanker als OR-Tools, braucht Fahrzeitmatrix |
 | OSRM / Valhalla | BSD-2-Clause / MIT | Fahrzeiten auf OpenStreetMap | Referenz | ersetzt den pauschalen Fahrzeitpuffer |
