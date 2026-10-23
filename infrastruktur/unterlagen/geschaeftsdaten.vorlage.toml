@@ -1,0 +1,36 @@
+# Geschäftsdaten für Angebot, Rechnung und Verträge. NICHT in dieser Datei ausfüllen:
+# nach unterlagen/geschaeftsdaten.toml kopieren (per .gitignore vom Repository ausgeschlossen),
+# dort eintragen. Bank- und Steuerdaten gehören nicht in ein öffentliches Repository.
+
+[register]
+gericht = ""               # z. B. "Amtsgericht Köln" (erst nach Eintragung der UG)
+nummer = ""                # z. B. "HRB 123456"
+geschaeftsfuehrung = ""    # vertretungsberechtigte Person(en)
+
+[steuer]
+steuernummer = ""          # vom Finanzamt nach dem Fragebogen zur steuerlichen Erfassung
+ust_idnr = ""              # vom Bundeszentralamt für Steuern
+
+[bank]
+kontoinhaber = ""
+institut = ""
+iban = ""
+bic = ""
+glaeubiger_id = ""         # SEPA-Gläubiger-Identifikationsnummer (Bundesbank), für Lastschriften
+
+[vertrag]
+gerichtsstand = ""         # z. B. "Köln" (nur gegenüber Kaufleuten wirksam, § 38 ZPO)
+support_zeiten = ""        # z. B. "Mo–Fr 8–17 Uhr"
+support_telefon = ""
+support_email = ""
+notfall_telefon = ""       # Rufbereitschaft für Störungen der Priorität 1
+datenschutz_kontakt = ""   # Ansprechpartner für Datenschutzanfragen der Betriebe
+
+[subunternehmer]
+# Erscheinen in Anlage 2 der AVV und in der Subunternehmerliste. "Firma, Anschrift" laut Vertrag.
+hoster = ""                # z. B. Hetzner Online GmbH (nach Vertragsschluss eintragen)
+carrier = ""               # SIP-Trunk, z. B. sipgate oder easybell
+sms = ""                   # z. B. seven communications GmbH & Co. KG (optional)
+email = ""                 # Versand von E-Mails der Plattform (optional)
+llm_grundlage = ""         # Übermittlungsgrundlage für Anthropic, z. B. "EU-U.S. Data Privacy Framework" oder "Standardvertragsklauseln"
+tom_fassung = ""           # Datum der gültigen TOM-Fassung (plattform/recht/TOM.md)

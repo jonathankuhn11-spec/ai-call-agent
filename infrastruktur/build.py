@@ -7,6 +7,14 @@
 site/ und einseiter/ landen in dist/ (wird veröffentlicht), vorlagen/ in dist-vorlagen/
 (Signatur, E-Mail-Texte; wird nie veröffentlicht).
 
+    python infrastruktur/build.py --unterlagen [--kunde unterlagen/kunden/<betrieb>.toml] [--pdf]
+
+rendert zusätzlich die Kundenunterlagen (Verträge, Angebot, Rechnung, Onboarding, Betrieb) nach
+dist-unterlagen/<kunde>/. Dafür werden neben stammdaten.toml auch unterlagen/geschaeftsdaten.toml
+(Bank, Steuer; nicht versioniert, Vorlage: geschaeftsdaten.vorlage.toml), unterlagen/preise.toml und
+die Kundendatei geladen. Ohne --kunde dient unterlagen/kunden/vorlage.toml, alle Kundenwerte bleiben offen.
+Unterlagen werden nie veröffentlicht und nie mit --strict geprüft.
+
 Platzhalter in den Vorlagen haben die Form {{abschnitt.schluessel}}. Ein Platzhalter,
 der in stammdaten.toml nicht existiert, ist immer ein Fehler (Tippfehler-Schutz).
 """
@@ -53,6 +61,106 @@ def rendern(text: str, daten: dict[str, str], offen: set[str], unbekannt: set[st
     return PLATZHALTER.sub(ersetzen, text)
 
 
+def toml_laden(pfad: Path) -> dict:
+    with pfad.open("rb") as f:
+        return tomllib.load(f)
+
+
+def flach(roh: dict) -> dict[str, str]:
+    return {f"{abschnitt}.{k}": ("" if v is None else str(v)).strip()
+            for abschnitt, werte in roh.items() if isinstance(werte, dict)
+            for k, v in werte.items() if not isinstance(v, dict)}
+
+
+def euro(betrag: float) -> str:
+    text = f"{betrag:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{text} €"
+
+
+def zahl(wert: str) -> float | None:
+    try:
+        return float(str(wert).replace(",", "."))
+    except ValueError:
+        return None
+
+
+def abgeleitet(daten: dict[str, str], preise: dict) -> dict[str, str]:
+    """Berechnet Paket-, Angebots- und Rechnungsbeträge; was nicht berechenbar ist, bleibt offen ("")."""
+    ust = float(preise["allgemein"]["umsatzsteuer_prozent"]) / 100
+    minute = float(preise["allgemein"]["mehrminute_netto"])
+    paket = preise["pakete"].get(daten.get("kunde.paket", "").lower())
+    leer = {k: "" for k in ("paket.name", "paket.monat_netto", "paket.einrichtung_netto", "paket.minuten",
+                            "angebot.einrichtung_netto", "angebot.einrichtung_ust", "angebot.einrichtung_brutto",
+                            "angebot.monat_ust", "angebot.monat_brutto", "angebot.nachlass",
+                            "rechnung.pos_monat", "rechnung.pos_mehrminuten", "rechnung.pos_einrichtung",
+                            "rechnung.netto", "rechnung.ust", "rechnung.brutto")}
+    if not paket:
+        return leer
+    einrichtung = float(paket["einrichtung_netto"])
+    nachlass = zahl(daten.get("angebot.nachlass_einrichtung_prozent", "")) or 0.0
+    einrichtung_angebot = round(einrichtung * (1 - nachlass / 100), 2)
+    monat = float(paket["monat_netto"])
+    werte = {
+        "paket.name": paket["name"], "paket.monat_netto": euro(monat),
+        "paket.einrichtung_netto": euro(einrichtung), "paket.minuten": str(paket["minuten"]),
+        "angebot.nachlass": f"{nachlass:g} %".replace(".", ","),
+        "angebot.einrichtung_netto": euro(einrichtung_angebot),
+        "angebot.einrichtung_ust": euro(einrichtung_angebot * ust),
+        "angebot.einrichtung_brutto": euro(einrichtung_angebot * (1 + ust)),
+        "angebot.monat_ust": euro(monat * ust), "angebot.monat_brutto": euro(monat * (1 + ust)),
+    }
+    mehrminuten = zahl(daten.get("rechnung.mehrminuten", "")) or 0.0
+    mit_einrichtung = daten.get("rechnung.mit_einrichtung", "").lower() in ("true", "ja", "1")
+    netto = monat + mehrminuten * minute + (einrichtung_angebot if mit_einrichtung else 0.0)
+    werte.update({
+        "rechnung.pos_monat": euro(monat),
+        "rechnung.pos_mehrminuten": f"{mehrminuten:g} × {euro(minute)} = {euro(mehrminuten * minute)}",
+        "rechnung.pos_einrichtung": euro(einrichtung_angebot) if mit_einrichtung else "entfällt",
+        "rechnung.netto": euro(netto), "rechnung.ust": euro(netto * ust), "rechnung.brutto": euro(netto * (1 + ust)),
+    })
+    return {**leer, **werte}
+
+
+def unterlagen_bauen(args, daten: dict[str, str]) -> int:
+    quelle = BASIS / "unterlagen"
+    geschaeft = quelle / "geschaeftsdaten.toml"
+    if not geschaeft.exists():
+        geschaeft = quelle / "geschaeftsdaten.vorlage.toml"
+    kunde_datei = args.kunde or quelle / "kunden" / "vorlage.toml"
+    preise = toml_laden(quelle / "preise.toml")
+    daten = {**daten, **flach(toml_laden(geschaeft)), **flach(toml_laden(kunde_datei))}
+    daten.update(abgeleitet(daten, preise))
+    ziel = args.unterlagen_out / kunde_datei.stem
+    if ziel.exists():
+        shutil.rmtree(ziel)
+    offen: set[str] = set()
+    unbekannt: set[str] = set()
+    html_dateien = []
+    for datei in sorted(quelle.rglob("*")):
+        rel = datei.relative_to(quelle)
+        if datei.is_dir() or rel.parts[0] == "kunden" or datei.suffix == ".toml":
+            continue
+        ausgabe = ziel / rel
+        ausgabe.parent.mkdir(parents=True, exist_ok=True)
+        if datei.suffix in TEXTFORMATE:
+            text = rendern(datei.read_text(encoding="utf-8"), daten, offen, unbekannt, markup=datei.suffix == ".html")
+            ausgabe.write_text(text, encoding="utf-8")
+            if datei.suffix == ".html":
+                html_dateien.append(ausgabe)
+        else:
+            shutil.copy2(datei, ausgabe)
+    if unbekannt:
+        print("Unbekannte Platzhalter in unterlagen/ (Tippfehler?): " + ", ".join(sorted(unbekannt)), file=sys.stderr)
+        return 2
+    if args.pdf:
+        for html_datei in html_dateien:
+            pdf_drucken(html_datei, html_datei.with_suffix(".pdf"))
+    if offen:
+        print(f"Unterlagen: {len(offen)} offene Werte (erscheinen als [OFFEN: …]): " + ", ".join(sorted(offen)))
+    print(f"Unterlagen gebaut nach {ziel}")
+    return 0
+
+
 def chrome_finden() -> str | None:
     if os.environ.get("CHROME"):
         return os.environ["CHROME"]
@@ -77,7 +185,12 @@ def main() -> int:
     parser.add_argument("--stammdaten", type=Path, default=BASIS / "stammdaten.toml")
     parser.add_argument("--out", type=Path, default=BASIS / "dist")
     parser.add_argument("--vorlagen-out", type=Path, default=BASIS / "dist-vorlagen")
+    parser.add_argument("--unterlagen", action="store_true", help="zusätzlich Kundenunterlagen rendern (nie veröffentlicht)")
+    parser.add_argument("--kunde", type=Path, help="Kundendatei unter unterlagen/kunden/ (Standard: vorlage.toml)")
+    parser.add_argument("--unterlagen-out", type=Path, default=BASIS / "dist-unterlagen")
     args = parser.parse_args()
+    if (args.kunde or args.unterlagen) and args.strict:
+        parser.error("--unterlagen und --kunde sind mit --strict nicht kombinierbar (Unterlagen werden nie veröffentlicht)")
 
     daten = stammdaten_laden(args.stammdaten)
     offen: set[str] = set()
@@ -112,6 +225,8 @@ def main() -> int:
         pdf_drucken(args.out / "einseiter.html", args.out / "einseiter.pdf")
 
     print(f"Gebaut nach {args.out} ({len(list(args.out.iterdir()))} Dateien)")
+    if args.unterlagen or args.kunde:
+        return unterlagen_bauen(args, daten)
     return 0
 
 

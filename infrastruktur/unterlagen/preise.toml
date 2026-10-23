@@ -1,0 +1,25 @@
+# Preisliste: identisch mit dem Abschnitt "Preise" der Website (site/index.html).
+# Bei Änderungen beide Stellen anpassen. Alle Beträge netto in Euro.
+
+[allgemein]
+umsatzsteuer_prozent = 19
+mehrminute_netto = 0.25
+mindestlaufzeit_monate = 12
+
+[pakete.basis]
+name = "Basis"
+monat_netto = 349
+einrichtung_netto = 1490
+minuten = 300
+
+[pakete.pro]
+name = "Pro"
+monat_netto = 649
+einrichtung_netto = 2990
+minuten = 600
+
+[pakete.premium]
+name = "Premium"
+monat_netto = 999
+einrichtung_netto = 4990
+minuten = 1000

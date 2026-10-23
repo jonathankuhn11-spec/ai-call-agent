@@ -115,6 +115,14 @@ Preise sind Richtwerte und vor Vertragsschluss zu prüfen.
 - Gesprächsdokumentation führen (Schema `vorlagen/gespraechsdokumentation.csv`), aber **nicht** in diesem
   öffentlichen Repository: Die Leadliste mit personenbezogenen Daten bleibt in der privaten Projektablage.
 
+## Kundenunterlagen
+
+`unterlagen/` enthält alles, was für den ersten Kunden stehen muss: AGB, Leistungsbeschreibung mit SLA,
+Pilotvereinbarung, AVV-Kundenfassung, DSFA, KI-Offenlegung, Gesprächsleitfaden, Demo-Skript, E-Mail-Vorlagen,
+Angebot und Rechnung (PDF), Onboarding-Fragebogen, Einrichtungsprotokoll, Schulung, Go-live-Abnahme, Support- und
+Exit-Prozess. Erzeugt mit `python infrastruktur/build.py --unterlagen --kunde …`; Einzelheiten in
+[unterlagen/README.md](unterlagen/README.md). Unterlagen werden nie veröffentlicht.
+
 ## Bewusste Entscheidungen und offene Punkte
 
 - **Kein Kontaktformular, kein Tracking, keine externen Schriften.** Damit entfallen Cookie-Banner (§ 25 TDDDG),

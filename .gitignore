@@ -18,3 +18,9 @@ __pycache__/
 # Build-Ausgabe des Außenauftritts
 infrastruktur/dist/
 infrastruktur/dist-vorlagen/
+
+# Kundenunterlagen: Build-Ausgabe, Bank-/Steuerdaten und echte Kundendateien nie ins öffentliche Repository
+infrastruktur/dist-unterlagen/
+infrastruktur/unterlagen/geschaeftsdaten.toml
+infrastruktur/unterlagen/kunden/*.toml
+!infrastruktur/unterlagen/kunden/vorlage.toml

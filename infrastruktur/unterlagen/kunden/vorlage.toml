@@ -1,0 +1,36 @@
+# Kundendatei je Pilot- oder Vertragsbetrieb. Kopieren nach kunden/<betrieb>.toml (wird per
+# .gitignore nie versioniert) und ausfüllen. Bauen:
+#   python infrastruktur/build.py --unterlagen --kunde infrastruktur/unterlagen/kunden/<betrieb>.toml --pdf
+
+[kunde]
+firma = ""                 # Firmenname laut Handelsregister bzw. Gewerbeanmeldung
+rechtsform = ""
+strasse = ""
+plz_ort = ""
+vertreten_durch = ""       # Inhaber/in bzw. Geschäftsführung
+ansprechpartner = ""       # Büro, für den Alltag
+email = ""
+telefon = ""               # bestehende Geschäftsnummer des Betriebs (bleibt beim Betrieb)
+ust_idnr = ""              # falls vorhanden
+kundennummer = ""
+paket = ""                 # basis | pro | premium
+
+[angebot]
+nummer = ""
+datum = ""
+gueltig_bis = ""
+nachlass_einrichtung_prozent = ""   # z. B. 50 für Pilotbetriebe; leer = 0
+vertragsbeginn = ""
+
+[pilot]
+beginn = ""
+ende = ""                  # Regel: acht Wochen nach Beginn
+verguetung = ""            # z. B. "kostenfrei" oder "50 % der Monatspauschale"
+
+[rechnung]
+nummer = ""
+datum = ""
+leistungszeitraum = ""     # z. B. "01.12.2026–31.12.2026"
+mehrminuten = ""           # über das Paketkontingent hinaus angefallene Gesprächsminuten
+mit_einrichtung = ""       # "ja" in der ersten Rechnung
+faellig_bis = ""

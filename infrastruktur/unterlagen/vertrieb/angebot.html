@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>Angebot {{angebot.nummer}} · {{auftritt.marke}}</title>
+  <style>
+    @page { size: A4; margin: 18mm 18mm 16mm 22mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #18202a; font: 10pt/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "DejaVu Sans", sans-serif; }
+    .kopf { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #a8541f; padding-bottom: 4mm; }
+    .marke { font: 700 18pt/1 "Bahnschrift", "DIN Alternate", "Arial Narrow", sans-serif; letter-spacing: .14em; }
+    .absender { text-align: right; font-size: 8.5pt; color: #55606c; }
+    .anschrift { margin: 9mm 0 6mm; min-height: 30mm; }
+    .anschrift .zeile { font-size: 7.5pt; color: #55606c; border-bottom: 1px solid #d9ddda; display: inline-block; margin-bottom: 2mm; }
+    .meta { display: grid; grid-template-columns: auto auto; gap: 1mm 6mm; justify-content: end; font-size: 9pt; margin-top: -30mm; }
+    h1 { font-size: 14pt; margin: 8mm 0 3mm; }
+    table { width: 100%; border-collapse: collapse; margin: 4mm 0; }
+    th, td { text-align: left; padding: 2mm 1.5mm; border-bottom: 1px solid #d9ddda; vertical-align: top; }
+    th { font-size: 8.5pt; color: #55606c; font-weight: 600; }
+    td.betrag, th.betrag { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    tr.summe td { font-weight: 700; border-bottom: 2px solid #18202a; }
+    .klein { font-size: 8.5pt; color: #33404c; }
+    .fuss { margin-top: 10mm; border-top: 1px solid #d9ddda; padding-top: 2mm; font-size: 7.5pt; color: #55606c; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm; }
+    mark.offen { background: #ffd54a; }
+  </style>
+</head>
+<body>
+  <div class="kopf">
+    <div class="marke">{{auftritt.marke}}</div>
+    <div class="absender">{{anbieter.bezeichnung}}<br>{{anbieter.strasse}} · {{anbieter.plz_ort}}<br>{{kontakt.telefon}} · {{kontakt.email}}</div>
+  </div>
+
+  <div class="anschrift">
+    <span class="zeile">{{anbieter.bezeichnung}} · {{anbieter.strasse}} · {{anbieter.plz_ort}}</span><br>
+    {{kunde.firma}}<br>z. Hd. {{kunde.vertreten_durch}}<br>{{kunde.strasse}}<br>{{kunde.plz_ort}}
+  </div>
+  <div class="meta">
+    <span>Angebot Nr.</span><strong>{{angebot.nummer}}</strong>
+    <span>Datum</span><span>{{angebot.datum}}</span>
+    <span>Kundennummer</span><span>{{kunde.kundennummer}}</span>
+    <span>Gültig bis</span><span>{{angebot.gueltig_bis}}</span>
+  </div>
+
+  <h1>Angebot: {{auftritt.marke}} Paket {{paket.name}}</h1>
+  <p>Guten Tag {{kunde.vertreten_durch}},</p>
+  <p>vielen Dank für das Gespräch. Wir bieten Ihnen das digitale Backoffice {{auftritt.marke}} im Paket
+    {{paket.name}} mit Vertragsbeginn {{angebot.vertragsbeginn}} an. Der Leistungsumfang ergibt sich aus der
+    beigefügten Leistungsbeschreibung.</p>
+
+  <table>
+    <thead><tr><th>Pos.</th><th>Leistung</th><th class="betrag">Netto</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><strong>Einrichtung, einmalig</strong><br><span class="klein">Onboarding, Datenübernahme, Konfiguration von Bürozeiten, Notdienst und Gesprächsregeln, Anbindung der Buchhaltungssoftware, Testanrufe, Go-live-Abnahme, Einweisung. Listenpreis {{paket.einrichtung_netto}}, Nachlass {{angebot.nachlass}}.</span></td><td class="betrag">{{angebot.einrichtung_netto}}</td></tr>
+      <tr><td>2</td><td><strong>Monatspauschale Paket {{paket.name}}</strong><br><span class="klein">inklusive {{paket.minuten}} Gesprächsminuten je Monat; weitere Minuten 0,25 € netto je Minute; monatlich im Voraus.</span></td><td class="betrag">{{paket.monat_netto}} / Monat</td></tr>
+    </tbody>
+  </table>
+
+  <table>
+    <thead><tr><th></th><th class="betrag">Netto</th><th class="betrag">USt. 19 %</th><th class="betrag">Brutto</th></tr></thead>
+    <tbody>
+      <tr><td>Einrichtung, einmalig</td><td class="betrag">{{angebot.einrichtung_netto}}</td><td class="betrag">{{angebot.einrichtung_ust}}</td><td class="betrag">{{angebot.einrichtung_brutto}}</td></tr>
+      <tr class="summe"><td>Monatspauschale</td><td class="betrag">{{paket.monat_netto}}</td><td class="betrag">{{angebot.monat_ust}}</td><td class="betrag">{{angebot.monat_brutto}}</td></tr>
+    </tbody>
+  </table>
+
+  <p class="klein">Mindestlaufzeit zwölf Monate ab Vertragsbeginn, danach monatlich mit einer Frist von einem Monat
+    zum Monatsende kündbar. Es gelten die beigefügten Allgemeinen Geschäftsbedingungen, die Leistungsbeschreibung mit
+    Service-Level-Vereinbarung und die Vereinbarung zur Auftragsverarbeitung. Das Angebot richtet sich ausschließlich
+    an Unternehmer im Sinne von § 14 BGB. Annahme in Textform genügt.</p>
+
+  <p>Mit freundlichen Grüßen<br>{{anbieter.gesellschafter_1}}</p>
+
+  <p class="klein">Anlagen: Leistungsbeschreibung und SLA · AGB · Vereinbarung zur Auftragsverarbeitung mit TOM und Subunternehmerliste</p>
+
+  <div class="fuss">
+    <div>{{anbieter.bezeichnung}}<br>{{anbieter.strasse}}<br>{{anbieter.plz_ort}}</div>
+    <div>{{register.gericht}} {{register.nummer}}<br>Geschäftsführung: {{register.geschaeftsfuehrung}}<br>USt-IdNr.: {{steuer.ust_idnr}}</div>
+    <div>{{bank.institut}}<br>IBAN {{bank.iban}}<br>BIC {{bank.bic}}</div>
+  </div>
+</body>
+</html>
