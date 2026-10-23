@@ -44,8 +44,11 @@ vorbereitet · `Referenz` = geprüfte Alternative für eine spätere Entscheidun
 | Cal.com | AGPL-3.0 | Online-Terminbuchung | Referenz | durch `core/buchung.py` (eigene Buchungsseite auf der Disposition) ersetzt; AGPL vermieden |
 | Easy!Appointments | GPL-3.0 | Terminbuchung für Salons/Praxen | Referenz | GPL; eigene Buchungsseite deckt Leistung/Mitarbeiter/Zeiten ab |
 | Branchenprofile (`core/branchen.py`) | eigen | Leistungskatalog, Kartei, Begriffe für Friseur, Kosmetik, Nagelstudio, Massage, Physiotherapie, Fußpflege, Hundesalon, Fahrrad, Kfz, Elektro, SHK | aktiv | Heilmittelabrechnung (§ 302 SGB V, Kostenträger) und Kassenpflicht (KassenSichV/TSE) bleiben außerhalb; Gesundheitsdaten nur mit Einwilligung |
-| Google OR-Tools | Apache-2.0 | Tourenplanung, Constraint-Solver | Referenz | Ausbau der Disposition (mehrere Einsätze je Tag) |
-| VROOM | BSD-2-Clause | Vehicle Routing | Referenz | schlanker als OR-Tools, braucht Fahrzeitmatrix |
+| Google OR-Tools | Apache-2.0 | Tourenplanung, Constraint-Solver | Referenz | eigener VRPTW-Optimierer (`core/optimierung.py`, lokale Suche + Simulated Annealing) deckt die Tagesgröße ab; OR-Tools bleibt Option für Mehrtages-/Flottenplanung |
+| VROOM | BSD-2-Clause | Vehicle Routing | Referenz | schlanker als OR-Tools, braucht Fahrzeitmatrix; Alternative zum eigenen Optimierer bei > 100 Aufträgen/Tag |
+| statsmodels / Prophet | BSD-3 / MIT | Zeitreihenprognose | Referenz | eigene Holt-Winters-Implementierung (`core/prognose.py`) ohne Abhängigkeit; statsmodels bei Bedarf für ARIMA/ETS mit Diagnostik |
+| lifelines / scikit-survival | MIT / GPL-3.0 | Überlebensanalyse | Referenz | eigenes Weibull-Hazard-Modell mit Kovariaten (`core/risiko.py`); lifelines (MIT) für Cox-Modelle, sobald genug Ausfalldaten vorliegen; scikit-survival ist GPL |
+| Splink / dedupe | MIT / MIT | Record Linkage | Referenz | eigenes Fellegi-Sunter-artiges Scoring mit Kölner Phonetik (`core/dubletten.py`); Splink für sehr große Bestände |
 | OSRM / Valhalla | BSD-2-Clause / MIT | Fahrzeiten auf OpenStreetMap | Referenz | ersetzt den pauschalen Fahrzeitpuffer |
 | Radicale | GPL-3.0 | CalDAV-Server | Referenz | Kalendersynchronisation der Monteure |
 

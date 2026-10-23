@@ -67,6 +67,8 @@ def termin_bestaetigen(s: Session, m: Mandant, f: Servicefall, t: Termin, jetzt:
     domaene.protokollieren(s, m.id, "termin.kunde_bestaetigt", "termin", t.id, "mensch", {"servicefall_id": f.id}, f.kunde.name)
     if t.status == "vorgeschlagen":
         domaene.aktion_beantragen(s, m, "termin_bestaetigen", {"termin_id": t.id}, "mensch", f.id, "Kunde hat im Portal bestätigt")
+    from core import warteliste  # späte Einbindung (warteliste nutzt portal.link)
+    warteliste.angebot_angenommen(s, m, t, jetzt)
     return {"termin": _termin(t), "hinweis": "Vielen Dank, Ihr Termin ist vorgemerkt." if t.status == "vorgeschlagen" else "Vielen Dank, Ihr Termin ist bestätigt."}
 
 
@@ -85,6 +87,8 @@ def termin_absagen(s: Session, m: Mandant, f: Servicefall, t: Termin, jetzt: dat
         domaene.uebergang(s, f, "qualifiziert", "system", "Terminabsage durch den Kunden im Portal")
     domaene.outbox_schreiben(s, m.id, "fachsoftware", "termin_upsert", {"termin_id": t.id}, f"termin_upsert:{t.id}:abgesagt")
     hinweise.senden(s, m, "info", "Terminabsage im Portal", f"{f.kunde.name}: {f.anliegen} – Termin {_termin(t)['text']} abgesagt.", f"absage:{t.id}", "plantafel")
+    from core import warteliste  # späte Einbindung
+    warteliste.nachbesetzen(s, m, t.ressource_id, t.beginn, t.ende, jetzt)
     return {"termin": _termin(t), "hinweis": "Der Termin ist abgesagt. Wir melden uns für einen neuen Termin."}
 
 

@@ -23,8 +23,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from core import (anfragen, angebote, belege, branchen, buchung, checklisten, domaene, einsatz, feiertage, foerderung, forderungen, grosshandel,
-                  gutscheine, hinweise, kalender, karte, loeschung, management, metriken, portal, routing, scanner, suche, tagesaufgaben, twin, vertraege)
+from core import (anfragen, angebote, belege, branchen, buchung, checklisten, domaene, dubletten, einsatz, feiertage, foerderung, forderungen, grosshandel,
+                  gutscheine, hinweise, kalender, karte, loeschung, management, metriken, optimierung, portal, prognose, risiko, routing, scanner, schaetzung,
+                  suche, tagesaufgaben, twin, vertraege, warteliste)
 from core.auth import Abgewiesen, Authentifizierung, Prinzipal
 from core.db import Datenbank, mandant_binden
 from core.disposition import ZEITZONE, freie_zeitfenster, kollidiert
@@ -32,7 +33,7 @@ from core.domaene import als_utc
 from core.adapter import ERLAUBT, ZIELE, konfiguration_pruefen
 from core.adapter import datev as datev_api
 from core.geheimnisse import GEHEIME_FELDER, konfiguration_entschluesseln, konfiguration_maskieren, konfiguration_verschluesseln
-from core.modelle import (Abwesenheit, Anfrage, Angebot, Anhang, Anlage, Artikel, Beleg, Bereitschaft, Ereignis, Freigabe, Frist,
+from core.modelle import (Abwesenheit, Anfrage, Angebot, Anhang, Anlage, Artikel, Beleg, Bereitschaft, Ereignis, Freigabe, Frist, Wartelisteneintrag,
                           Kommunikation, Kunde, Mahnung, Mandant, Objekt, OutboxEintrag, Rapport, Rechnung, Ressource, Servicefall,
                           Termin, Vertrag, Zahlung, Zeiteintrag)
 from core.ontologie import ANLAGENTYPEN, TBOX, anlagentyp, exportieren
@@ -176,7 +177,7 @@ class ServicefallNeu(_Schema):
     dringlichkeit: Dringlichkeit | None = None
     quelle: Literal["telefon", "email", "web", "manuell"] = "manuell"
     benoetigte_qualifikation: str | None = None
-    dauer_minuten: int = Field(90, ge=15, le=600)
+    dauer_minuten: int | None = Field(None, ge=15, le=600)   # None: lernende Schätzung aus Rapporten (schaetzung.py)
 
 
 class ServicefallAus(_Schema):
@@ -411,6 +412,27 @@ class BuchungNeu(_Schema):
     hinweis: str | None = Field(None, max_length=500)
     einwilligung_email: bool = False
     website: str | None = None  # Honeypot
+
+
+class WartelisteNeu(_Schema):
+    wunsch_von: date
+    wunsch_bis: date
+    tageszeiten: list[Literal["vormittag", "nachmittag"]] = []
+    wochentage: list[int] = Field([], max_length=7)
+    notiz: str | None = Field(None, max_length=300)
+
+
+class TerminAbsage(_Schema):
+    grund: str | None = Field(None, max_length=300)
+    nachbesetzen: bool = True
+
+
+class PlanUmsetzen(_Schema):
+    plan: dict[str, Any]
+
+
+class Zusammenfuehren(_Schema):
+    quelle_id: str
 
 
 class PortalAktion(_Schema):
@@ -1118,15 +1140,19 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         bewertung = dringlichkeit_bewerten(f"{daten.anliegen} {daten.symptom or ''}", app.state.uhr().month,
                                            daten.dringlichkeit)
         dringlichkeit = daten.dringlichkeit if daten.dringlichkeit == "notdienst" else bewertung.dringlichkeit
+        geschaetzt = None
+        if daten.dauer_minuten is None:
+            geschaetzt = schaetzung.schaetzen(s, m, f"{daten.anliegen} {daten.symptom or ''}", anlage.anlagentyp if anlage else None, dringlichkeit)
         f = Servicefall(mandant_id=m.id, kunde_id=daten.kunde_id, anlage_id=daten.anlage_id, anliegen=daten.anliegen,
                         symptom=daten.symptom, dringlichkeit=dringlichkeit, quelle=daten.quelle,
                         benoetigte_qualifikation=daten.benoetigte_qualifikation
                         or qualifikation_fuer(anlage.anlagentyp if anlage else None),
-                        dauer_minuten=daten.dauer_minuten)
+                        dauer_minuten=daten.dauer_minuten or (geschaetzt["planung_minuten"] if geschaetzt else 90))
         s.add(f)
         s.flush()
         domaene.protokollieren(s, m.id, "servicefall.eingegangen", "servicefall", f.id, akteur,
-                               {"quelle": f.quelle, "dringlichkeit": f.dringlichkeit, "regel": bewertung.grund})
+                               {"quelle": f.quelle, "dringlichkeit": f.dringlichkeit, "regel": bewertung.grund,
+                                **({"dauer_schaetzung": {k: geschaetzt[k] for k in ("planung_minuten", "ebene", "stichprobe", "konfidenz")}} if geschaetzt else {})})
         if f.dringlichkeit == "notdienst":
             hinweise.senden(s, m, "notdienst", "Notdienst eingegangen", f"{f.kunde.name}: {f.anliegen[:80]}", f"servicefall:{f.id}", "vorgaenge")
         return f
@@ -2676,5 +2702,101 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         return {"servicefall_id": f.id, "termin_id": t.id, "beginn": t.beginn.isoformat(), "verbindlich": freigabe.status == "freigegeben",
                 "portal": f"/portal/#{f.id}/{portal.token(f.id)}", "portal_link": portal.link(m, f.id),
                 "hinweis": "Ihr Termin ist bestätigt." if freigabe.status == "freigegeben" else "Ihr Termin ist vorgemerkt; wir bestätigen ihn in Kürze."}
+
+    # --- Runde 5: Optimierung, Warteliste, Risiko, Prognose, Schätzung, Dubletten -----------------
+    @app.get("/plantafel/optimieren", dependencies=[Depends(recht("bearbeiten"))])
+    def plan_optimieren(tag: date | None = None, toleranz_minuten: int = 0, iterationen: int = 1500, m: Mandant = Depends(mandant_kontext),
+                        s: Session = Depends(sitzung)) -> dict[str, Any]:
+        """Tagesplan als VRPTW: Vorschlag mit Begründung; bestätigte Termine nur innerhalb der Toleranz um die zugesagte Zeit."""
+        tag = tag or app.state.uhr().astimezone(ZEITZONE).date()
+        return optimierung.vorschlag(s, m, tag, router_fuer(m), max(0, min(240, toleranz_minuten)), max(100, min(5000, iterationen)))
+
+    @app.post("/plantafel/optimieren/umsetzen", dependencies=[Depends(recht("bearbeiten"))])
+    def plan_umsetzen(daten: PlanUmsetzen, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        ergebnis = fachlich(lambda: optimierung.umsetzen(s, m, daten.plan, wer(p, None)))
+        s.commit()
+        return ergebnis
+
+    @app.get("/warteliste", dependencies=[Depends(recht("bearbeiten"))])
+    def warteliste_lesen(tage: int = 7, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        ergebnis = warteliste.uebersicht(s, m, app.state.uhr(), max(1, min(28, tage)))
+        s.commit()   # Fristprüfung kann Angebote verfallen lassen und weitergeben
+        return ergebnis
+
+    @app.post("/servicefaelle/{fall_id}/warteliste", status_code=201, dependencies=[Depends(recht("bearbeiten"))])
+    def warteliste_eintragen(fall_id: str, daten: WartelisteNeu, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                             p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        f = holen(s, Servicefall, fall_id, m)
+        e = fachlich(lambda: warteliste.eintragen(s, m, f, daten.wunsch_von, daten.wunsch_bis, daten.tageszeiten, daten.wochentage, daten.notiz, wer(p, None)))
+        s.commit()
+        return {"id": e.id, "status": e.status, "prioritaet": e.prioritaet, "dauer_minuten": e.dauer_minuten}
+
+    @app.post("/warteliste/{eintrag_id}/zurueckziehen", dependencies=[Depends(recht("bearbeiten"))])
+    def warteliste_zurueck(eintrag_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        e = holen(s, Wartelisteneintrag, eintrag_id, m)
+        warteliste.zuruecknehmen(s, m, e, wer(p, None))
+        s.commit()
+        return {"id": e.id, "status": e.status}
+
+    @app.post("/warteliste/anbieten", dependencies=[Depends(recht("bearbeiten"))])
+    def warteliste_anbieten(ressource_id: str, beginn: datetime, ende: datetime, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        """Lücke von Hand anbieten (z. B. aus der Lückenliste)."""
+        holen(s, Ressource, ressource_id, m)
+        ergebnis = warteliste.nachbesetzen(s, m, ressource_id, beginn, ende, app.state.uhr())
+        s.commit()
+        return ergebnis or {"hinweis": "Kein passender Eintrag auf der Warteliste"}
+
+    @app.post("/termine/{termin_id}/absagen", response_model=TerminAus, dependencies=[Depends(recht("bearbeiten"))])
+    def termin_absagen_buero(termin_id: str, daten: TerminAbsage, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                             p: Prinzipal = Depends(prinzipal)):
+        """Absage durch das Büro; die Lücke wird der Warteliste angeboten."""
+        t = holen(s, Termin, termin_id, m)
+        if t.status == "abgesagt":
+            return t
+        t.status = "abgesagt"
+        f = t.servicefall
+        domaene.protokollieren(s, m.id, "termin.abgesagt", "termin", t.id, "mensch", {"servicefall_id": f.id, "grund": daten.grund, "quelle": "buero"}, wer(p, None))
+        domaene.outbox_schreiben(s, m.id, "fachsoftware", "termin_upsert", {"termin_id": t.id}, f"termin_upsert:{t.id}:abgesagt")
+        if f.status == "eingeplant" and not any(x.status in ("vorgeschlagen", "bestaetigt") for x in f.termine):
+            domaene.uebergang(s, f, "qualifiziert", "mensch", daten.grund or "Termin abgesagt", wer(p, None))
+        if daten.nachbesetzen:
+            warteliste.nachbesetzen(s, m, t.ressource_id, t.beginn, t.ende, app.state.uhr())
+        s.commit()
+        return t
+
+    @app.get("/risiko", dependencies=[Depends(recht("bearbeiten"))])
+    def risiko_portfolio(limit: int = 50, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        return risiko.portfolio(s, m, app.state.uhr().date(), max(1, min(500, limit)))
+
+    @app.get("/risiko/anlagen/{anlage_id}", dependencies=[Depends(recht("bearbeiten"))])
+    def risiko_anlage(anlage_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        a = holen(s, Anlage, anlage_id, m)
+        heute = app.state.uhr().date()
+        return risiko.bewerten(s, a, heute, risiko.kalibrierung(s, m, heute))
+
+    @app.get("/prognose/auslastung", dependencies=[Depends(recht("bearbeiten"))])
+    def prognose_auslastung(wochen: int = 8, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        return prognose.auslastung(s, m, app.state.uhr().date(), max(1, min(26, wochen)))
+
+    @app.get("/schaetzung/dauer", dependencies=[Depends(recht("bearbeiten"))])
+    def schaetzung_dauer(anliegen: str, anlagentyp: str | None = None, dringlichkeit: str | None = None, m: Mandant = Depends(mandant_kontext),
+                         s: Session = Depends(sitzung)) -> dict[str, Any]:
+        return schaetzung.schaetzen(s, m, anliegen, anlagentyp, dringlichkeit)
+
+    @app.get("/schaetzung/uebersicht", dependencies=[Depends(recht("bearbeiten"))])
+    def schaetzung_uebersicht(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> list[dict[str, Any]]:
+        return schaetzung.uebersicht(s, m)
+
+    @app.get("/dubletten", dependencies=[Depends(recht("verwalten"))])
+    def kunden_dubletten(schwelle: float = 0.6, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> list[dict[str, Any]]:
+        return dubletten.kandidaten(s, m, max(0.3, min(1.0, schwelle)))
+
+    @app.post("/kunden/{kunde_id}/zusammenfuehren", dependencies=[Depends(recht("verwalten"))])
+    def kunden_zusammenfuehren(kunde_id: str, daten: Zusammenfuehren, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                               p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        ziel, quelle = holen(s, Kunde, kunde_id, m), holen(s, Kunde, daten.quelle_id, m)
+        ergebnis = fachlich(lambda: dubletten.zusammenfuehren(s, m, ziel, quelle, wer(p, None)))
+        s.commit()
+        return ergebnis
 
     return app

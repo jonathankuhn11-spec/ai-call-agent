@@ -432,6 +432,31 @@ class Gutschein(_Mandantenbezug, Basis):
     ausgestellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
 
 
+class Wartelisteneintrag(_Mandantenbezug, Basis):
+    """Warteliste für frühere Termine: bei Absagen wird die Lücke automatisch dem bestpassenden Eintrag angeboten
+    (Reservierung mit Frist); siehe warteliste.py."""
+    __tablename__ = "wartelisteneintrag"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    servicefall_id: Mapped[str] = mapped_column(String(32), ForeignKey("servicefall.id"), index=True)
+    kunde_id: Mapped[str] = mapped_column(String(32), ForeignKey("kunde.id"), index=True)
+    wunsch_von: Mapped[date] = mapped_column(Date)
+    wunsch_bis: Mapped[date] = mapped_column(Date)
+    tageszeiten: Mapped[list[str]] = mapped_column(JSON, default=list)      # ["vormittag", "nachmittag"]; leer = egal
+    wochentage: Mapped[list[int]] = mapped_column(JSON, default=list)       # 0 = Montag; leer = egal
+    dauer_minuten: Mapped[int] = mapped_column(Integer, default=90)
+    qualifikation: Mapped[str | None] = mapped_column(String(50))
+    prioritaet: Mapped[int] = mapped_column(Integer, default=30)            # aus Dringlichkeit: 100 notdienst, 60 hoch, 30 normal, 10 niedrig
+    status: Mapped[str] = mapped_column(String(20), default="offen")        # offen, angeboten, gebucht, abgelaufen, zurueckgezogen
+    angebot: Mapped[dict[str, Any] | None] = mapped_column(JSON)            # {"termin_id","beginn","ende","ressource_id","frist"}
+    angeboten_am: Mapped[datetime | None] = mapped_column(UtcZeit)
+    angebote_anzahl: Mapped[int] = mapped_column(Integer, default=0)
+    notiz: Mapped[str | None] = mapped_column(String(300))
+    erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
+
+    servicefall: Mapped[Servicefall] = relationship()
+    kunde: Mapped[Kunde] = relationship()
+
+
 class Angebot(_Mandantenbezug, Basis):
     """Angebot mit eigenem Nummernkreis; Annahme erzeugt den Auftrag (Servicefall), Rechnung über Freigabe C."""
     __tablename__ = "angebot"

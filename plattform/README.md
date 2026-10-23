@@ -10,7 +10,7 @@ Das Verzeichnis ist in sich geschlossen und kann unverändert in ein eigenes Rep
 ```
 plattform/
 ├── core/                 Core-Service (FastAPI, SQLAlchemy)
-│   ├── modelle.py        kanonisches Datenmodell (28 Entitäten)
+│   ├── modelle.py        kanonisches Datenmodell (29 Entitäten)
 │   ├── domaene.py        Statusautomat, Event-Log, Outbox, Freigabe-Policies
 │   ├── disposition.py    freie Zeitfenster: Qualifikation, Arbeitszeit, Fahrzeitpuffer, Kollision
 │   ├── regeln.py         deterministische Regeln: Rufnummern, Dringlichkeit, Sicherheitsfälle
@@ -85,6 +85,11 @@ Danach `http://localhost:8100/` öffnen (Oberfläche) bzw. `/docs` (OpenAPI). Oh
 | Gutscheine | Wertgutscheine ausstellen (Code XXXX-XXXX-XXXX, gültig bis Ende des dritten Folgejahres, § 195 BGB), teilweise einlösen, stornieren (nur ungenutzt), PDF mit QR-Code; Übersicht offener Gutscheinwerte |
 | Vorgang (Ergänzung) | „Nicht erschienen“ für vergangene bestätigte Termine: Termin wird markiert, Zähler am Kunden erhöht, Vorgang zurück auf „qualifiziert“ |
 | Online-Buchung (öffentlich) | `/buchung/#<token>`: Leistung wählen, optional Mitarbeiter, freie Zeiten je Tag (über den Tag verteilt, Mindestvorlauf, Buchungshorizont), Daten mit Einwilligung; erzeugt Kunde (Dublette über Rufnummer), Vorgang (Quelle web) und Terminvorschlag, der per Freigabe `termin_bestaetigen` (Klasse B, per Policy automatisch) verbindlich wird; Terminbestätigung mit Branchenhinweisen und No-Show-Hinweis; Drosselung je Token, Honeypot |
+| Plantafel (Optimierer) | **Tagesplan optimieren**: alle Monteure eines Tages als Tourenplanungsproblem mit Zeitfenstern (VRPTW) – Fahrzeit, Verspätung gegenüber zugesagten Zeiten, Überstunden, Qualifikationen; lokale Suche (Relocate, Swap, 2-opt) plus Simulated Annealing, deterministisch; Toleranz für bestätigte Termine wählbar; Vorschlag mit Begründung, „Plan übernehmen“ erzeugt neue Terminbestätigungen |
+| Warteliste | Einträge mit Wunschzeitraum/Tageszeit; Lücken der nächsten 7 Tage mit bestem Kandidaten; Absagen (Büro oder Portal) bieten die Lücke automatisch dem bestpassenden Eintrag an (Priorität, Wartezeit, Passung, Fahrweg), Reservierung mit Frist, Verfall und Weitergabe (Kaskade), Annahme im Portal |
+| Cockpit (Ergänzung) | **Ausfallrisiko der Anlagen** (Weibull-Überlebensmodell je Anlagentyp mit Wartungsrückstand, Störhistorie, Rapportergebnis, Vertrag; Empfehlungen, Ersatzteilvorhaltung) und **Auslastungsprognose 8 Wochen** (Holt-Winters bzw. Saisonprior, Prognoseintervall, Kapazität aus Arbeitszeiten/Abwesenheiten/Feiertagen, Engpass- und Unterauslastungswarnungen) |
+| Kunden (Dubletten) | „Dubletten prüfen“: Kölner Phonetik, Jaro-Winkler, Rufnummer, E-Mail, normalisierte Adresse mit Blocking; Zusammenführen hängt alle Fremdschlüssel generisch um, füllt Stammfelder auf, vereinigt Einwilligungen/Kartei, sichert die Quelle im Ereignisprotokoll |
+| Vorgang (Dauer) | Neue Vorgänge ohne Dauerangabe erhalten die **lernende Einsatzdauer** aus Rapporten (hierarchisches Shrinkage Anlagentyp × Kategorie → Kategorie → Betrieb → Standard, 80-%-Quantil im 15-min-Raster); Termine im Vorgang lassen sich absagen (Lücke an die Warteliste) |
 | Plantafel (Ergänzung) | Abwesenheiten (Urlaub, Krankheit, Schulung) sperren den Monteur ganztägig in Disposition und Sprachagent |
 | Einstellungen (Ergänzung) | Bundesland (Feiertage), OSRM-Server, Kontoinhaber (GiroCode), Push an den Inhaber (ntfy), Artikel- und Leistungsstamm, Kontaktformular (Token, Snippet, Danke-Seite), IMAP-Posteingang, Angebots- und Mahnparameter, Bewertungslink (Bewertungsanfrage nach erledigtem Rapport als Freigabe B) |
 
@@ -156,6 +161,8 @@ Fachendpunkte verlangen einen Mandantenkontext: bei Maschinen `X-Mandant`, bei P
 | Branche, Kartei, No-Show | `GET /branchen`, `GET/PUT /betrieb/branche` (`leistungen_anlegen`), `GET /voice/kontext` (Branchenkontext für den Sprachagenten), `PUT /kunden/{id}/kartei`, `POST /termine/{id}/nicht-erschienen` |
 | Gutscheine | `GET/POST /gutscheine`, `GET /gutscheine/{code}`, `POST /gutscheine/{code}/einloesen`, `POST /gutscheine/{code}/storno`, `GET /gutscheine/{code}/pdf` |
 | Online-Buchung (öffentlich, Token) | `GET/PUT /betrieb/buchung?aktiv=` (Büro), `GET /buchung/` (Seite), `GET /buchung/{token}` (Betrieb, Leistungen, Mitarbeiter), `GET /buchung/{token}/zeiten?leistung_id=&ressource_id=&ab=`, `POST /buchung/{token}` |
+| Optimierung, Warteliste | `GET /plantafel/optimieren?tag=&toleranz_minuten=`, `POST /plantafel/optimieren/umsetzen`, `GET /warteliste?tage=`, `POST /servicefaelle/{id}/warteliste`, `POST /warteliste/{id}/zurueckziehen`, `POST /warteliste/anbieten?ressource_id=&beginn=&ende=`, `POST /termine/{id}/absagen` |
+| Risiko, Prognose, Schätzung, Dubletten | `GET /risiko?limit=`, `GET /risiko/anlagen/{id}`, `GET /prognose/auslastung?wochen=`, `GET /schaetzung/dauer?anliegen=&anlagentyp=`, `GET /schaetzung/uebersicht`, `GET /dubletten?schwelle=`, `POST /kunden/{id}/zusammenfuehren` |
 | DATEV-Datenservices | `PUT /integrationen/finanz` bzw. `/kanzlei` mit Kanal `datev`, `GET /integrationen/datev/anmeldung` (Anmelde-URL), `GET /integrationen/datev/rueckruf?code=&state=` (öffentlich, OAuth-Rückruf); Outbox-Aktionen `rechnung_uebermitteln` (Belegbilderservice, Rechnungsausgang), `beleg_uebermitteln` (Rechnungseingang), `belegpaket` (EXTF-Buchungsstapel an den Buchungsdatenservice) |
 | Auswertung, Tageslauf | `GET /auswertungen?monate=12`, `POST /tagesaufgaben` (auch `python -m core tagesaufgaben`, Cron 06:30; `python -m core posteingang` und `python -m core scaneingang` alle 15 Minuten) |
 
@@ -188,6 +195,8 @@ Import des Voice-Agenten, `docker compose config`, `caddy validate`.
 Zusätzlich getestet (Runde 3): DATANORM-4/5-Import, Lagerbuchung und Rapport-Abbuchung, Bestellvorschlag, IDS-Formular, Checklisten-Befunde, Suche nach Rechten, Förderrechner, Kundenportal (Bestätigung, Absage mit Rückstufung, Frist, fremdes Token, Terminerinnerung idempotent), DATEV-Anmeldung mit PKCE-State, Rückruf, Token-Erneuerung, Belegbild- und Buchungsstapel-Upload mit Attrappe, Debitorenliste im Belegpaket.
 
 Zusätzlich getestet (Runde 4): Branchenliste und Umstellung mit Leistungskatalog (idempotent), Sprachagent-Kontext, Kartei (unbekannte Felder, Gesundheitsdaten ohne/mit Einwilligung, Auskunft, Anonymisierung), No-Show (Zukunft abgelehnt, Zähler, Rückstufung), Online-Buchung (Angebot, Zeiten nach Qualifikation und Mitarbeiter, Mindestvorlauf, Honeypot, Dublette, Freigabe, Terminbestätigung mit Hinweisen, Abschalten), SHK-Buchung mit Adresse, Gutscheine (Teileinlösung, Storno, Ablauf, PDF), Wiederkehr-Erinnerung im Tageslauf (idempotent, Einwilligung).
+
+Zusätzlich getestet (Runde 5): Optimiererkern (Bündelung, harte Qualifikation, fixe bestätigte Termine), Tagesplan über die API (Ersparnis, Umsetzung, Idempotenz, Toleranz), Warteliste (Eintrag, Lücken, Nachbesetzung nach Büro-Absage, Portal-Annahme mit Absage des späteren Termins, Verfall und Weitergabe im Tageslauf), Weibull-Hazard (Monotonie, Kovariaten, Treiber, Empfehlungen), Holt-Winters auf synthetischer Saison, Prognose mit Prior und Intervallen, Dauer-Schätzung (Kategorien, Ebenen, Shrinkage, Einfluss auf neue Vorgänge), Kölner Phonetik gegen Referenzwerte, Jaro-Winkler, Dublettenfund und generische Zusammenführung mit Audit.
 
 Zusätzlich getestet: Rechnungsnummern, XRechnung 3.0 (UBL, Pflichtfelder), PDF, Storno, Adapter
 Lexware/sevDesk/E-Mail/SMS/Webhook mit Attrappen, DATEV-Buchungsstapel im Belegpaket, verschlüsselte

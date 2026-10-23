@@ -134,7 +134,8 @@ $("#abmelden").addEventListener("click", () => abmelden());
 // --- Routing ---------------------------------------------------------------------------------
 const ANSICHTEN = { cockpit, anruf, freigaben, vorgaenge, plantafel, kunden, wartung, ontologie, rechnungen, protokoll, einstellungen,
   einsatz: einsatzAnsicht, belege: belegeAnsicht, zeiten: zeitenAnsicht, betrieb: betriebAnsicht, angebote: angeboteAnsicht,
-  forderungen: forderungenAnsicht, vertraege: vertraegeAnsicht, anfragen: anfragenAnsicht, auswertungen: auswertungenAnsicht, lager: lagerAnsicht, gutscheine: gutscheineAnsicht };
+  forderungen: forderungenAnsicht, vertraege: vertraegeAnsicht, anfragen: anfragenAnsicht, auswertungen: auswertungenAnsicht, lager: lagerAnsicht, gutscheine: gutscheineAnsicht,
+  warteliste: wartelisteAnsicht };
 async function zeigen() {
   if (!speicher("mandant")) return anmelden();
   $("#mandant-name").textContent = speicher("mandantName") || "";
@@ -215,6 +216,7 @@ async function cockpit(ziel) {
     api("/kunden/karte"), api("/kunden/vollstaendigkeit"), api("/tour").catch(() => ({ touren: [] }))]);
   const linien = touren.touren.filter((x) => x.linie.length > 1).map((x) => ({ name: x.name.split(" (")[0], punkte: x.linie, minuten: x.ist.minuten, km: x.ist.km }));
   const hoch = await api("/servicefaelle?dringlichkeit=hoch");
+  const [risiko, prognose] = await Promise.all([api("/risiko?limit=5").catch(() => null), api("/prognose/auslastung?wochen=8").catch(() => null)]);
   const dringend = [...notfaelle, ...hoch].filter((f) => ["eingegangen", "qualifiziert"].includes(f.status));
   const kachel = (wert, bez) => `<div class="karte kachel"><div class="wert">${esc(wert ?? "–")}</div><div class="bez">${esc(bez)}</div></div>`;
   ziel.innerHTML = `
@@ -244,6 +246,15 @@ async function cockpit(ziel) {
         <div style="margin-bottom:10px"><div class="zeile" style="justify-content:space-between"><span>${esc(a.name)}</span><span>${a.gebucht_h} / ${a.kapazitaet_h} h</span></div>
         <div class="balken"><span style="width:${Math.min(100, Math.round((a.quote || 0) * 100))}%"></span></div></div>`).join("")}</div>
     </div>
+    ${risiko || prognose ? `<div class="raster">
+      ${risiko ? `<div class="karte"><h2>Ausfallrisiko der Anlagen</h2><p class="unterzeile" style="margin-bottom:8px">Weibull-Überlebensmodell je Anlagentyp mit Wartungsrückstand und Störhistorie; erwartete Ausfälle in der Heizperiode: <strong>${esc(risiko.erwartete_ausfaelle_heizperiode)}</strong> (${risiko.je_klasse.kritisch} kritisch, ${risiko.je_klasse.hoch} hoch).</p>
+        <table><tbody>${risiko.anlagen.map((a) => `<tr class="klickbar" data-kunde="${esc(a.kunde_id)}"><td>${tag(a.klasse, a.klasse === "kritisch" ? "ueberfaellig" : (a.klasse === "hoch" ? "offen" : "neutral"))}</td><td>${esc(a.kunde)}<br><small>${esc(a.bezeichnung)}${a.alter_jahre ? `, ${a.alter_jahre} J.` : ""} · ${esc(a.treiber.join(", ") || "keine Auffälligkeit")}</small></td><td style="text-align:right">${Math.round(a.p_12_monate * 100)} %</td></tr>`).join("") || "<tr><td>Keine Anlagen.</td></tr>"}</tbody></table>
+        ${risiko.ersatzteilvorhaltung.length ? `<p style="margin-top:8px"><small>Ersatzteile vorhalten: ${risiko.ersatzteilvorhaltung.slice(0, 4).map((e) => esc(`${e.teil} (${e.erwarteter_bedarf})`)).join(", ")}</small></p>` : ""}</div>` : ""}
+      ${prognose ? `<div class="karte"><h2>Auslastungsprognose 8 Wochen</h2><p class="unterzeile" style="margin-bottom:8px">${esc(prognose.verfahren)}; Bedarf = prognostizierte Vorgänge × ${prognose.mittlere_dauer_h} h.</p>
+        ${prognose.wochen.map((w) => `<div style="margin-bottom:8px"><div class="zeile" style="justify-content:space-between"><span>KW ${w.kw} ${w.lage === "engpass" ? tag("Engpass", "ueberfaellig") : (w.lage === "unterauslastung" ? tag("frei", "aktuell") : "")}</span><span>${w.vorgaenge} Vorgänge (${w.untergrenze}–${w.obergrenze}) · ${w.auslastung === null ? "–" : `${Math.round(w.auslastung * 100)} %`}</span></div>
+          <div class="balken"><span style="width:${Math.min(100, Math.round((w.auslastung || 0) * 100))}%"></span></div></div>`).join("")}
+        ${prognose.warnungen.length ? `<ul class="verlauf">${prognose.warnungen.slice(0, 3).map((x) => `<li><small>${esc(x.text)}</small></li>`).join("")}</ul>` : ""}</div>` : ""}
+    </div>` : ""}
     <div class="raster">
       <div class="karte"><h2>Was an Kundendaten fehlt</h2><table><tbody>${voll.je_feld.map((f) => `<tr><td>${esc(f.text)}</td><td style="text-align:right">${f.anzahl ? tag(f.anzahl, "offen", f.anzahl) : tag("0", "aktuell", "0")}</td></tr>`).join("")}</tbody></table></div>
       <div class="karte"><h2>Vorgänge je Status</h2><table><tbody>${STATUS.map((s) => `<tr><td>${STATUS_TEXT[s]}</td><td style="text-align:right">${z.vorgaenge_je_status[s] || 0}</td></tr>`).join("")}</tbody></table></div>
@@ -251,6 +262,7 @@ async function cockpit(ziel) {
     </div>`;
   karteZeichnen($("#c-karte"), karte, { beimKlick: kundeDetail, linien });
   ziel.querySelectorAll("[data-fall]").forEach((z) => z.addEventListener("click", () => fallDetail(z.dataset.fall)));
+  ziel.querySelectorAll("table [data-kunde]").forEach((z) => z.addEventListener("click", () => kundeDetail(z.dataset.kunde)));
 }
 
 // --- Kundenkarte (eigene Zeichnung, Web-Mercator; Hintergrundkacheln vom konfigurierten Kachelserver) ----
@@ -422,13 +434,30 @@ async function fallDetail(id) {
     <p>${tag(f.dringlichkeit)} ${tag(STATUS_TEXT[f.status], "neutral")} ${f.benoetigte_qualifikation ? tag(`Qualifikation: ${f.benoetigte_qualifikation}`, "neutral") : ""}</p>
     <p><strong>${esc(kunde.kunde.name)}</strong> · ${esc(kunde.kunde.strasse || "")} ${esc(kunde.kunde.plz || "")} ${esc(kunde.kunde.ort || "")} · ${esc(kunde.kunde.telefon || "")}</p>
     ${f.symptom ? `<p>Symptom: ${esc(f.symptom)}</p>` : ""}
-    <h3>Termine</h3>${d.termine.length ? `<ul class="verlauf">${d.termine.map((t) => `<li>${zeit(t.beginn)} ${tag(t.status)}${t.status === "bestaetigt" && new Date(t.beginn) < new Date() ? ` <button class="leise" data-noshow="${esc(t.id)}">Nicht erschienen</button>` : ""}</li>`).join("")}</ul>` : "<p>Noch kein Termin.</p>"}
+    <h3>Termine</h3>${d.termine.length ? `<ul class="verlauf">${d.termine.map((t) => `<li>${zeit(t.beginn)} ${tag(t.status)}${["vorgeschlagen", "bestaetigt"].includes(t.status) && new Date(t.beginn) > new Date() ? ` <button class="leise" data-absage="${esc(t.id)}" title="Absagen; die Lücke geht an die Warteliste">Absagen</button>` : ""}${t.status === "bestaetigt" && new Date(t.beginn) < new Date() ? ` <button class="leise" data-noshow="${esc(t.id)}">Nicht erschienen</button>` : ""}</li>`).join("")}</ul>` : "<p>Noch kein Termin.</p>"}
     ${kunde.kunde.nicht_erschienen ? `<p>${tag(`${kunde.kunde.nicht_erschienen}× nicht erschienen`, "ueberfaellig")}</p>` : ""}
     <div class="aktionen" style="margin:12px 0">${(UEBERGAENGE[f.status] || []).map((z) => `<button class="${z === "storniert" ? "gefahr" : "leise"}" data-ziel="${z}">${STATUS_TEXT[z]}</button>`).join("")}
-      ${["eingegangen", "qualifiziert"].includes(f.status) ? `<button id="termin-suchen">Termin vorschlagen</button>` : ""}</div>
-    <div id="terminwahl"></div>
+      ${["eingegangen", "qualifiziert"].includes(f.status) ? `<button id="termin-suchen">Termin vorschlagen</button>` : ""}
+      ${["qualifiziert", "eingeplant"].includes(f.status) ? `<button class="leise" id="warteliste-knopf">Auf die Warteliste</button>` : ""}</div>
+    <div id="terminwahl"></div><div id="wartelisteform"></div>
     <h3>Ereignisse</h3><ul class="verlauf">${d.ereignisse.map((e) => `<li>${tag(e.akteur, "neutral")} <code>${esc(e.typ)}</code> · ${zeit(e.zeit)}${e.payload?.grund ? ` · ${esc(e.payload.grund)}` : ""}</li>`).join("")}</ul>`);
   fallErgaenzungen(wurzel, id);
+  wurzel.querySelectorAll("[data-absage]").forEach((b) => b.addEventListener("click", async () => {
+    const grund = prompt("Grund der Absage (optional):"); if (grund === null) return;
+    try { await api(`/termine/${b.dataset.absage}/absagen`, { methode: "POST", daten: { grund: grund || null } }); await fallDetail(id); zeigen(); } catch (e) { alert(e.message); }
+  }));
+  $("#warteliste-knopf", wurzel)?.addEventListener("click", () => {
+    const heute = TAGESSCHLUESSEL.format(new Date()), bis = TAGESSCHLUESSEL.format(new Date(Date.now() + 14 * 86400000));
+    $("#wartelisteform", wurzel).innerHTML = `<form id="wl-form" class="zeile" style="margin:8px 0"><label>von <input type="date" name="wunsch_von" value="${heute}" required></label><label>bis <input type="date" name="wunsch_bis" value="${bis}" required></label>
+      <label><span><input type="checkbox" name="vormittag"> vormittags</span></label><label><span><input type="checkbox" name="nachmittag"> nachmittags</span></label><button type="submit" class="leise">Eintragen</button><span id="wl-status"></span></form>`;
+    $("#wl-form", wurzel).addEventListener("submit", async (ev) => {
+      ev.preventDefault(); const fd = new FormData(ev.target);
+      const tageszeiten = ["vormittag", "nachmittag"].filter((x) => fd.get(x));
+      try { await api(`/servicefaelle/${id}/warteliste`, { methode: "POST", daten: { wunsch_von: fd.get("wunsch_von"), wunsch_bis: fd.get("wunsch_bis"), tageszeiten } });
+        $("#wl-status", wurzel).innerHTML = `<span class="hinweis">Eingetragen. Freie Lücken werden automatisch angeboten.</span>`; }
+      catch (e) { $("#wl-status", wurzel).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+    });
+  });
   wurzel.querySelectorAll("[data-noshow]").forEach((b) => b.addEventListener("click", async () => {
     if (!confirm("Termin als „nicht erschienen“ markieren?")) return;
     try { await api(`/termine/${b.dataset.noshow}/nicht-erschienen`, { methode: "POST" }); await fallDetail(id); zeigen(); } catch (e) { alert(e.message); }
@@ -469,6 +498,14 @@ async function plantafel(ziel) {
     <label>Tag <input id="pt-tour-tag" type="date" value="${esc(p.von)}"></label><button class="leise" id="pt-tour">Tour anzeigen</button>
     ${wir.rechte.includes("bearbeiten") ? `<button class="leise" id="pt-kalender">Kalender-Abo (ICS)</button>` : ""}</div><div id="pt-tour-ergebnis"></div>`;
   ziel.append(leiste);
+  if (wir.rechte.includes("bearbeiten")) {
+    const opt = document.createElement("div"); opt.className = "karte"; opt.style.margin = "16px 0";
+    opt.innerHTML = `<h2>Tagesplan optimieren</h2><p class="unterzeile">Alle Monteure eines Tages als Tourenplanungsproblem mit Zeitfenstern (VRPTW): Fahrzeit, Verspätung gegenüber zugesagten Zeiten, Überstunden und Qualifikationen; lokale Suche mit Simulated Annealing. Bestätigte Termine bleiben innerhalb der Toleranz um die zugesagte Uhrzeit.</p>
+      <div class="zeile"><label>Tag <input id="pt-opt-tag" type="date" value="${esc(p.von)}"></label><label>Toleranz bestätigter Termine <select id="pt-opt-tol"><option value="0">0 min (fix)</option><option value="30">± 30 min</option><option value="60">± 60 min</option><option value="120">± 2 h</option></select></label>
+      <button class="leise" id="pt-opt">Vorschlag berechnen</button></div><div id="pt-opt-ergebnis"></div>`;
+    ziel.append(opt);
+    $("#pt-opt", opt).addEventListener("click", () => planOptimieren($("#pt-opt-tag", opt).value, $("#pt-opt-tol", opt).value, $("#pt-opt-ergebnis", opt)));
+  }
   $("#pt-tour", leiste).addEventListener("click", () => tourAnzeigen($("#pt-tour-res", leiste).value, $("#pt-tour-tag", leiste).value, $("#pt-tour-ergebnis", leiste), wir.rechte.includes("bearbeiten")));
   $("#pt-kalender", leiste)?.addEventListener("click", async () => {
     const l = await api("/kalender/links");
@@ -497,6 +534,51 @@ async function tourAnzeigen(ressourceId, tag_, ziel, darf) {
   });
 }
 
+async function planOptimieren(tag_, toleranz, ziel) {
+  ziel.innerHTML = "<p>Plan wird berechnet …</p>";
+  let v;
+  try { v = await api(`/plantafel/optimieren?tag=${encodeURIComponent(tag_)}&toleranz_minuten=${encodeURIComponent(toleranz)}`); } catch (e) { ziel.innerHTML = `<p class="fehler">${esc(e.message)}</p>`; return; }
+  if (v.hinweis) { ziel.innerHTML = `<p class="hinweis">${esc(v.hinweis)}</p>`; return; }
+  const kz = (k) => `${k.fahrzeit_minuten} min Fahrt · ${k.verspaetung_minuten} min Verspätung · ${k.ueberstunden_minuten} min Überstunden${k.qualifikationsverstoesse ? ` · ${k.qualifikationsverstoesse} Qualifikationsverstöße` : ""}`;
+  ziel.innerHTML = `<p style="margin:10px 0 6px"><strong>Heute:</strong> ${esc(kz(v.ist))}<br><strong>Vorschlag:</strong> ${esc(kz(v.vorschlag))}${v.quelle === "luftlinie" ? " <small>(Luftlinie, OSRM nicht erreichbar)</small>" : ""}</p>
+    <p class="hinweis">${esc(v.begruendung)}</p>
+    ${v.routen.filter((r) => r.stopps.length).map((r) => `<h3 style="margin:10px 0 4px">${esc(r.name.split(" (")[0])} <small>${r.fahrzeit_minuten} min Fahrt</small></h3>
+      <table><tbody>${r.stopps.map((s) => `<tr${s.verschoben ? ' class="hervor"' : ""}><td>${esc(s.uhrzeit)}</td><td>${esc(s.kunde)}</td><td>${tag(s.status)}</td>
+        <td><small>${s.verschoben ? `vorher ${esc(UHRZEIT.format(new Date(s.vorher)))}${s.ressource_vorher !== r.ressource_id ? ", anderer Monteur" : ""}` : ""}</small></td></tr>`).join("")}</tbody></table>`).join("")}
+    ${v.unplanbar.length ? `<p class="fehler">Nicht planbar: ${v.unplanbar.map((u) => esc(`${u.kunde} (${u.grund})`)).join(", ")}</p>` : ""}
+    ${v.aenderungen.length ? `<div class="aktionen" style="margin-top:10px"><button id="pt-opt-umsetzen">Plan übernehmen (${v.aenderungen.length} Termine)</button><span id="pt-opt-status"></span></div>` : ""}`;
+  $("#pt-opt-umsetzen", ziel)?.addEventListener("click", async () => {
+    try { const e = await api("/plantafel/optimieren/umsetzen", { methode: "POST", daten: { plan: v } });
+      $("#pt-opt-status", ziel).innerHTML = `<span class="hinweis">${e.verschoben.length} Termine umgeplant${e.neue_bestaetigungen ? `, ${e.neue_bestaetigungen} neue Terminbestätigungen in der Outbox` : ""}.</span>`; setTimeout(zeigen, 1200); }
+    catch (e) { $("#pt-opt-status", ziel).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
+}
+
+// --- Warteliste --------------------------------------------------------------------------------
+async function wartelisteAnsicht(ziel) {
+  const w = await api("/warteliste?tage=7");
+  const STATUS_W = { offen: "offen", angeboten: "angeboten", gebucht: "gebucht" };
+  ziel.innerHTML = `<h1>Warteliste</h1><p class="unterzeile">Wer früher dran sein möchte, steht hier. Wird ein Termin abgesagt, bekommt der bestpassende Eintrag die Lücke automatisch angeboten (Priorität, Wartezeit, Passung, Fahrweg); die Reservierung verfällt nach Frist und wandert weiter.</p>
+    <div class="raster">
+      <div class="karte"><h2>Einträge (${w.offen} offen)</h2><div class="tabelle-rahmen"><table><thead><tr><th>Kunde</th><th>Anliegen</th><th>Wunsch</th><th>Status</th><th></th></tr></thead><tbody>
+        ${w.eintraege.map((e) => `<tr><td class="klickbar" data-fall="${esc(e.servicefall_id)}">${esc(e.kunde)}<br><small>wartet ${e.wartetage} Tage · Prio ${e.prioritaet}${e.angebote_anzahl ? ` · ${e.angebote_anzahl}× verfallen` : ""}</small></td>
+          <td>${esc(e.anliegen)}<br><small>${e.dauer_minuten} min${e.qualifikation ? `, ${esc(e.qualifikation)}` : ""}</small></td>
+          <td>${esc(e.wunsch_von)} – ${esc(e.wunsch_bis)}<br><small>${esc(e.tageszeiten.join(", ") || "ganztags")}</small></td>
+          <td>${tag(STATUS_W[e.status] || e.status, e.status === "angeboten" ? "offen" : (e.status === "gebucht" ? "aktuell" : "neutral"))}${e.angebot ? `<br><small>${esc(DATUMZEIT.format(new Date(e.angebot.beginn)))}, Frist ${esc(UHRZEIT.format(new Date(e.angebot.frist)))}</small>` : ""}</td>
+          <td>${e.status !== "gebucht" ? `<button class="leise" data-zurueck="${esc(e.id)}">Zurückziehen</button>` : ""}</td></tr>`).join("") || "<tr><td colspan='5'>Niemand wartet.</td></tr>"}</tbody></table></div></div>
+      <div class="karte"><h2>Lücken der nächsten 7 Tage</h2><div class="tabelle-rahmen"><table><thead><tr><th>Monteur</th><th>Zeit</th><th>Dauer</th><th>Bester Kandidat</th><th></th></tr></thead><tbody>
+        ${w.luecken.slice(0, 40).map((l) => `<tr><td>${esc(l.name.split(" (")[0])}</td><td>${esc(DATUMZEIT.format(new Date(l.beginn)))}–${esc(UHRZEIT.format(new Date(l.ende)))}</td><td>${l.minuten} min</td>
+          <td>${l.bester ? `${esc(l.bester.kunde)} <small>(${l.bester.score}: ${esc(l.bester.gruende.join(", "))})</small>` : `<small>${l.kandidaten} Kandidaten</small>`}</td>
+          <td>${l.bester ? `<button class="leise" data-anbieten="${esc(l.ressource_id)}" data-beginn="${esc(l.beginn)}" data-ende="${esc(l.ende)}">Anbieten</button>` : ""}</td></tr>`).join("") || "<tr><td colspan='5'>Keine Lücken.</td></tr>"}</tbody></table></div></div>
+    </div>`;
+  ziel.querySelectorAll("[data-fall]").forEach((z) => z.addEventListener("click", () => fallDetail(z.dataset.fall)));
+  ziel.querySelectorAll("[data-zurueck]").forEach((b) => b.addEventListener("click", async () => { try { await api(`/warteliste/${b.dataset.zurueck}/zurueckziehen`, { methode: "POST" }); zeigen(); } catch (e) { alert(e.message); } }));
+  ziel.querySelectorAll("[data-anbieten]").forEach((b) => b.addEventListener("click", async () => {
+    try { const r = await api(`/warteliste/anbieten?ressource_id=${encodeURIComponent(b.dataset.anbieten)}&beginn=${encodeURIComponent(b.dataset.beginn)}&ende=${encodeURIComponent(b.dataset.ende)}`, { methode: "POST" });
+      alert(r.hinweis || `Angeboten an ${r.kunde}, Frist ${DATUMZEIT.format(new Date(r.frist))}`); zeigen(); } catch (e) { alert(e.message); }
+  }));
+}
+
 // Inhaber: Anmeldename je Monteur, damit die Monteur-Rolle nur eigene Einsätze sieht
 async function monteureVerwalten(ziel) {
   const liste = await api("/ressourcen");
@@ -523,6 +605,7 @@ async function kunden(ziel) {
     <div class="karte" style="margin-bottom:16px"><div class="zeile"><label>Suche <input id="k-suche" placeholder="Name, Ort oder E-Mail"></label>
       <label><span><input type="checkbox" id="k-offen" ${nurOffen ? "checked" : ""}> nur unvollständige</span></label>
       ${wir.rechte.includes("bearbeiten") ? `<button class="leise" id="k-geo" title="Adressen ohne Koordinaten über den Geokodierungsdienst auflösen">Adressen geokodieren</button>` : ""}
+      ${wir.rechte.includes("verwalten") ? `<button class="leise" id="k-dubletten" title="Phonetischer und adressbasierter Dublettenabgleich">Dubletten prüfen</button>` : ""}
       ${wir.rechte.includes("bearbeiten") ? `<button id="k-neu">Kunde anlegen</button>` : ""}</div><p id="k-status"></p></div>
     <div class="karte"><div class="tabelle-rahmen"><table><thead><tr><th>Name</th><th>Ort</th><th>Telefon</th><th>Vertrag</th><th>Vollständig</th></tr></thead><tbody id="k-liste"></tbody></table></div></div>`;
   const laden = async () => {
@@ -534,6 +617,20 @@ async function kunden(ziel) {
       <td>${l ? `${tag(`${Math.round(l.quote * 100)} %`, "offen")} <small>${esc(l.fehlend.join(", "))}</small>` : tag("vollständig", "aktuell")}</td></tr>`; }).join("") || `<tr><td colspan="5">Keine Treffer.</td></tr>`;
     $("#k-liste").querySelectorAll("[data-kunde]").forEach((z) => z.addEventListener("click", () => kundeDetail(z.dataset.kunde)));
   };
+  $("#k-dubletten")?.addEventListener("click", async () => {
+    const d = await api("/dubletten");
+    const w = detail(`<h2>Dubletten</h2><p class="unterzeile">Kölner Phonetik, Jaro-Winkler, Rufnummer, E-Mail und normalisierte Adresse; ab 0,85 „sicher“. Beim Zusammenführen bleibt der ältere Datensatz, alle Vorgänge, Objekte, Rechnungen und Verträge wandern mit; die Quelle wird im Ereignisprotokoll gesichert.</p>
+      ${d.length ? `<table><thead><tr><th>Score</th><th>Bleibt</th><th>Wird zusammengeführt</th><th>Gründe</th><th></th></tr></thead><tbody>${d.map((x, i) => `<tr><td>${tag(x.score, x.sicher ? "aktuell" : "offen")}</td>
+        <td>${esc(x.ziel.name)}<br><small>${esc(x.ziel.telefon || "")} ${esc(x.ziel.strasse || "")}</small></td><td>${esc(x.quelle.name)}<br><small>${esc(x.quelle.telefon || "")} ${esc(x.quelle.strasse || "")}</small></td>
+        <td><small>${esc(x.gruende.join(", "))}</small></td><td><button class="leise" data-merge="${i}">Zusammenführen</button></td></tr>`).join("")}</tbody></table>` : "<p>Keine Dubletten gefunden.</p>"}<p id="k-dub-status"></p>`);
+    w.querySelectorAll("[data-merge]").forEach((b) => b.addEventListener("click", async () => {
+      const x = d[Number(b.dataset.merge)];
+      if (!confirm(`„${x.quelle.name}“ in „${x.ziel.name}“ zusammenführen?`)) return;
+      try { const r = await api(`/kunden/${x.ziel.id}/zusammenfuehren`, { methode: "POST", daten: { quelle_id: x.quelle.id } });
+        $("#k-dub-status", w).innerHTML = `<span class="hinweis">Zusammengeführt: ${esc(Object.entries(r.umgehaengt).map(([k, v]) => `${k.split(".")[0]} ${v}`).join(", ") || "keine Verknüpfungen")}.</span>`; b.closest("tr").remove(); laden(); }
+      catch (e) { $("#k-dub-status", w).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+    }));
+  });
   let warte; $("#k-suche").addEventListener("input", () => { clearTimeout(warte); warte = setTimeout(laden, 250); });
   $("#k-offen").addEventListener("change", laden);
   $("#k-geo")?.addEventListener("click", async () => {
