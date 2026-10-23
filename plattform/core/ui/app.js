@@ -171,8 +171,9 @@ function detail(html) { $("#detail-inhalt").innerHTML = html; const d = $("#deta
 
 // --- Cockpit ---------------------------------------------------------------------------------
 async function cockpit(ziel) {
-  const [k, z, notfaelle, karte, voll] = await Promise.all([api("/kennzahlen"), api("/twin/betrieb"), api("/servicefaelle?dringlichkeit=notdienst"),
-    api("/kunden/karte"), api("/kunden/vollstaendigkeit")]);
+  const [k, z, notfaelle, karte, voll, touren] = await Promise.all([api("/kennzahlen"), api("/twin/betrieb"), api("/servicefaelle?dringlichkeit=notdienst"),
+    api("/kunden/karte"), api("/kunden/vollstaendigkeit"), api("/tour").catch(() => ({ touren: [] }))]);
+  const linien = touren.touren.filter((x) => x.linie.length > 1).map((x) => ({ name: x.name.split(" (")[0], punkte: x.linie, minuten: x.ist.minuten, km: x.ist.km }));
   const hoch = await api("/servicefaelle?dringlichkeit=hoch");
   const dringend = [...notfaelle, ...hoch].filter((f) => ["eingegangen", "qualifiziert"].includes(f.status));
   const kachel = (wert, bez) => `<div class="karte kachel"><div class="wert">${esc(wert ?? "–")}</div><div class="bez">${esc(bez)}</div></div>`;
@@ -192,7 +193,7 @@ async function cockpit(ziel) {
     <div class="raster raster-karte">
       <div class="karte"><h2>Wo sind die Kunden</h2><p class="unterzeile" style="margin-bottom:10px">${karte.kunden.length} Kunden mit Koordinaten${karte.ohne_koordinaten.length ? `, ${karte.ohne_koordinaten.length} ohne (<a href="#kunden/unvollstaendig">geokodieren</a>)` : ""} · Klick auf einen Punkt öffnet den Kunden</p><div id="c-karte"></div></div>
       <div>
-        <div class="karte" style="margin-bottom:16px"><h2>Heute unterwegs</h2>${karte.einsaetze_heute.length ? `<table><tbody>${karte.einsaetze_heute.map((e) => `<tr class="klickbar" data-fall="${esc(e.servicefall_id)}"><td>${esc(UHRZEIT.format(new Date(e.beginn)))}</td><td>${esc(e.ressource.split(" (")[0])}</td><td>${esc(e.kunde)}${e.lat == null ? ' <span class="marke-tag t-neutral">ohne Koordinaten</span>' : ""}</td><td>${tag(e.status, e.status, e.status === "bestaetigt" ? "bestätigt" : "vorgemerkt")}</td></tr>`).join("")}</tbody></table>` : "<p>Heute keine Einsätze geplant.</p>"}</div>
+        <div class="karte" style="margin-bottom:16px"><h2>Heute unterwegs</h2>${touren.touren.some((x) => x.stopps.length) ? `<p class="unterzeile" style="margin-bottom:8px">${touren.touren.filter((x) => x.stopps.length).map((x) => `${esc(x.name.split(" (")[0])}: ${x.ist.minuten} min Fahrt, ${x.ist.km} km${x.vorschlag?.ersparnis_minuten ? ` (<a href="#plantafel">Tour: −${x.vorschlag.ersparnis_minuten} min möglich</a>)` : ""}`).join(" · ")}${touren.touren[0]?.quelle === "luftlinie" ? " · Luftlinie, OSRM nicht erreichbar" : ""}</p>` : ""}${karte.einsaetze_heute.length ? `<table><tbody>${karte.einsaetze_heute.map((e) => `<tr class="klickbar" data-fall="${esc(e.servicefall_id)}"><td>${esc(UHRZEIT.format(new Date(e.beginn)))}</td><td>${esc(e.ressource.split(" (")[0])}</td><td>${esc(e.kunde)}${e.lat == null ? ' <span class="marke-tag t-neutral">ohne Koordinaten</span>' : ""}</td><td>${tag(e.status, e.status, e.status === "bestaetigt" ? "bestätigt" : "vorgemerkt")}</td></tr>`).join("")}</tbody></table>` : "<p>Heute keine Einsätze geplant.</p>"}</div>
         <div class="karte"><h2>Kunden je Ort</h2><table><tbody>${karte.je_ort.map((o) => `<tr><td>${esc(o.ort)}<br><small>${esc(o.plz.join(", "))}</small></td><td style="text-align:right">${esc(o.anzahl)}</td></tr>`).join("") || "<tr><td>Keine Kunden.</td></tr>"}</tbody></table></div>
       </div>
     </div>
@@ -208,7 +209,7 @@ async function cockpit(ziel) {
       <div class="karte"><h2>Vorgänge je Status</h2><table><tbody>${STATUS.map((s) => `<tr><td>${STATUS_TEXT[s]}</td><td style="text-align:right">${z.vorgaenge_je_status[s] || 0}</td></tr>`).join("")}</tbody></table></div>
       <div class="karte"><h2>Letzte Ereignisse</h2><ul class="verlauf">${z.letzte_ereignisse.slice(0, 8).map((e) => `<li>${tag(e.akteur, "neutral")} <code>${esc(e.typ)}</code> · ${zeit(e.zeit)}</li>`).join("")}</ul></div>
     </div>`;
-  karteZeichnen($("#c-karte"), karte, { beimKlick: kundeDetail });
+  karteZeichnen($("#c-karte"), karte, { beimKlick: kundeDetail, linien });
   ziel.querySelectorAll("[data-fall]").forEach((z) => z.addEventListener("click", () => fallDetail(z.dataset.fall)));
 }
 
@@ -219,17 +220,18 @@ function mercator(lat, lon, z) {
   const n = 2 ** z * KACHEL, phi = (lat * Math.PI) / 180;
   return { x: ((lon + 180) / 360) * n, y: ((1 - Math.log(Math.tan(phi) + 1 / Math.cos(phi)) / Math.PI) / 2) * n };
 }
-function karteZeichnen(wurzel, daten, { hoehe = 420, beimKlick } = {}) {
+const TOURFARBEN = ["#0b5cad", "#1d7a46", "#a86400", "#7c3aed", "#b42318", "#0e7490"];
+function karteZeichnen(wurzel, daten, { hoehe = 420, beimKlick, linien = [] } = {}) {
   const punkte = [...daten.kunden.filter((p) => p.lat != null), ...(daten.betrieb.lat != null ? [{ ...daten.betrieb, betrieb: true }] : [])];
   const heute = new Set(daten.einsaetze_heute.map((e) => e.kunde_id));
-  wurzel.innerHTML = `<div class="geo" style="height:${hoehe}px" tabindex="0" aria-label="Kundenkarte"><div class="geo-kacheln"></div><div class="geo-marker"></div>
+  wurzel.innerHTML = `<div class="geo" style="height:${hoehe}px" tabindex="0" aria-label="Kundenkarte"><div class="geo-kacheln"></div><svg class="geo-linien" aria-hidden="true"></svg><div class="geo-marker"></div>
     <div class="geo-steuer"><button type="button" class="leise" data-zoom="1" aria-label="Vergrößern">+</button><button type="button" class="leise" data-zoom="-1" aria-label="Verkleinern">−</button></div>
     <div class="geo-hinweis">${esc(daten.kacheln.hinweis || "")}</div></div>
-    <div class="geo-legende"><span><i class="m-betrieb"></i>Betrieb</span><span><i class="m-notdienst"></i>Notdienst offen</span><span><i class="m-hoch"></i>dringend</span><span><i class="m-ueberfaellig"></i>Wartung überfällig</span><span><i class="m-vertrag"></i>Wartungsvertrag</span><span><i class="m-kunde"></i>Kunde</span><span><i class="m-heute"></i>heute Einsatz</span></div>`;
-  const geo = $(".geo", wurzel), kacheln = $(".geo-kacheln", wurzel), marker = $(".geo-marker", wurzel);
+    <div class="geo-legende"><span><i class="m-betrieb"></i>Betrieb</span><span><i class="m-notdienst"></i>Notdienst offen</span><span><i class="m-hoch"></i>dringend</span><span><i class="m-ueberfaellig"></i>Wartung überfällig</span><span><i class="m-vertrag"></i>Wartungsvertrag</span><span><i class="m-kunde"></i>Kunde</span><span><i class="m-heute"></i>heute Einsatz</span>${linien.map((l, i) => `<span><i style="background:${TOURFARBEN[i % TOURFARBEN.length]};border-radius:0;height:3px;width:14px"></i>Tour ${esc(l.name)}${l.minuten != null ? ` (${l.minuten} min, ${l.km} km)` : ""}</span>`).join("")}</div>`;
+  const geo = $(".geo", wurzel), kacheln = $(".geo-kacheln", wurzel), marker = $(".geo-marker", wurzel), svg = $(".geo-linien", wurzel);
   if (!punkte.length) { marker.innerHTML = `<p class="geo-leer">Noch keine Koordinaten. Adressen unter „Kunden &amp; Anlagen“ geokodieren.</p>`; return; }
   const B = geo.clientWidth || 800, H = hoehe;
-  const lats = punkte.map((p) => p.lat), lons = punkte.map((p) => p.lon);
+  const lats = [...punkte.map((p) => p.lat), ...linien.flatMap((l) => l.punkte.map((q) => q[0]))], lons = [...punkte.map((p) => p.lon), ...linien.flatMap((l) => l.punkte.map((q) => q[1]))];
   const mitte = { lat: (Math.min(...lats) + Math.max(...lats)) / 2, lon: (Math.min(...lons) + Math.max(...lons)) / 2 };
   let z = 16;
   for (; z > 3; z--) { const a = mercator(Math.max(...lats), Math.min(...lons), z), b = mercator(Math.min(...lats), Math.max(...lons), z); if (b.x - a.x < B - 80 && b.y - a.y < H - 80) break; }
@@ -249,6 +251,9 @@ function karteZeichnen(wurzel, daten, { hoehe = 420, beimKlick } = {}) {
         }
       }
     }
+    svg.setAttribute("viewBox", `0 0 ${B} ${H}`); svg.setAttribute("width", B); svg.setAttribute("height", H);
+    svg.innerHTML = linien.map((l, i) => { const d = l.punkte.map((q, k) => { const m = mercator(q[0], q[1], lage.z); return `${k ? "L" : "M"}${(m.x - links).toFixed(1)} ${(m.y - oben).toFixed(1)}`; }).join(" ");
+      return `<path d="${d}" fill="none" stroke="${TOURFARBEN[i % TOURFARBEN.length]}" stroke-width="3" stroke-linejoin="round" stroke-opacity=".85"><title>Tour ${esc(l.name)}</title></path>`; }).join("");
     marker.innerHTML = punkte.map((p) => {
       const pos = mercator(p.lat, p.lon, lage.z);
       const art = p.betrieb ? "betrieb" : p.dringlichkeit === "notdienst" ? "notdienst" : p.dringlichkeit === "hoch" ? "hoch" : p.wartung === "ueberfaellig" ? "ueberfaellig" : p.vertragsstatus === "wartungsvertrag" ? "vertrag" : "kunde";
@@ -407,15 +412,44 @@ async function plantafel(ziel) {
   ziel.innerHTML = `<h1>Plantafel</h1><p class="unterzeile">${wir.eingeschraenkt ? "Ihre Einsätze" : "Einsätze je Monteur"}; gelb = vorgemerkt (wartet auf Freigabe), blau = bestätigt.</p>
     ${wir.eingeschraenkt && !p.ressourcen.length ? `<p class="hinweis">Ihrem Konto ist noch kein Monteur zugeordnet. Der Inhaber trägt Ihren Anmeldenamen (${esc(wir.name)}) unter „Monteure“ ein.</p>` : ""}
     <div class="tabelle-rahmen"><div class="plantafel" style="grid-template-columns: 180px repeat(${p.tage}, minmax(150px, 1fr)); min-width: ${180 + p.tage * 150}px">
-      <div class="pt-zelle pt-kopf">Monteur</div>${tage.map((d) => `<div class="pt-zelle pt-kopf">${esc(WOCHENTAG.format(d))}</div>`).join("")}
+      <div class="pt-zelle pt-kopf">Monteur</div>${tage.map((d) => { const f = (p.feiertage || {})[TAGESSCHLUESSEL.format(d)]; return `<div class="pt-zelle pt-kopf${f ? " pt-feiertag" : ""}">${esc(WOCHENTAG.format(d))}${f ? `<br><small>${esc(f)}</small>` : ""}</div>`; }).join("")}
       ${p.ressourcen.map((r) => `<div class="pt-zelle"><strong>${esc(r.name.split(" (")[0])}</strong><br><small>${esc(r.qualifikationen.join(", "))}</small><br><small>${esc(r.arbeitsbeginn)}–${esc(r.arbeitsende)}</small></div>
         ${tage.map((d) => `<div class="pt-zelle">${(r.abwesenheiten || []).filter((a) => a.von <= TAGESSCHLUESSEL.format(d) && a.bis >= TAGESSCHLUESSEL.format(d)).map((a) => `<div class="einsatz abwesend">${esc(ABWESENHEIT_TEXT[a.art] || a.art)}</div>`).join("")}${r.termine.filter((t) => gleicherTag(t.beginn, d)).map((t) => `
           <div class="einsatz ${esc(t.status)} ${t.dringlichkeit === "notdienst" ? "notdienst" : ""}" data-fall="${esc(t.servicefall_id)}">
           <strong>${esc(UHRZEIT.format(new Date(t.beginn)))}–${esc(UHRZEIT.format(new Date(t.ende)))}</strong> ${esc(t.kunde)}<br>${esc(t.anliegen)}</div>`).join("")}</div>`).join("")}`).join("")}
     </div></div>`;
   ziel.querySelectorAll("[data-fall]").forEach((k) => k.addEventListener("click", () => fallDetail(k.dataset.fall)));
+  const leiste = document.createElement("div"); leiste.className = "karte"; leiste.style.margin = "16px 0";
+  leiste.innerHTML = `<div class="zeile"><label>Tour planen für <select id="pt-tour-res">${p.ressourcen.map((r) => `<option value="${esc(r.ressource_id)}">${esc(r.name.split(" (")[0])}</option>`).join("")}</select></label>
+    <label>Tag <input id="pt-tour-tag" type="date" value="${esc(p.von)}"></label><button class="leise" id="pt-tour">Tour anzeigen</button>
+    ${wir.rechte.includes("bearbeiten") ? `<button class="leise" id="pt-kalender">Kalender-Abo (ICS)</button>` : ""}</div><div id="pt-tour-ergebnis"></div>`;
+  ziel.append(leiste);
+  $("#pt-tour", leiste).addEventListener("click", () => tourAnzeigen($("#pt-tour-res", leiste).value, $("#pt-tour-tag", leiste).value, $("#pt-tour-ergebnis", leiste), wir.rechte.includes("bearbeiten")));
+  $("#pt-kalender", leiste)?.addEventListener("click", async () => {
+    const l = await api("/kalender/links");
+    detail(`<h2>Kalender-Abo</h2><p class="unterzeile">Adresse im Telefon als abonnierten Kalender eintragen (iPhone: Einstellungen → Kalender → Accounts → Kalenderabo; Android: Google Kalender „Per URL hinzufügen“ oder DAVx⁵; Outlook: Kalender abonnieren). Termine, Abwesenheiten und Bereitschaften erscheinen mit Adresse, Rufnummer und 30-Minuten-Erinnerung; Aktualisierung alle 30 Minuten. Die Adresse ist ein Geheimnis: nur an den jeweiligen Monteur geben.</p>
+      <table><tbody><tr><td><strong>Betrieb (alle Monteure)</strong></td><td><input readonly value="${esc(l.betrieb)}" onclick="this.select()"></td></tr>
+      ${l.monteure.map((m) => `<tr><td>${esc(m.name.split(" (")[0])}</td><td><input readonly value="${esc(m.url)}" onclick="this.select()"></td></tr>`).join("")}</tbody></table>`);
+  });
   if (wir.rechte.includes("bearbeiten")) await abwesenheitenVerwalten(ziel, await api("/ressourcen"));
   if (wir.rechte.includes("verwalten")) await monteureVerwalten(ziel);
+}
+
+async function tourAnzeigen(ressourceId, tag_, ziel, darf) {
+  ziel.innerHTML = "<p>Fahrzeiten werden berechnet …</p>";
+  const t = (await api(`/tour?ressource_id=${encodeURIComponent(ressourceId)}${tag_ ? `&tag=${tag_}` : ""}`)).touren[0];
+  if (!t) { ziel.innerHTML = "<p>Kein Monteur.</p>"; return; }
+  if (!t.stopps.length) { ziel.innerHTML = `<p class="hinweis">Keine Termine am ${esc(t.tag)}.</p>`; return; }
+  const zeile = (st, i) => `<tr><td>${i + 1}</td><td>${esc(UHRZEIT.format(new Date(st.beginn)))}–${esc(UHRZEIT.format(new Date(st.ende)))}</td><td>${esc(st.kunde)}<br><small>${esc(st.adresse)}</small></td><td>${esc(st.anliegen)}</td><td style="text-align:right">${st.fahrzeit_minuten != null ? `${st.fahrzeit_minuten} min · ${st.km} km` : tag("ohne Koordinaten", "neutral")}</td></tr>`;
+  ziel.innerHTML = `<p class="unterzeile" style="margin:10px 0 6px">${esc(t.name.split(" (")[0])}, ${esc(t.tag)}: ${t.ist.minuten} min Fahrt, ${t.ist.km} km ab Betrieb${t.quelle === "luftlinie" ? " (Luftlinie, OSRM nicht erreichbar)" : ""}${t.hinweis ? ` · ${esc(t.hinweis)}` : ""}</p>
+    <table><thead><tr><th>#</th><th>Zeit</th><th>Kunde</th><th>Anliegen</th><th style="text-align:right">Anfahrt</th></tr></thead><tbody>${t.stopps.map(zeile).join("")}</tbody></table>
+    ${t.vorschlag ? `<p style="margin-top:10px"><strong>Vorschlag:</strong> ${t.vorschlag.reihenfolge.map((id) => esc(t.stopps.find((s) => s.termin_id === id).kunde)).join(" → ")} · ${t.vorschlag.minuten} min, ${t.vorschlag.km} km${t.vorschlag.ersparnis_minuten ? ` · spart ${t.vorschlag.ersparnis_minuten} min` : " · keine Verbesserung"}
+      ${darf && t.vorschlag.ersparnis_minuten ? `<button class="leise" id="pt-tour-umsetzen" style="margin-left:8px">Reihenfolge übernehmen</button>` : ""}</p><p id="pt-tour-status"></p>` : ""}`;
+  $("#pt-tour-umsetzen", ziel)?.addEventListener("click", async () => {
+    try { const e = await api("/tour/umsetzen", { methode: "POST", daten: { ressource_id: ressourceId, tag: tag_ || null, reihenfolge: t.vorschlag.reihenfolge } });
+      $("#pt-tour-status", ziel).innerHTML = `<span class="hinweis">${e.verschoben.length} Termine neu getaktet. Bestätigte Termine mit neuer Uhrzeit dem Kunden mitteilen.</span>`; setTimeout(zeigen, 1200); }
+    catch (e) { $("#pt-tour-status", ziel).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
 }
 
 // Inhaber: Anmeldename je Monteur, damit die Monteur-Rolle nur eigene Einsätze sieht
@@ -567,11 +601,11 @@ SELECT ?von ?nach WHERE { ?n shk:folgtAuf ?v . ?v rdfs:label ?von . ?n rdfs:labe
 async function ontologie(ziel) {
   ziel.innerHTML = `<h1>Ontologie</h1><p class="unterzeile">OWL-Ontologie (TBox) plus Instanzdaten dieses Betriebs als RDF-Graph; SPARQL-Abfragen laufen nur lesend. <a href="/ontologie/tbox" target="_blank">TBox als Turtle</a></p>
     <div class="karte" style="margin-bottom:16px"><div class="wahl" style="margin-bottom:10px">${Object.keys(ABFRAGEN).map((n) => `<button class="leise" data-abfrage="${esc(n)}">${esc(n)}</button>`).join("")}</div>
-    <textarea id="o-abfrage" rows="8">${esc(Object.values(ABFRAGEN)[0])}</textarea><div class="aktionen" style="margin-top:8px"><button id="o-start">Abfrage ausführen</button></div></div>
+    <textarea id="o-abfrage" rows="8">${esc(Object.values(ABFRAGEN)[0])}</textarea><div class="aktionen" style="margin-top:8px;justify-content:space-between"><label style="margin:0"><span><input type="checkbox" id="o-inferenz"> RDFS-Inferenz (owlrl): Unterklassen und Domänen materialisieren</span></label><button id="o-start">Abfrage ausführen</button></div></div>
     <div class="karte" id="o-ergebnis"></div>`;
   const ausfuehren = async () => {
     try {
-      const r = await api("/ontologie/sparql", { methode: "POST", daten: { abfrage: $("#o-abfrage").value } });
+      const r = await api("/ontologie/sparql", { methode: "POST", daten: { abfrage: $("#o-abfrage").value, inferenz: $("#o-inferenz").checked } });
       $("#o-ergebnis").innerHTML = r.typ === "ask" ? `<p>${r.ergebnis ? "Ja" : "Nein"}</p>` :
         `<div class="tabelle-rahmen"><table><thead><tr>${r.variablen.map((v) => `<th>${esc(v)}</th>`).join("")}</tr></thead><tbody>${r.zeilen.map((z) => `<tr>${z.map((w) => `<td>${esc(w)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${r.variablen.length}">Keine Treffer.</td></tr>`}</tbody></table></div>`;
     } catch (e) { $("#o-ergebnis").innerHTML = `<p class="fehler">${esc(e.message)}</p>`; }
@@ -620,8 +654,11 @@ const FELDER_STAMM = [["inhaber", "Inhaber/in"], ["strasse", "Straße"], ["plz",
   ["stundensatz_kosten", "Stundensatz intern (€/h, Nachkalkulation)"], ["stundensatz_verrechnung", "Stundensatz Verrechnung (€/h)"], ["materialaufschlag_prozent", "Materialaufschlag (%)"],
   ["angebotsnummer_praefix", "Angebotsnummer-Präfix"], ["angebot_gueltig_tage", "Angebote gültig (Tage)"], ["mahn_karenz_tage", "Karenz nach Fälligkeit (Tage)"], ["mahn_frist_tage", "Zahlungsfrist je Mahnstufe (Tage)"],
   ["mahngebuehr_stufe2", "Mahngebühr Stufe 2 (€)"], ["mahngebuehr_stufe3", "Mahngebühr Stufe 3 (€)"], ["bewertungslink", "Bewertungslink (Google/ProvenExpert, Anfrage nach erledigtem Rapport)"], ["basis_url", "Öffentliche Adresse der Plattform (für Formular-URL)"],
-  ["lat", "Betriebsstandort Breitengrad (leer: Geokodierung)"], ["lon", "Betriebsstandort Längengrad"], ["karte_kacheln", "Kachelserver der Kundenkarte ({z}/{x}/{y}, Standard OpenStreetMap; CSP img-src anpassen)"], ["karte_hinweis", "Urhebervermerk auf der Karte"]];
+  ["lat", "Betriebsstandort Breitengrad (leer: Geokodierung)"], ["lon", "Betriebsstandort Längengrad"], ["karte_kacheln", "Kachelserver der Kundenkarte ({z}/{x}/{y}, Standard OpenStreetMap; CSP img-src anpassen)"], ["karte_hinweis", "Urhebervermerk auf der Karte"],
+  ["bundesland", "Bundesland für Feiertage (NW, BY, HE …)"], ["routing_url", "OSRM-Server für Fahrzeiten (leer: ROUTING_URL / Demo-Server)"], ["kontoinhaber", "Kontoinhaber auf dem GiroCode (leer: Betriebsname)"]];
 const ANBINDUNGEN = {
+  inhaber: { titel: "Push an den Inhaber", hinweis: "Hinweise auf das Telefon bei Notdienst, Freigaben der Klasse C und gescheiterten Zustellungen (ntfy-App; Server selbst betreiben mit Profil push oder ntfy.sh). Ohne Kanal entsteht kein Hinweis.",
+    typen: { ntfy: [["basis_url", "ntfy-Server (Standard https://ntfy.sh)"], ["topic", "Topic (geheimer, schwer erratbarer Name)"], ["token", "Zugriffstoken (optional)", true]], webhook: [["url", "Webhook-URL"], ["signatur_schluessel", "Signaturschlüssel (HMAC)", true]] } },
   fachsoftware: { titel: "Fachsoftware", hinweis: "Termine und Aufträge. Bis die Schreib-API der Fachsoftware geklärt ist: Webhook (z. B. n8n) oder CSV-Export.",
     typen: { webhook: [["url", "Webhook-URL"], ["signatur_schluessel", "Signaturschlüssel (HMAC)", true], ["api_key", "Bearer-Token (optional)", true]], csv: [] } },
   endkunde: { titel: "Kundenkommunikation", hinweis: "Terminbestätigung, Nachrichten, Rechnungen. Reihenfolge: E-Mail, dann SMS (nur mit Einwilligung).",
@@ -692,6 +729,8 @@ async function einsatzAnsicht(ziel) {
   const q = buero && gewaehlt ? `?ressource_id=${encodeURIComponent(gewaehlt)}` : "";
   const h = await api(`/einsatz/heute${q}`);
   const laufend = h.laufend;
+  const tour = h.ressource ? (await api(`/tour?ressource_id=${encodeURIComponent(h.ressource.id)}`).catch(() => ({ touren: [] }))).touren[0] : null;
+  const anfahrt = (terminId) => tour?.stopps.find((s) => s.termin_id === terminId);
   ziel.innerHTML = `<h1>Mein Einsatz</h1><p class="unterzeile">${esc(DATUM.format(new Date()))}${h.ressource ? ` · ${esc(h.ressource.name.split(" (")[0])}` : ""}${h.bereitschaft ? ` · Bereitschaft: ${esc(h.bereitschaft.name)} ${esc(h.bereitschaft.telefon)}` : ""}</p>
     ${buero ? `<div class="karte" style="margin-bottom:16px"><label>Monteur <select id="e-ressource">${ressourcen.map((r) => `<option value="${esc(r.id)}" ${r.id === gewaehlt ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select></label></div>` : ""}
     ${!h.ressource ? `<p class="hinweis">Ihrem Konto ist noch kein Monteur zugeordnet. Der Inhaber trägt Ihren Anmeldenamen (${esc(wir.name)}) unter „Plantafel → Monteure“ ein.</p>` : `
@@ -705,7 +744,7 @@ async function einsatzAnsicht(ziel) {
       <div class="zeile" style="justify-content:space-between"><strong>${esc(UHRZEIT.format(new Date(t.beginn)))}–${esc(UHRZEIT.format(new Date(t.ende)))}</strong>${tag(t.dringlichkeit)} ${tag(t.status)}</div>
       <p style="margin:6px 0"><strong>${esc(t.kunde.name)}</strong><br>${esc(t.kunde.strasse || "")}, ${esc(t.kunde.plz || "")} ${esc(t.kunde.ort || "")}
         ${t.kunde.telefon ? `<br><a href="tel:${esc(t.kunde.telefon)}">${esc(t.kunde.telefon)}</a>` : ""}
-        <br><a target="_blank" rel="noopener" href="https://www.openstreetmap.org/search?query=${encodeURIComponent(`${t.kunde.strasse || ""} ${t.kunde.plz || ""} ${t.kunde.ort || ""}`)}">Karte</a></p>
+        <br>${(() => { const a = anfahrt(t.termin_id); return a?.fahrzeit_minuten != null ? `<small>Anfahrt ${a.fahrzeit_minuten} min · ${a.km} km</small> · ` : ""; })()}<a href="${esc(t.navigation.geo)}">Navigation</a> · <a target="_blank" rel="noopener" href="${esc(t.navigation.google)}">Google Maps</a> · <a target="_blank" rel="noopener" href="${esc(t.navigation.apple)}">Apple Karten</a> · <a target="_blank" rel="noopener" href="${esc(t.navigation.osm)}">OSM</a></p>
       <p style="margin:6px 0">${esc(t.anliegen)}${t.symptom ? `<br><small>${esc(t.symptom)}</small>` : ""}${t.anlage ? `<br><small>Anlage: ${esc(t.anlage.typ)} ${esc(t.anlage.hersteller || "")} ${esc(t.anlage.baujahr || "")}</small>` : ""}</p>
       <div class="aktionen">${t.rapport ? `<span class="marke-tag t-A">Rapport ${esc(t.rapport.nummer)}${t.rapport.unterschrieben ? " · unterschrieben" : ""}</span>` : ""}
         <button class="leise" data-fall="${esc(t.servicefall_id)}">Details</button>

@@ -1,5 +1,5 @@
 # Container-Images mit festgelegter Version (Stand 21.10.2026, Docker Hub bzw. Quay). Das Spiegelskript zieht und sichert sie als tar.
-# Lizenz je Image: PostgreSQL License / Apache-2.0 (pgvector, LiveKit, Keycloak, Jena, Caddy), BSD-3 (Redis 7), Sustainable Use License (n8n, nur intern).
+# Lizenz je Image: PostgreSQL License / Apache-2.0 (pgvector, LiveKit, Keycloak, Jena, Caddy, ntfy, Prometheus, Alertmanager), BSD-2 (OSRM), BSD-3 (Redis 7), Sustainable Use License (n8n, nur intern).
 pgvector/pgvector:0.8.7-pg16
 redis:7.4-alpine
 livekit/livekit-server:v1.13.10
@@ -9,3 +9,8 @@ stain/jena-fuseki:5.1.0
 n8nio/n8n:2.45.1
 caddy:2.10-alpine
 python:3.12-slim
+ghcr.io/project-osrm/osrm-backend:v5.27.1
+binwiederhier/ntfy:v2.11.0
+prom/prometheus:v3.5.0
+prom/alertmanager:v0.28.1
+curlimages/curl:8.11.1

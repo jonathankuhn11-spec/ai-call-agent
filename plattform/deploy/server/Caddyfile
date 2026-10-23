@@ -26,7 +26,7 @@
 	header X-Frame-Options DENY
 	header Content-Security-Policy "default-src 'self'; connect-src 'self' https://auth.{$SHK_DOMAIN}; img-src 'self' data: https://tile.openstreetmap.org; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://auth.{$SHK_DOMAIN}"
 	# OpenAPI-Dokumentation nicht öffentlich ausliefern
-	@intern path /docs /redoc /openapi.json
+	@intern path /docs /redoc /openapi.json /metrics
 	respond @intern 404
 	reverse_proxy core:8100 {
 		health_uri /health

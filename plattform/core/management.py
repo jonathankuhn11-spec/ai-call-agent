@@ -11,11 +11,13 @@ from datetime import date, datetime, timedelta
 from statistics import median
 from typing import Any
 
+from owlrl import DeductiveClosure, RDFS_Semantics
 from rdflib import Graph
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from core import domaene
+from core.feiertage import feiertag
 from core.disposition import ZEITZONE
 from core.domaene import als_utc
 from core.modelle import Abwesenheit, Anfrage, Beleg, Rapport, Rechnung, Zahlung, Zeiteintrag, Anlage, Ereignis, Freigabe, Kommunikation, Mandant, OutboxEintrag, Ressource, Servicefall, Termin
@@ -119,16 +121,20 @@ def plantafel(s: Session, mandant: Mandant, tag: date, tage: int = 5, nur_ressou
                          "dringlichkeit": t.servicefall.dringlichkeit, "kunde": t.servicefall.kunde.name,
                          "ort": t.servicefall.kunde.ort} for t in termine],
         })
-    return {"von": beginn.date().isoformat(), "tage": tage, "ressourcen": zeilen}
+    tage_ = [(beginn + timedelta(days=i)).date() for i in range(tage)]
+    return {"von": beginn.date().isoformat(), "tage": tage, "ressourcen": zeilen,
+            "feiertage": {d.isoformat(): name for d in tage_ if (name := feiertag(d, mandant.stammdaten))}}
 
 
-def sparql(s: Session, mandant: Mandant, abfrage: str) -> dict[str, Any]:
+def sparql(s: Session, mandant: Mandant, abfrage: str, inferenz: bool = False) -> dict[str, Any]:
     """Nur SELECT/ASK über TBox und Instanzdaten des Mandanten; der Graph ist je Anfrage isoliert."""
     kopf = abfrage.strip().upper()
     # Schlüsselwörter nur als ganze Wörter: „shk:Servicefall“ enthält SERVICE, ist aber keine Föderation
     if not re.search(r"\b(SELECT|ASK)\b", kopf) or re.search(r"\b(INSERT|DELETE|LOAD|CLEAR|DROP|CREATE|MOVE|COPY|ADD|SERVICE)\b", kopf):
         raise ValueError("Nur SELECT- und ASK-Abfragen sind erlaubt")
     g: Graph = exportieren(s, mandant, mit_tbox=True)
+    if inferenz:  # RDFS-Abschluss (owlrl): rdfs:subClassOf*, Domänen und Bereiche werden materialisiert
+        DeductiveClosure(RDFS_Semantics).expand(g)
     ergebnis = g.query(abfrage)
     if ergebnis.type == "ASK":
         return {"typ": "ask", "ergebnis": bool(ergebnis.askAnswer)}

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import base64
+import time
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import RedirectResponse
@@ -21,10 +22,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from core import anfragen, angebote, belege, domaene, einsatz, forderungen, karte, loeschung, management, scanner, tagesaufgaben, twin, vertraege
+from core import (anfragen, angebote, belege, domaene, einsatz, feiertage, forderungen, hinweise, kalender, karte, loeschung, management,
+                  metriken, routing, scanner, tagesaufgaben, twin, vertraege)
 from core.auth import Abgewiesen, Authentifizierung, Prinzipal
 from core.db import Datenbank, mandant_binden
-from core.disposition import freie_zeitfenster, kollidiert
+from core.disposition import ZEITZONE, freie_zeitfenster, kollidiert
 from core.adapter import ERLAUBT, ZIELE, konfiguration_pruefen
 from core.geheimnisse import GEHEIME_FELDER, konfiguration_maskieren, konfiguration_verschluesseln
 from core.modelle import (Abwesenheit, Anfrage, Angebot, Anhang, Anlage, Artikel, Beleg, Bereitschaft, Ereignis, Freigabe, Frist,
@@ -35,6 +37,8 @@ from core.regeln import dringlichkeit_bewerten, qualifikation_fuer, telefon_norm
 from core.rechnung import pdf as rechnung_pdf
 from core.rechnung import positionen_aus_payload, summen
 from core.rechnung import xrechnung
+from schwifty import IBAN
+from schwifty.exceptions import SchwiftyException
 
 UI_VERZEICHNIS = Path(__file__).resolve().parent / "ui"
 
@@ -257,6 +261,13 @@ class VoiceServicefall(_Schema):
 
 class SparqlAbfrage(_Schema):
     abfrage: str = Field(..., max_length=5000)
+    inferenz: bool = False   # RDFS-Schlussfolgerung (owlrl) vor der Abfrage: Unterklassen, Domänen, Bereiche
+
+
+class TourUmsetzen(_Schema):
+    ressource_id: str
+    tag: date | None = None
+    reihenfolge: list[str] = Field(..., min_length=1)
 
 
 class Stammdaten(_Schema):
@@ -284,6 +295,9 @@ class Stammdaten(_Schema):
     lon: float | None = Field(None, ge=-180, le=180)
     karte_kacheln: str | None = None   # Kachel-URL mit {z}/{x}/{y}; Standard OpenStreetMap, CSP img-src beachten
     karte_hinweis: str | None = None
+    bundesland: str | None = Field(None, max_length=2)   # Feiertage: NW, BY, … (Standard NW)
+    routing_url: str | None = None     # eigener OSRM-Server (Profil routing); leer: ROUTING_URL bzw. Demo-Server
+    kontoinhaber: str | None = None    # Name auf dem GiroCode, Standard Betriebsname
     # Nachkalkulation (core/einsatz.py): interne Kosten und Verrechnungssatz je Stunde, Aufschlag auf Materialnetto
     stundensatz_kosten: float = Field(55, ge=0, le=500)
     stundensatz_verrechnung: float = Field(69, ge=0, le=500)
@@ -309,6 +323,7 @@ class Integration(_Schema):
     sevdesk: dict[str, Any] = {}
     belegpaket: dict[str, Any] = {}
     belegtransfer: dict[str, Any] = {}
+    ntfy: dict[str, Any] = {}
 
 
 class RechnungAus(_Schema):
@@ -680,6 +695,19 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     app = FastAPI(title="SHK-Backoffice Core-Service", version="0.2.0")
     app.state.db, app.state.system_db, app.state.uhr, app.state.auth = db, system_db, uhr, auth
     app.state.geocoder = None   # Tests und Betrieb ohne Netz setzen hier eine eigene Funktion (Adresse → (lat, lon))
+    app.state.router = None     # routing.Router; Tests setzen Router(None) (Luftlinie)
+    app.state.metriken = metriken.Metriken(system_db.sitzungen, uhr)
+
+    @app.middleware("http")
+    async def messen(request: Request, call_next):
+        start = time.perf_counter()
+        antwort = await call_next(request)
+        route = request.scope.get("route")
+        app.state.metriken.messen(request.method, getattr(route, "path", request.url.path)[:80], antwort.status_code, start)
+        return antwort
+
+    def router_fuer(m: Mandant) -> routing.Router:
+        return app.state.router or routing.Router.aus_umgebung(m.stammdaten)
 
     def sitzung():
         yield from db.sitzung()
@@ -749,6 +777,11 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/metrics", include_in_schema=False, dependencies=[Depends(recht("verwalten"))])
+    def metrics() -> Response:
+        """Prometheus-Format; hinter Caddy nicht öffentlich, Prometheus im Compose-Netz ruft mit X-API-Key ab."""
+        return Response(app.state.metriken.ausgabe(), media_type=metriken.CONTENT_TYPE)
 
     # Büro-Oberfläche (statisch, ohne Build-Schritt); spricht dieselbe API mit X-API-Key und X-Mandant
     app.mount("/app", StaticFiles(directory=UI_VERZEICHNIS, html=True), name="ui")
@@ -995,6 +1028,8 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         s.flush()
         domaene.protokollieren(s, m.id, "servicefall.eingegangen", "servicefall", f.id, akteur,
                                {"quelle": f.quelle, "dringlichkeit": f.dringlichkeit, "regel": bewertung.grund})
+        if f.dringlichkeit == "notdienst":
+            hinweise.senden(s, m, "notdienst", "Notdienst eingegangen", f"{f.kunde.name}: {f.anliegen[:80]}", f"servicefall:{f.id}", "vorgaenge")
         return f
 
     @app.post("/servicefaelle", response_model=ServicefallAus, status_code=201, dependencies=[Depends(recht("bearbeiten"))])
@@ -1127,7 +1162,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     @app.post("/ontologie/sparql")
     def ontologie_sparql(daten: SparqlAbfrage, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
         try:
-            return management.sparql(s, m, daten.abfrage)
+            return management.sparql(s, m, daten.abfrage, daten.inferenz)
         except ValueError as e:
             raise HTTPException(422, str(e)) from e
         except Exception as e:  # noqa: BLE001  Syntaxfehler der Abfrage gehören zum Nutzer, nicht zum Server
@@ -1140,6 +1175,60 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         neu = management.wartung_planen(s, m, app.state.uhr().date(), vorlauf_tage, kunden_anschreiben)
         s.commit()
         return {"angelegt": len(neu), "servicefaelle": neu}
+
+    # --- Touren, Kalender, Feiertage ---------------------------------------------------------
+    @app.get("/tour")
+    def tour_lesen(ressource_id: str | None = None, tag: date | None = None, m: Mandant = Depends(mandant_kontext),
+                   s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        """Tagestour je Monteur: Fahrzeiten ab Betriebsstandort, Linie für die Karte, optimierte Reihenfolge als Vorschlag."""
+        jetzt_ = app.state.uhr()
+        zeitpunkt = datetime.combine(tag, datetime.min.time(), timezone.utc) + timedelta(hours=12) if tag else jetzt_
+        eigene = eigene_ressourcen(p, s, m)
+        ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv).order_by(Ressource.name)).all()
+        if ressource_id:
+            ressourcen = [holen(s, Ressource, ressource_id, m)]
+        if eigene is not None:
+            ressourcen = [r for r in ressourcen if r.id in eigene]
+        router = router_fuer(m)
+        return {"tag": zeitpunkt.astimezone(ZEITZONE).date().isoformat(), "touren": [routing.tour(s, m, r, zeitpunkt, router) for r in ressourcen]}
+
+    @app.post("/tour/umsetzen", dependencies=[Depends(recht("bearbeiten"))])
+    def tour_umsetzen(daten: TourUmsetzen, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                      p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        r = holen(s, Ressource, daten.ressource_id, m)
+        zeitpunkt = datetime.combine(daten.tag, datetime.min.time(), timezone.utc) + timedelta(hours=12) if daten.tag else app.state.uhr()
+        ergebnis = fachlich(lambda: routing.tour_umsetzen(s, m, r, zeitpunkt, daten.reihenfolge, router_fuer(m), wer(p, None)))
+        s.commit()
+        return ergebnis
+
+    @app.get("/kalender/links", dependencies=[Depends(recht("bearbeiten"))])
+    def kalender_links(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        basis = (m.stammdaten or {}).get("basis_url") or os.environ.get("BASIS_URL") or "http://localhost:8100"
+        ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv).order_by(Ressource.name)).all()
+        return kalender.links(m, ressourcen, basis)
+
+    @app.get("/kalender/betrieb/{mandant_id}.ics", include_in_schema=False)
+    def kalender_betrieb(mandant_id: str, token: str | None = None, s: Session = Depends(sitzung)) -> Response:
+        m = s.get(Mandant, mandant_id)
+        if m is None or not kalender.token_gueltig("betrieb:" + mandant_id, token):
+            raise HTTPException(404, "Kalender nicht gefunden")
+        return Response(kalender.kalender(s, m, None, app.state.uhr()), media_type="text/calendar; charset=utf-8",
+                        headers={"Content-Disposition": "inline; filename=betrieb.ics", "Cache-Control": "private, max-age=900"})
+
+    @app.get("/kalender/{ressource_id}.ics", include_in_schema=False)
+    def kalender_ressource(ressource_id: str, token: str | None = None, s: Session = Depends(sitzung)) -> Response:
+        r = s.get(Ressource, ressource_id)
+        if r is None or not kalender.token_gueltig("ressource:" + ressource_id, token):
+            raise HTTPException(404, "Kalender nicht gefunden")
+        m = s.get(Mandant, r.mandant_id)
+        return Response(kalender.kalender(s, m, r, app.state.uhr()), media_type="text/calendar; charset=utf-8",
+                        headers={"Content-Disposition": "inline; filename=einsaetze.ics", "Cache-Control": "private, max-age=900"})
+
+    @app.get("/feiertage")
+    def feiertage_lesen(jahr: int | None = None, m: Mandant = Depends(mandant_kontext)) -> dict[str, Any]:
+        jahr = jahr or app.state.uhr().year
+        return {"bundesland": feiertage.bundesland(m.stammdaten), "jahr": jahr, "feiertage": feiertage.feiertage(jahr, m.stammdaten),
+                "bundeslaender": feiertage.BUNDESLAENDER}
 
     @app.get("/kennzahlen")
     def kennzahlen(tage: int = Query(30, ge=1, le=365), m: Mandant = Depends(mandant_kontext),
@@ -1159,7 +1248,22 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
 
     @app.put("/betrieb/stammdaten", dependencies=[Depends(recht("verwalten"))])
     def stammdaten_setzen(daten: Stammdaten, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
-        m.stammdaten = {**m.stammdaten, **daten.model_dump(exclude_none=True)}
+        werte = daten.model_dump(exclude_none=True)
+        if werte.get("iban"):
+            try:
+                iban = IBAN(werte["iban"])
+            except SchwiftyException as e:
+                raise HTTPException(422, f"IBAN ungültig: {e}") from e
+            werte["iban"] = iban.formatted
+            if not werte.get("bic") and iban.bic:
+                werte["bic"] = str(iban.bic)
+            if not werte.get("bank") and iban.bank_name:
+                werte["bank"] = iban.bank_name
+        if werte.get("bundesland") and werte["bundesland"].upper() not in feiertage.BUNDESLAENDER:
+            raise HTTPException(422, f"Unbekanntes Bundesland {werte['bundesland']!r} (Kürzel wie NW, BY, HE)")
+        if werte.get("bundesland"):
+            werte["bundesland"] = werte["bundesland"].upper()
+        m.stammdaten = {**m.stammdaten, **werte}
         s.commit()
         return m.stammdaten
 
@@ -1175,7 +1279,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
             raise HTTPException(404, "Unbekanntes Ziel")
         bisher = m.integrationen.get(ziel) or {}
         neu: dict[str, Any] = {"kanaele": daten.kanaele}
-        for typ in ("email", "sms", "webhook", "lexware", "sevdesk", "belegpaket", "belegtransfer"):
+        for typ in ("email", "sms", "webhook", "lexware", "sevdesk", "belegpaket", "belegtransfer", "ntfy"):
             konfig = dict(getattr(daten, typ))
             for feld in GEHEIME_FELDER:  # maskierte oder leere Geheimnisse behalten den gespeicherten Wert
                 if konfig.get(feld) in ("", "••••", None) and (bisher.get(typ) or {}).get(feld):

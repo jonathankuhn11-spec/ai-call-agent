@@ -138,3 +138,6 @@ pre { background: var(--fläche); border: 1px solid var(--linie); border-radius:
 .geo-legende .m-heute { box-shadow: 0 0 0 2px var(--akzent) !important; background: transparent !important; }
 .pruefliste { margin: 0; padding-left: 18px; } .pruefliste li { margin-bottom: 4px; }
 a.kachel { text-decoration: none; color: inherit; }
+.geo-linien { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.geo-marker { position: absolute; inset: 0; z-index: 2; }
+.pt-feiertag { background: var(--warn-fläche); color: var(--warn); }

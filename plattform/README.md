@@ -32,7 +32,7 @@ plattform/
 ├── deploy/server/        Serverbetrieb: Compose-Override, Caddy, cloud-init, Deploy, Backup
 ├── HOSTING.md            Hosting in Deutschland, Einrichtung, Sicherung, Sicherheitskonzept
 ├── STIMME.md             Eigene Stimme des Inhabers für den Sprachagenten (Voice Cloning, Anbieter, Einwilligung)
-├── docker-compose.yml    Profile: Basis, voice, ops (n8n), auth (Keycloak), ontologie (Fuseki)
+├── docker-compose.yml    Profile: Basis, voice, ops (n8n), auth (Keycloak), ontologie (Fuseki), routing (OSRM), push (ntfy), monitoring (Prometheus, Alertmanager)
 ├── KATALOG.md            Open-Source-Komponenten mit Lizenz und Einbindungsart
 ├── drittanbieter/        mitgeführte Fremdartefakte: Lizenztexte, Brick-Ontologie, KoSIT-Validator, Wheelhouse, Image-Spiegel (spiegeln.sh)
 └── VOICE-AGENT.md        Auswahl des Voice-Agenten und Aufbau des Voice-Backends
@@ -55,16 +55,16 @@ Danach `http://localhost:8100/` öffnen (Oberfläche) bzw. `/docs` (OpenAPI). Oh
 
 | Ansicht | Inhalt |
 | --- | --- |
-| Cockpit | Kennzahlen, Auslastung je Monteur, dringende Vorgänge, letzte Ereignisse (Betriebs-Zwilling); **Kundenkarte** (wo welche Kunden sind: Punkte je Kunde mit Dringlichkeit, Wartungsstatus, Vertrag, heutige Einsätze; Betriebsstandort; Zoom/Verschieben; Hintergrund vom konfigurierbaren Kachelserver), Kunden je Ort, Kachel „Kundendaten vollständig“ und Liste, welche Angaben fehlen |
+| Cockpit | Kennzahlen, Auslastung je Monteur, dringende Vorgänge, letzte Ereignisse (Betriebs-Zwilling); **Kundenkarte** (wo welche Kunden sind: Punkte je Kunde mit Dringlichkeit, Wartungsstatus, Vertrag, heutige Einsätze; Betriebsstandort; Zoom/Verschieben; Hintergrund vom konfigurierbaren Kachelserver), Kunden je Ort, Kachel „Kundendaten vollständig“ und Liste, welche Angaben fehlen; Tagestouren der Monteure als Linien mit Fahrzeit und Kilometern |
 | Anruf simulieren | spielt die Werkzeugkette des Voice-Agenten ohne Telefon durch, inkl. Sicherheitsfall Gasgeruch |
 | Freigabe-Inbox | offene Aktionen der Klassen B und C, Freigeben/Ablehnen mit Protokolleintrag |
 | Vorgänge | Kanban über den Statusautomaten; Detail mit Terminvorschlag aus der Disposition und Statuswechsel |
-| Plantafel | Einsätze je Monteur und Tag, vorgemerkt vs. bestätigt |
+| Plantafel | Einsätze je Monteur und Tag, vorgemerkt vs. bestätigt; Feiertage des Bundeslands markiert; **Tour je Monteur und Tag** (Fahrzeit und Kilometer je Anfahrt ab Betrieb, optimierte Reihenfolge, „Reihenfolge übernehmen“ taktet die Termine neu); **Kalender-Abo** (ICS-Adressen je Monteur und für den Betrieb) |
 | Kunden & Anlagen | CRM-Suche mit Spalte „Vollständig“ (Rufnummer, E-Mail, Anschrift, Koordinaten, Objekt, Anlage, Einwilligung) und Filter auf unvollständige Datensätze; Kunde anlegen und bearbeiten (inkl. Koordinaten), Einwilligungen mit Zeitstempel setzen und entziehen, Objekt und Anlage anlegen, Adressen geokodieren; Kundendetail mit Prüfliste und Anlagen-Zwilling (Wartungsstatus, Ontologieklasse) |
 | Wartungsplanung | fällige Anlagen aus dem Zwilling, Planung als Servicefälle plus Kundenerinnerung zur Freigabe |
-| Ontologie | vorbereitete SPARQL-Abfragen und freies Abfragefeld über TBox und Instanzdaten |
+| Ontologie | vorbereitete SPARQL-Abfragen und freies Abfragefeld über TBox und Instanzdaten, optional mit RDFS-Inferenz (owlrl) |
 | Ereignisprotokoll | Event-Log und Outbox inkl. Dead-Letter |
-| Mein Einsatz (mobil) | Tagesliste des Monteurs mit Anfahrt und Rufnummer, Stempeluhr (Arbeit/Fahrt/Pause), Rapport mit Fotos, Messwerten und Kundenunterschrift (Canvas, PDF), Belegfoto |
+| Mein Einsatz (mobil) | Tagesliste des Monteurs mit Anfahrtszeit, Navigationslinks (geo-URI, Google Maps, Apple Karten, OSM) und Rufnummer, Stempeluhr (Arbeit/Fahrt/Pause), Rapport mit Fotos, Messwerten und Kundenunterschrift (Canvas, PDF), Belegfoto |
 | Belege | Eingangsrechnungen und Lieferscheine: XRechnung/ZUGFeRD strukturiert, PDF und Fotos per Texterkennung mit Konfidenz; Kamera-Scan mehrseitig, Abruf von Scanner-Postfach und Eingangsordner; Prüfen, Zuordnen zum Vorgang, Übergabe an Lexware Office/sevDesk/DATEV (Belegtransfer, Upload-Mail) und im Belegpaket |
 | Zeiten | Stempel- und Nachtragszeiten je Monteur und Monat, Lohnexport (CSV mit Nacht- und Sonntagsminuten) |
 | Bereitschaft & Fristen | Bereitschaftsplan (vom Sprachagenten bei Notfällen genannt), Prüf-, Unterweisungs-, Zertifikats- und Vertragsfristen mit Folgefrist |
@@ -75,11 +75,11 @@ Danach `http://localhost:8100/` öffnen (Oberfläche) bzw. `/docs` (OpenAPI). Oh
 | Offene Posten | Restbeträge und Überfälligkeit, Zahlung buchen (Teilzahlung, Skonto, Ausbuchung), CSV-Bankimport mit Zuordnung über die Rechnungsnummer, Mahnlauf (Erinnerung B, Mahnung mit Gebühr C), Mahnungs-PDF |
 | Auswertungen | Umsatz und Zahlungseingang je Monat, offene Posten, Angebotsquote, Vertragsbestand, Deckungsbeitrag je Monteur, Anfragen je Kanal |
 | Plantafel (Ergänzung) | Abwesenheiten (Urlaub, Krankheit, Schulung) sperren den Monteur ganztägig in Disposition und Sprachagent |
-| Einstellungen (Ergänzung) | Artikel- und Leistungsstamm, Kontaktformular (Token, Snippet, Danke-Seite), IMAP-Posteingang, Angebots- und Mahnparameter, Bewertungslink (Bewertungsanfrage nach erledigtem Rapport als Freigabe B) |
+| Einstellungen (Ergänzung) | Bundesland (Feiertage), OSRM-Server, Kontoinhaber (GiroCode), Push an den Inhaber (ntfy), Artikel- und Leistungsstamm, Kontaktformular (Token, Snippet, Danke-Seite), IMAP-Posteingang, Angebots- und Mahnparameter, Bewertungslink (Bewertungsanfrage nach erledigtem Rapport als Freigabe B) |
 
 Mit Docker: `cp .env.example .env`, Werte setzen, `docker compose up -d` (PostgreSQL, Migration,
 Core, Worker). Anmeldung über Keycloak mit `--profile auth` und `OIDC_ISSUER=http://localhost:8180/realms/shk`,
-Voice mit `--profile voice` (siehe [VOICE-AGENT.md](VOICE-AGENT.md)). Serverbetrieb: [HOSTING.md](HOSTING.md).
+Voice mit `--profile voice` (siehe [VOICE-AGENT.md](VOICE-AGENT.md)). Fahrzeiten mit `--profile routing` nach `deploy/osrm/vorbereiten.sh` (Kartenausschnitt von Geofabrik, `ROUTING_URL=http://osrm:5000`), Push mit `--profile push` (ntfy, `NTFY_BASE_URL`), Metriken und Alarme mit `--profile monitoring` (`deploy/monitoring/`, Prometheus unter 127.0.0.1:9090). Serverbetrieb: [HOSTING.md](HOSTING.md).
 
 ## Anmeldung, Rollen, Mandantentrennung
 
@@ -117,6 +117,8 @@ Fachendpunkte verlangen einen Mandantenkontext: bei Maschinen `X-Mandant`, bei P
 | Bereich | Endpunkte |
 | --- | --- |
 | CRM | `POST/GET /kunden`, `GET/PATCH /kunden/{id}` (mit `lat`/`lon`, Detail mit `vollstaendigkeit`), `PUT /kunden/{id}/einwilligungen`, `POST /kunden/{id}/objekte`, `POST /objekte/{id}/anlagen`, `GET /anlagentypen` |
+| Touren, Kalender, Feiertage | `GET /tour?ressource_id=&tag=` (Fahrzeiten ab Betrieb, Linie, Vorschlag), `POST /tour/umsetzen`, `GET /kalender/links`, `GET /kalender/{ressource_id}.ics?token=` und `GET /kalender/betrieb/{mandant_id}.ics?token=` (öffentlich mit Token), `GET /feiertage?jahr=` |
+| Betrieb/Monitoring | `GET /metrics` (Prometheus, Recht „verwalten“, hinter Caddy nicht öffentlich); Push-Ziel `inhaber` über `PUT /integrationen/inhaber` (ntfy, webhook) |
 | Kundenkarte | `GET /kunden/karte` (Kundenpunkte, heutige Einsätze, Betriebsstandort, Kunden je Ort, Kachelserver), `GET /kunden/vollstaendigkeit`, `POST /kunden/geokodieren?limit=&alle=` (Nominatim, max. 1 Anfrage/s; CLI `python -m core geokodieren`) |
 | Disposition | `POST/GET /ressourcen`, `GET /disposition/zeitfenster`, `GET /termine` |
 | Vorgänge | `POST/GET /servicefaelle`, `GET /servicefaelle/{id}` (mit Event-Historie), `POST /servicefaelle/{id}/status`, `POST /servicefaelle/{id}/termine` |
@@ -125,7 +127,7 @@ Fachendpunkte verlangen einen Mandantenkontext: bei Maschinen `X-Mandant`, bei P
 | Digital Twin | `GET /twin/betrieb`, `GET /twin/anlagen/{id}` |
 | Ontologie | `GET /ontologie/tbox`, `GET /ontologie/export?mit_tbox=true` (text/turtle), `POST /ontologie/sparql` (nur SELECT/ASK) |
 | Management | `POST /wartung/planen`, `GET /kennzahlen`, `GET /plantafel`, `GET/POST /mandanten`, `PATCH /ressourcen/{id}` |
-| Finanzen | `GET /rechnungen`, `GET /rechnungen/{id}` (+ `/pdf`, `/xrechnung`), `POST /rechnungen/{id}/storno`, `POST /kanzlei/belegpaket` (Rechnung und Storno entstehen über Freigaben Klasse C) |
+| Finanzen | `GET /rechnungen`, `GET /rechnungen/{id}` (+ `/pdf` mit GiroCode, `/xrechnung`), `POST /rechnungen/{id}/storno`, `POST /kanzlei/belegpaket` (Rechnung und Storno entstehen über Freigaben Klasse C) |
 | Betrieb/Einstellungen | `GET /betrieb`, `PUT /betrieb/stammdaten`, `GET /integrationen` (maskiert), `PUT /integrationen/{ziel}` (Ziele `fachsoftware`, `endkunde`, `finanz`, `kanzlei`) |
 | Datenschutz | `GET /kunden/{id}/auskunft` (Art. 15), `POST /kunden/{id}/loeschen` (Art. 17, Sperrfristen), `POST /loeschlauf?trocken=true` |
 | Anmeldung | `GET /auth/konfiguration` (öffentlich), `GET /ich` (Name, Rollen, Rechte) |

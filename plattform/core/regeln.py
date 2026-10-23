@@ -6,6 +6,8 @@ Wasserrohrbruch) nie von einer Modellantwort abhängen.
 from __future__ import annotations
 
 import re
+
+import phonenumbers
 from dataclasses import dataclass
 
 from core.ontologie import ANLAGENTYPEN
@@ -32,9 +34,16 @@ AUSFALL = re.compile(r"(heizung|therme|kessel|wärmepumpe).{0,30}(aus|kalt|geht 
 
 
 def telefon_normalisieren(nummer: str | None) -> str | None:
-    """Deutsche Rufnummern auf E.164 (+49…); None bei unbrauchbarer Eingabe."""
+    """Rufnummern auf E.164 (+49…): zuerst libphonenumber (auch ausländische Nummern, Vorwahlprüfung), sonst die
+    deutsche Heuristik, damit kurze Test- und Sondernummern erhalten bleiben; None bei unbrauchbarer Eingabe."""
     if not nummer:
         return None
+    try:
+        geparst = phonenumbers.parse(nummer, "DE")
+        if phonenumbers.is_valid_number(geparst):
+            return phonenumbers.format_number(geparst, phonenumbers.PhoneNumberFormat.E164)
+    except phonenumbers.NumberParseException:
+        pass
     ziffern = re.sub(r"[^\d+]", "", nummer)
     if ziffern.startswith("00"):
         ziffern = "+" + ziffern[2:]
@@ -43,6 +52,16 @@ def telefon_normalisieren(nummer: str | None) -> str | None:
     elif not ziffern.startswith("+"):
         return None
     return ziffern if 8 <= len(ziffern) <= 16 else None
+
+
+def telefon_gueltig(nummer: str | None) -> bool:
+    """Plausible, vergebbare Rufnummer nach libphonenumber (Länder- und Ortsnetzkennzahl, Länge)."""
+    if not nummer:
+        return False
+    try:
+        return phonenumbers.is_valid_number(phonenumbers.parse(nummer, "DE"))
+    except phonenumbers.NumberParseException:
+        return False
 
 
 def dringlichkeit_bewerten(text: str, monat: int, angegeben: str | None = None) -> Bewertung:

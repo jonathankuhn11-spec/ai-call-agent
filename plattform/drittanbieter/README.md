@@ -46,6 +46,17 @@ bewusst nicht enthalten und werden auch nicht als Dienst betrieben; sie stehen i
 | pypdf | 6.17.0 | BSD-3-Clause | Python-Paket | `lizenzen/pypdf.txt` |
 | Pillow | 12.3.0 | MIT-CMU | Python-Paket | `lizenzen/pillow.txt` |
 | lxml | 6.1.3 | BSD-3-Clause | Python-Paket (Tests) | `lizenzen/lxml.txt` |
+| icalendar | 7.3.0 | BSD-2-Clause | Python-Paket (Kalender-Abo) | `lizenzen/icalendar.txt` |
+| holidays | 0.107 | MIT | Python-Paket (Feiertage) | `lizenzen/holidays.txt` |
+| segno | 1.6.6 | BSD-3-Clause | Python-Paket (GiroCode) | `lizenzen/segno.txt` |
+| schwifty (+ rstr) | 2026.10.0 | MIT | Python-Paket (IBAN/BIC) | `lizenzen/schwifty.txt`, `lizenzen/rstr.txt` |
+| pycountry | 26.2.16 | LGPL-2.1 (unverändert als Bibliothek genutzt, Abhängigkeit von schwifty) | Python-Paket | `lizenzen/pycountry.txt` |
+| phonenumbers | 9.0.41 | Apache-2.0 | Python-Paket (Rufnummern) | `lizenzen/phonenumbers.txt` |
+| prometheus-client | 0.26.0 | Apache-2.0 | Python-Paket (Metriken) | `lizenzen/prometheus-client.txt` |
+| owlrl | 7.6.2 | W3C Software License | Python-Paket (RDFS-Inferenz) | `lizenzen/owlrl.txt` |
+| OSRM | v5.27.1 | BSD-2-Clause | Container-Image (Profil `routing`), Kartendaten OpenStreetMap (ODbL) über `deploy/osrm/vorbereiten.sh` | `lizenzen/osrm.txt` |
+| ntfy | v2.11.0 | Apache-2.0 | Container-Image (Profil `push`) | `lizenzen/ntfy.txt` |
+| Prometheus, Alertmanager | v3.5.0, v0.28.1 | Apache-2.0 | Container-Image (Profil `monitoring`) | `lizenzen/prometheus.txt` |
 | LiveKit Agents (inkl. Plugins) | 1.8.8 | Apache-2.0 | Python-Paket (Voice) | `lizenzen/livekit-agents.txt` |
 | LiveKit Server, LiveKit SIP | v1.13.10, v1.21.0 | Apache-2.0 | Container-Image | `lizenzen/livekit.txt` |
 | Silero VAD | über LiveKit-Plugin | MIT | Modell im Voice-Image | `lizenzen/silero-vad.txt` |

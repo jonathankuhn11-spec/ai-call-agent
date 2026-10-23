@@ -17,6 +17,15 @@ vorbereitet · `Referenz` = geprüfte Alternative für eine spätere Entscheidun
 | LiveKit Agents | Apache-2.0 | Voice-Agent-Framework (VAD, STT, LLM, TTS, Function Calling) | aktiv (`voice/agent.py`) | gewählt, siehe VOICE-AGENT.md |
 | LiveKit Server + LiveKit SIP | Apache-2.0 | WebRTC-Medienserver, SIP-Gateway zum Carrier | aktiv (Profil `voice`) | selbst betreibbar in DE |
 | OpenStreetMap-Kacheln und Nominatim | Daten ODbL, Dienste mit Nutzungsbedingungen (Attribution, max. 1 Geokodier-Anfrage/s, aussagekräftiger User-Agent, kein Massenabgleich) | Kartenhintergrund der Kundenkarte, Geokodierung der Kundenadressen | aktiv (`core/karte.py`, Kachel-URL in den Stammdaten `karte_kacheln`, CSP `img-src` in der Caddyfile) | kein Fremdcode eingebettet: Projektion und Marker zeichnet die Oberfläche selbst; für höhere Last eigener Kachelserver oder kommerzieller Anbieter (MapTiler, Thunderforest) per URL umschaltbar; Leaflet (BSD-2) wäre die Alternative, falls Routing oder Polygone dazukommen |
+| OSRM | BSD-2-Clause | Fahrzeiten, Entfernungsmatrix, Routen auf OpenStreetMap | aktiv (`core/routing.py`, Profil `routing`, Rückfall Luftlinie) | Tourvorschlag (Nächster-Nachbar + 2-opt) und Anfahrt je Termin; Valhalla gleichwertig, OSRM einfacher zu betreiben |
+| icalendar | BSD-2-Clause | iCalendar-Erzeugung (RFC 5545) | aktiv (`core/kalender.py`) | Kalender-Abo je Monteur mit Token statt App-Zwang |
+| holidays | MIT | gesetzliche Feiertage je Bundesland | aktiv (`core/feiertage.py`) | Disposition, Plantafel, Lohnexport |
+| segno | BSD-3-Clause | QR-Codes, auch EPC-QR | aktiv (`core/rechnung.py`, GiroCode) | reine Python-Implementierung ohne Bildbibliothek |
+| schwifty | MIT | IBAN/BIC-Prüfung, Bankname | aktiv (Stammdaten, GiroCode) | Abhängigkeit pycountry (LGPL, unverändert) |
+| phonenumbers | Apache-2.0 | Rufnummern parsen und prüfen (libphonenumber) | aktiv (`core/regeln.py`) | internationale Nummern, Gültigkeit für die Vollständigkeitsprüfung |
+| ntfy | Apache-2.0 | Push-Hinweise auf das Telefon (selbst gehostet oder ntfy.sh) | aktiv (`core/adapter/ntfy.py`, Profil `push`) | Notdienst, Klasse C, Dead-Letter; Gotify (MIT) als Alternative |
+| prometheus-client, Prometheus, Alertmanager | Apache-2.0 | Metriken und Alarmierung | aktiv (`core/metriken.py`, Profil `monitoring`) | Grafana (AGPL) bewusst außen vor; Prometheus-Oberfläche reicht für den Pilot |
+| owlrl | W3C | RDFS/OWL-RL-Inferenz auf rdflib-Graphen | aktiv (SPARQL mit `inferenz`) | materialisiert Unterklassen vor der Abfrage |
 | Pipecat | BSD-2-Clause | alternatives Voice-Framework | Referenz | gleichwertig, stärker auf Daily/Twilio-Transport ausgerichtet |
 | Vocode | MIT | Voice-Agent-Bibliothek | Referenz | geringere Aktivität |
 | Silero VAD | MIT | Sprachaktivitätserkennung | aktiv (über LiveKit-Plugin) | Standard |

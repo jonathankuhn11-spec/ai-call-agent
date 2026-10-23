@@ -14,6 +14,9 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from xml.sax.saxutils import escape
 
+import segno
+from schwifty import IBAN
+from schwifty.exceptions import SchwiftyException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -208,12 +211,32 @@ def xrechnung(r: Rechnung, m: Mandant) -> bytes:
 
 
 # --- PDF -------------------------------------------------------------------------------------
+def girocode(m: Mandant, betrag: Decimal, verwendungszweck: str) -> bytes | None:
+    """EPC-QR-Code („GiroCode“, EPC069-12 Version 002) als PNG: Banking-App scannen, Überweisung ist vorausgefüllt.
+    Nur mit gültiger IBAN in den Stammdaten; BIC ist optional (SEPA), Betrag 0,01–999 999 999,99 €."""
+    st = m.stammdaten or {}
+    try:
+        iban = IBAN(str(st.get("iban", "")))
+    except (SchwiftyException, ValueError):
+        return None
+    if not (Decimal("0.01") <= betrag <= Decimal("999999999.99")):
+        return None
+    bic = str(st.get("bic") or (iban.bic or "")).replace(" ", "")
+    empfaenger = str(st.get("kontoinhaber") or m.name)[:70]
+    zeilen = ["BCD", "002", "1", "SCT", bic, empfaenger, iban.compact, f"EUR{betrag:.2f}", "", "", verwendungszweck[:140], ""]
+    puffer = io.BytesIO()
+    segno.make("\n".join(zeilen), error="m", micro=False).save(puffer, kind="png", scale=4, border=2)
+    return puffer.getvalue()
+
+
 def dokument_pdf(m: Mandant, titel: str, nummer: str, datum: date, empfaenger: dict[str, Any], positionen: list[Position],
                  netto: Decimal, brutto: Decimal, kopfzeilen: list[str] = (), vortext: list[str] = (), schluss: list[str] = (),
-                 vorzeichen: int = 1) -> bytes:
-    """Gemeinsames Layout für Rechnung, Storno, Angebot und Mahnung: Absender, Empfänger, Positionen, Summen, Fußzeile."""
+                 vorzeichen: int = 1, qr: bytes | None = None) -> bytes:
+    """Gemeinsames Layout für Rechnung, Storno, Angebot und Mahnung: Absender, Empfänger, Positionen, Summen, Fußzeile;
+    optional GiroCode unten rechts."""
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
+    from reportlab.lib.utils import ImageReader
     from reportlab.pdfgen import canvas
 
     st = m.stammdaten
@@ -283,6 +306,14 @@ def dokument_pdf(m: Mandant, titel: str, nummer: str, datum: date, empfaenger: d
     for zeile in schluss:
         c.drawString(20 * mm, y, zeile[:110])
         y -= 5 * mm
+    if qr:
+        if y < 60 * mm:
+            c.showPage()
+            y = hoehe - 25 * mm
+        c.drawImage(ImageReader(io.BytesIO(qr)), breite - 55 * mm, y - 38 * mm, 32 * mm, 32 * mm)
+        c.setFont("Helvetica", 7)
+        c.drawString(breite - 55 * mm, y - 42 * mm, "GiroCode: mit der Banking-App scannen,")
+        c.drawString(breite - 55 * mm, y - 45.5 * mm, "Überweisung ist vorausgefüllt.")
     c.setFont("Helvetica", 7)
     fuss = " · ".join(x for x in (m.name, st.get("inhaber"), f"USt-IdNr. {st['ust_id']}" if st.get("ust_id") else
                                    (f"Steuernummer {st['steuernummer']}" if st.get("steuernummer") else None),
@@ -302,4 +333,5 @@ def pdf(r: Rechnung, m: Mandant) -> bytes:
     if st.get("rechnungshinweis"):
         schluss.append(str(st["rechnungshinweis"]))
     return dokument_pdf(m, "Stornorechnung" if storno else "Rechnung", r.nummer, r.datum, r.empfaenger, _positionen(r),
-                        Decimal(r.netto), Decimal(r.brutto), kopf, vortext, schluss, vorzeichen=-1 if storno else 1)
+                        Decimal(r.netto), Decimal(r.brutto), kopf, vortext, schluss, vorzeichen=-1 if storno else 1,
+                        qr=None if storno else girocode(m, Decimal(r.brutto), f"Rechnung {r.nummer}"))

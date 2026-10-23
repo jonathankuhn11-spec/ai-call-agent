@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 
 from core import domaene
 from core.disposition import ZEITZONE
+from core.feiertage import feiertag
+from core.routing import navigation
 from core.domaene import als_utc
 from core.modelle import (Anhang, Beleg, Bereitschaft, Frist, Kunde, Mandant, Rapport, Rechnung, Ressource, Servicefall,
                           Termin, Zeiteintrag)
@@ -125,7 +127,7 @@ def lohnexport(s: Session, m: Mandant, jahr: int, monat: int) -> bytes:
     namen = {r.id: r.name for r in s.scalars(select(Ressource).where(Ressource.mandant_id == m.id))}
     for z in eintraege:
         beginn, ende = als_utc(z.beginn).astimezone(ZEITZONE), als_utc(z.ende).astimezone(ZEITZONE)
-        tag = tage.setdefault((z.ressource_id, beginn.date()), {a: 0 for a in ZEITARTEN} | {"nacht": 0, "sonntag": 0})
+        tag = tage.setdefault((z.ressource_id, beginn.date()), {a: 0 for a in ZEITARTEN} | {"nacht": 0, "sonntag": 0, "feiertag": 0})
         dauer = int((ende - beginn).total_seconds() // 60)
         tag[z.art] += dauer
         if z.art in ("arbeit", "fahrt"):
@@ -135,15 +137,17 @@ def lohnexport(s: Session, m: Mandant, jahr: int, monat: int) -> bytes:
                     tag["nacht"] += 1
                 if t.weekday() == 6:
                     tag["sonntag"] += 1
+                elif feiertag(t.date(), m.stammdaten):
+                    tag["feiertag"] += 1
                 t += timedelta(minutes=1)
     puffer = io.StringIO()
     w = csv.writer(puffer, delimiter=";", lineterminator="\r\n")
     w.writerow(["Monteur", "Anmeldename", "Datum", "Arbeit (min)", "Fahrt (min)", "Pause (min)", "Bereitschaft (min)",
-                "davon Nacht 22-6 (min)", "davon Sonntag (min)"])
+                "davon Nacht 22-6 (min)", "davon Sonntag (min)", "davon Feiertag (min)"])
     benutzer = {r.id: r.benutzer or "" for r in s.scalars(select(Ressource).where(Ressource.mandant_id == m.id))}
     for (rid, tag_), t in sorted(tage.items(), key=lambda x: (namen.get(x[0][0], ""), x[0][1])):
         w.writerow([namen.get(rid, rid), benutzer.get(rid, ""), tag_.isoformat(), t["arbeit"], t["fahrt"], t["pause"],
-                    t["bereitschaft"], t["nacht"], t["sonntag"]])
+                    t["bereitschaft"], t["nacht"], t["sonntag"], t["feiertag"]])
     return puffer.getvalue().encode("utf-8-sig")
 
 
@@ -393,7 +397,9 @@ def einsatz_heute(s: Session, m: Mandant, r: Ressource, jetzt: datetime) -> list
         rapport = s.scalar(select(Rapport).where(Rapport.servicefall_id == f.id).order_by(Rapport.erstellt.desc()).limit(1))
         ergebnis.append({"termin_id": t.id, "beginn": t.beginn, "ende": t.ende, "status": t.status, "servicefall_id": f.id,
                          "anliegen": f.anliegen, "symptom": f.symptom, "dringlichkeit": f.dringlichkeit, "fall_status": f.status,
-                         "kunde": {"name": f.kunde.name, "telefon": f.kunde.telefon, "strasse": f.kunde.strasse, "plz": f.kunde.plz, "ort": f.kunde.ort},
+                         "kunde": {"name": f.kunde.name, "telefon": f.kunde.telefon, "strasse": f.kunde.strasse, "plz": f.kunde.plz, "ort": f.kunde.ort,
+                                   "lat": f.kunde.lat, "lon": f.kunde.lon},
+                         "navigation": navigation(f.kunde.lat, f.kunde.lon, ", ".join(x for x in (f.kunde.strasse, f"{f.kunde.plz or ''} {f.kunde.ort or ''}".strip()) if x)),
                          "anlage": ({"typ": f.anlage.anlagentyp, "hersteller": f.anlage.hersteller, "baujahr": f.anlage.baujahr} if f.anlage else None),
                          "rapport": ({"id": rapport.id, "nummer": rapport.nummer, "unterschrieben": rapport.unterzeichnet_am is not None} if rapport else None)})
     return ergebnis

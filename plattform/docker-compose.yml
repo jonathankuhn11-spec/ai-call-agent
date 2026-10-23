@@ -139,8 +139,48 @@ services:
       FUSEKI_DATASET_1: shk
     volumes: [fuseki-daten:/fuseki]
 
+  osrm:   # Fahrzeiten und Touren; Kartenausschnitt vorher mit deploy/osrm/vorbereiten.sh erzeugen
+    image: ghcr.io/project-osrm/osrm-backend:v5.27.1
+    profiles: [routing]
+    command: ["osrm-routed", "--algorithm", "mld", "--max-table-size", "200", "/data/karte.osrm"]
+    ports: ["127.0.0.1:5000:5000"]
+    volumes: [osrm-daten:/data]
+
+  ntfy:   # Push-Hinweise an das Telefon des Inhabers; Topic und Token in den Einstellungen → Anbindungen → Push
+    image: binwiederhier/ntfy:v2.11.0
+    profiles: [push]
+    command: ["serve"]
+    ports: ["127.0.0.1:8200:80"]
+    environment:
+      NTFY_BASE_URL: ${NTFY_BASE_URL:-http://localhost:8200}
+      NTFY_AUTH_DEFAULT_ACCESS: deny-all
+      NTFY_AUTH_FILE: /var/lib/ntfy/user.db
+      NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
+      NTFY_BEHIND_PROXY: "true"
+    volumes: [ntfy-daten:/var/lib/ntfy, ntfy-cache:/var/cache/ntfy]
+
+  prometheus:   # Metriken des Core (/metrics mit API-Schlüssel) und Alarmregeln; Grafana (AGPL) bewusst nicht enthalten
+    image: prom/prometheus:v3.5.0
+    profiles: [monitoring]
+    ports: ["127.0.0.1:9090:9090"]
+    environment:
+      CORE_API_KEY: ${CORE_API_KEY}
+    volumes: ["./deploy/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro", "./deploy/monitoring/regeln.yml:/etc/prometheus/regeln.yml:ro",
+              "./deploy/monitoring/api-key.sh:/etc/prometheus/api-key.sh:ro", prometheus-daten:/prometheus]
+    entrypoint: ["/bin/sh", "/etc/prometheus/api-key.sh"]
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    profiles: [monitoring]
+    ports: ["127.0.0.1:9093:9093"]
+    volumes: ["./deploy/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro"]
+
 volumes:
   postgres-daten:
   export:
   n8n-daten:
   fuseki-daten:
+  osrm-daten:
+  ntfy-daten:
+  ntfy-cache:
+  prometheus-daten:

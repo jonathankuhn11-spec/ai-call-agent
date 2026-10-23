@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from core.domaene import als_utc
+from core.feiertage import feiertag
 from core.modelle import Abwesenheit, Mandant, Ressource, Termin
 
 ZEITZONE = ZoneInfo("Europe/Berlin")
@@ -65,7 +66,7 @@ def freie_zeitfenster(s: Session, mandant: Mandant, ab: datetime, tage: int = 5,
         gefunden = 0
         tag: date = ab.astimezone(ZEITZONE).date()
         for _ in range(tage + 1):
-            if tag.weekday() in (r.arbeitstage or []):
+            if tag.weekday() in (r.arbeitstage or []) and not feiertag(tag, mandant.stammdaten):
                 tagesbeginn = datetime.combine(tag, r.arbeitsbeginn, ZEITZONE)
                 tagesende = datetime.combine(tag, r.arbeitsende, ZEITZONE)
                 beginn = max(tagesbeginn, _aufrunden(ab.astimezone(ZEITZONE), raster, tagesbeginn))

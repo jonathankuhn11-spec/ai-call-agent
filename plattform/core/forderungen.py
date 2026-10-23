@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from core import domaene
 from core.modelle import Mahnung, Mandant, Rechnung, Zahlung
-from core.rechnung import dokument_pdf, geld
+from core.rechnung import dokument_pdf, geld, girocode
 
 MAHNSTUFEN = {1: ("Zahlungserinnerung", "zahlungserinnerung_senden"), 2: ("Mahnung", "mahnung_senden"), 3: ("Letzte Mahnung", "mahnung_senden")}
 STANDARD = {"mahn_karenz_tage": 7, "mahn_frist_tage": 10, "mahngebuehr_stufe2": "5.00", "mahngebuehr_stufe3": "10.00"}
@@ -138,7 +138,8 @@ def mahnung_pdf(mh: Mahnung, m: Mandant) -> bytes:
     vortext += ["", "Sollte sich Ihre Zahlung mit diesem Schreiben überschnitten haben, betrachten Sie es bitte als gegenstandslos."]
     schluss = [f"Zahlung bitte auf IBAN {st.get('iban', '')} ({st.get('bank', '')}), Verwendungszweck {r.nummer}."]
     return dokument_pdf(m, titel, r.nummer, mh.datum, r.empfaenger, [], Decimal(mh.offen), gesamt,
-                        [f"Zur Rechnung {r.nummer}", f"Zahlungsfrist: {mh.frist.strftime('%d.%m.%Y')}"], vortext, schluss)
+                        [f"Zur Rechnung {r.nummer}", f"Zahlungsfrist: {mh.frist.strftime('%d.%m.%Y')}"], vortext, schluss,
+                        qr=girocode(m, gesamt, f"{r.nummer} {titel}"))
 
 
 # --- Bankimport ---------------------------------------------------------------------------------

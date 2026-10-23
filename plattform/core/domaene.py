@@ -118,6 +118,9 @@ def aktion_beantragen(s: Session, mandant: Mandant, aktion: str, payload: dict[s
                    {"aktion": aktion, "klasse": f.risikoklasse})
     if automatisch_freigegeben(mandant, aktion):
         entscheiden(s, f, freigeben=True, wer="policy", akteur="system")
+    elif f.risikoklasse == "C":
+        from core import hinweise  # späte Einbindung, hinweise nutzt die Outbox dieses Moduls
+        hinweise.senden(s, mandant, "klasse_c", "Freigabe Klasse C wartet", f"{aktion} wartet auf Ihre Freigabe.", f"freigabe:{f.id}", "freigaben")
     return f
 
 

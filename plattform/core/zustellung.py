@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from core.domaene import als_utc, protokollieren
-from core.modelle import ExternalRef, OutboxEintrag, jetzt
+from core.modelle import ExternalRef, Mandant, OutboxEintrag, jetzt
 
 MAX_VERSUCHE = 6
 BASIS_WARTEZEIT = timedelta(seconds=30)
@@ -85,6 +85,12 @@ def abarbeiten(s: Session, adapter: Zuordnung, zeitpunkt: datetime | None = None
                 zaehler["tot"] += 1
                 protokollieren(s, e.mandant_id, "outbox.tot", "outbox", str(e.id), "system",
                                {"ziel": e.ziel, "aktion": e.aktion, "fehler": e.letzter_fehler})
+                if e.ziel != "inhaber":  # Hinweis an den Inhaber, aber kein Hinweis über gescheiterte Hinweise
+                    from core import hinweise
+                    m = s.get(Mandant, e.mandant_id)
+                    if m:
+                        hinweise.senden(s, m, "dead_letter", "Zustellung gescheitert",
+                                        f"{e.aktion} an {e.ziel} nach {e.versuche} Versuchen nicht zugestellt.", f"outbox:{e.id}", "protokoll")
             else:
                 e.naechster_versuch = als_utc(zeitpunkt) + BASIS_WARTEZEIT * (2 ** (e.versuche - 1))
                 zaehler["wiederholung"] += 1

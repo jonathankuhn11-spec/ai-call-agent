@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from core.disposition import ZEITZONE
 from core.domaene import als_utc
 from core.modelle import Kunde, Mandant, Objekt, Servicefall, Termin
+from core.regeln import telefon_gueltig
 from core.twin import OFFENE_STATUS, wartungsstatus
 
 Geocoder = Callable[[str], tuple[float, float] | None]
@@ -31,7 +32,7 @@ KACHELN_STANDARD = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 KACHELN_HINWEIS = "© OpenStreetMap-Mitwirkende (ODbL)"
 # Felder, die ein Kundendatensatz für den vollautomatischen Betrieb braucht; Reihenfolge = Anzeige
 PFLICHTFELDER = (
-    ("telefon", "Rufnummer (Erkennung am Telefon, Rückruf, SMS)"),
+    ("telefon", "gültige Rufnummer (Erkennung am Telefon, Rückruf, SMS)"),
     ("email", "E-Mail (Terminbestätigung, Angebote, Rechnungen)"),
     ("adresse", "Anschrift (Straße, PLZ, Ort)"),
     ("geo", "Geokoordinaten (Kundenkarte, Anfahrt)"),
@@ -130,7 +131,7 @@ def vollstaendigkeit(k: Kunde) -> dict[str, Any]:
     anlagen = [a for o in objekte for a in o.anlagen]
     einwilligungen = {sch for sch, wert in (k.einwilligungen or {}).items() if wert}
     vorhanden = {
-        "telefon": bool(k.telefon),
+        "telefon": telefon_gueltig(k.telefon),
         "email": bool(k.email),
         "adresse": bool(k.strasse and k.plz and k.ort),
         "geo": k.lat is not None and k.lon is not None,
