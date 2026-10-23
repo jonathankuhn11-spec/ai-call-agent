@@ -1,0 +1,87 @@
+@prefix shk:  <https://w3id.org/shk-backoffice/ont#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+
+# Domänenontologie SHK-Backoffice (OWL 2). Spiegelt das kanonische Datenmodell (core/modelle.py);
+# Instanzdaten erzeugt GET /ontologie/export als Turtle. Namespace vor Veröffentlichung auf die
+# eigene Domain umstellen. Abgleich mit Brick Schema nur, wo die Entsprechung gesichert ist.
+
+shk: a owl:Ontology ;
+    rdfs:label "SHK-Backoffice-Ontologie"@de ;
+    owl:versionInfo "0.1.0" .
+
+# --- Klassen ---------------------------------------------------------------------------------
+shk:Betrieb       a owl:Class ; rdfs:label "Betrieb"@de ; rdfs:comment "Mandant: der SHK-Handwerksbetrieb."@de .
+shk:Kunde         a owl:Class ; rdfs:label "Kunde"@de .
+shk:Objekt        a owl:Class ; rdfs:label "Objekt"@de ; rdfs:comment "Gebäude bzw. Liegenschaft des Kunden."@de .
+shk:Anlage        a owl:Class ; rdfs:label "Anlage"@de ; rdfs:comment "Technische Anlage im Objekt (Wärmeerzeuger, Sanitär, Klima)."@de .
+shk:Servicefall   a owl:Class ; rdfs:label "Servicefall"@de .
+shk:Termin        a owl:Class ; rdfs:label "Termin"@de .
+shk:Ressource     a owl:Class ; rdfs:label "Ressource"@de ; rdfs:comment "Monteur oder Team."@de .
+shk:Qualifikation a owl:Class ; rdfs:label "Qualifikation"@de .
+shk:Kommunikation a owl:Class ; rdfs:label "Kommunikation"@de .
+shk:Status        a owl:Class ; rdfs:label "Status eines Servicefalls"@de .
+
+shk:Waermeerzeuger      a owl:Class ; rdfs:subClassOf shk:Anlage ; rdfs:label "Wärmeerzeuger"@de .
+shk:GasBrennwertkessel  a owl:Class ; rdfs:subClassOf shk:Waermeerzeuger ; rdfs:label "Gas-Brennwertkessel"@de ; skos:broadMatch brick:Boiler .
+shk:Oelheizkessel       a owl:Class ; rdfs:subClassOf shk:Waermeerzeuger ; rdfs:label "Öl-Heizkessel"@de ; skos:broadMatch brick:Boiler .
+shk:Waermepumpe         a owl:Class ; rdfs:subClassOf shk:Waermeerzeuger ; rdfs:label "Wärmepumpe"@de .
+shk:Solarthermieanlage  a owl:Class ; rdfs:subClassOf shk:Anlage ; rdfs:label "Solarthermieanlage"@de .
+shk:Klimaanlage         a owl:Class ; rdfs:subClassOf shk:Anlage ; rdfs:label "Klimaanlage"@de .
+shk:Trinkwasseranlage   a owl:Class ; rdfs:subClassOf shk:Anlage ; rdfs:label "Trinkwasseranlage"@de .
+shk:Warmwasserbereiter  a owl:Class ; rdfs:subClassOf shk:Anlage ; rdfs:label "Warmwasserbereiter"@de ; skos:broadMatch brick:Water_Heater .
+shk:Sanitaeranlage      a owl:Class ; rdfs:subClassOf shk:Anlage ; rdfs:label "Sanitäranlage"@de .
+
+# --- Objekteigenschaften -----------------------------------------------------------------------
+shk:betreut            a owl:ObjectProperty ; rdfs:domain shk:Betrieb ; rdfs:range shk:Kunde .
+shk:besitztObjekt      a owl:ObjectProperty ; rdfs:domain shk:Kunde ; rdfs:range shk:Objekt .
+shk:hatAnlage          a owl:ObjectProperty ; rdfs:domain shk:Objekt ; rdfs:range shk:Anlage .
+shk:betrifftKunde      a owl:ObjectProperty ; rdfs:domain shk:Servicefall ; rdfs:range shk:Kunde .
+shk:betrifftAnlage     a owl:ObjectProperty ; rdfs:domain shk:Servicefall ; rdfs:range shk:Anlage .
+shk:hatTermin          a owl:ObjectProperty ; rdfs:domain shk:Servicefall ; rdfs:range shk:Termin .
+shk:durchgefuehrtVon   a owl:ObjectProperty ; rdfs:domain shk:Termin ; rdfs:range shk:Ressource .
+shk:hatQualifikation   a owl:ObjectProperty ; rdfs:domain shk:Ressource ; rdfs:range shk:Qualifikation .
+shk:erfordertQualifikation a owl:ObjectProperty ; rdfs:range shk:Qualifikation ;
+    rdfs:comment "Servicefall oder Anlagenklasse verlangt diese Qualifikation."@de .
+shk:hatStatus          a owl:ObjectProperty, owl:FunctionalProperty ; rdfs:domain shk:Servicefall ; rdfs:range shk:Status .
+shk:folgtAuf           a owl:ObjectProperty ; rdfs:domain shk:Status ; rdfs:range shk:Status ;
+    rdfs:comment "Zulässiger Übergang im Statusautomaten."@de .
+
+# --- Dateneigenschaften ------------------------------------------------------------------------
+shk:name             a owl:DatatypeProperty ; rdfs:range xsd:string .
+shk:telefon          a owl:DatatypeProperty ; rdfs:range xsd:string .
+shk:ort              a owl:DatatypeProperty ; rdfs:range xsd:string .
+shk:hersteller       a owl:DatatypeProperty ; rdfs:domain shk:Anlage ; rdfs:range xsd:string .
+shk:baujahr          a owl:DatatypeProperty ; rdfs:domain shk:Anlage ; rdfs:range xsd:gYear .
+shk:letzteWartung    a owl:DatatypeProperty ; rdfs:domain shk:Anlage ; rdfs:range xsd:date .
+shk:naechsteWartung  a owl:DatatypeProperty ; rdfs:domain shk:Anlage ; rdfs:range xsd:date .
+shk:dringlichkeit    a owl:DatatypeProperty ; rdfs:domain shk:Servicefall ; rdfs:range xsd:string .
+shk:anliegen         a owl:DatatypeProperty ; rdfs:domain shk:Servicefall ; rdfs:range xsd:string .
+shk:beginn           a owl:DatatypeProperty ; rdfs:domain shk:Termin ; rdfs:range xsd:dateTime .
+shk:ende             a owl:DatatypeProperty ; rdfs:domain shk:Termin ; rdfs:range xsd:dateTime .
+
+# --- Qualifikationen (kontrolliertes Vokabular) ------------------------------------------------
+shk:Q_gas            a shk:Qualifikation ; rdfs:label "Gasinstallation (Eintrag ins Installateurverzeichnis)"@de .
+shk:Q_oel            a shk:Qualifikation ; rdfs:label "Ölfeuerung"@de .
+shk:Q_kaeltetechnik  a shk:Qualifikation ; rdfs:label "Kältetechnik (Sachkunde nach ChemKlimaschutzV)"@de .
+shk:Q_trinkwasser    a shk:Qualifikation ; rdfs:label "Trinkwasserhygiene"@de .
+shk:Q_elektro        a shk:Qualifikation ; rdfs:label "Elektrofachkraft für festgelegte Tätigkeiten"@de .
+
+shk:GasBrennwertkessel shk:erfordertQualifikation shk:Q_gas .
+shk:Oelheizkessel      shk:erfordertQualifikation shk:Q_oel .
+shk:Waermepumpe        shk:erfordertQualifikation shk:Q_kaeltetechnik .
+shk:Klimaanlage        shk:erfordertQualifikation shk:Q_kaeltetechnik .
+shk:Trinkwasseranlage  shk:erfordertQualifikation shk:Q_trinkwasser .
+
+# --- Statusautomat ----------------------------------------------------------------------------
+shk:S_eingegangen   a shk:Status ; rdfs:label "eingegangen"@de .
+shk:S_qualifiziert  a shk:Status ; rdfs:label "qualifiziert"@de ; shk:folgtAuf shk:S_eingegangen, shk:S_eingeplant .
+shk:S_eingeplant    a shk:Status ; rdfs:label "eingeplant"@de ; shk:folgtAuf shk:S_qualifiziert .
+shk:S_durchgefuehrt a shk:Status ; rdfs:label "durchgeführt"@de ; shk:folgtAuf shk:S_eingeplant .
+shk:S_abgerechnet   a shk:Status ; rdfs:label "abgerechnet"@de ; shk:folgtAuf shk:S_durchgefuehrt .
+shk:S_uebergeben    a shk:Status ; rdfs:label "an Kanzlei übergeben"@de ; shk:folgtAuf shk:S_abgerechnet .
+shk:S_storniert     a shk:Status ; rdfs:label "storniert"@de ; shk:folgtAuf shk:S_eingegangen, shk:S_qualifiziert, shk:S_eingeplant .

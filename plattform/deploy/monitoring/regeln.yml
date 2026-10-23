@@ -1,0 +1,38 @@
+groups:
+  - name: shk-backoffice
+    rules:
+      - alert: CoreNichtErreichbar
+        expr: up{job="shk-core"} == 0
+        for: 3m
+        labels: {schwere: kritisch}
+        annotations: {zusammenfassung: "Core-Service antwortet nicht"}
+      - alert: ZustellungGescheitert
+        expr: shk_outbox{status="tot"} > 0
+        for: 5m
+        labels: {schwere: hoch}
+        annotations: {zusammenfassung: "Dead-Letter in der Outbox ({{ $labels.mandant }}): Ereignisprotokoll prüfen"}
+      - alert: OutboxStaut
+        expr: shk_outbox{status="ausstehend"} > 50
+        for: 15m
+        labels: {schwere: hoch}
+        annotations: {zusammenfassung: "Outbox staut ({{ $labels.mandant }}): läuft der Worker?"}
+      - alert: NotdienstOffen
+        expr: shk_vorgaenge_offen{dringlichkeit="notdienst"} > 0
+        for: 30m
+        labels: {schwere: hoch}
+        annotations: {zusammenfassung: "Notdienst seit 30 Minuten nicht eingeplant ({{ $labels.mandant }})"}
+      - alert: FreigabeKlasseCWartet
+        expr: shk_freigabe_aelteste_stunden > 24
+        for: 1h
+        labels: {schwere: mittel}
+        annotations: {zusammenfassung: "Freigaben warten länger als 24 Stunden ({{ $labels.mandant }})"}
+      - alert: AnfragenUnbearbeitet
+        expr: shk_anfragen_offen > 5
+        for: 4h
+        labels: {schwere: mittel}
+        annotations: {zusammenfassung: "Mehr als 5 Anfragen unbearbeitet ({{ $labels.mandant }})"}
+      - alert: LangsameAntworten
+        expr: histogram_quantile(0.95, sum(rate(shk_http_dauer_sekunden_bucket[5m])) by (le)) > 2
+        for: 10m
+        labels: {schwere: mittel}
+        annotations: {zusammenfassung: "95 % der Antworten langsamer als 2 s"}

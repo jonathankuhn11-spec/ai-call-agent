@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SHK-Backoffice</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="layout">
+  <nav class="seitenleiste" aria-label="Hauptnavigation">
+    <div class="marke">SHK-Backoffice<span id="mandant-name" class="mandant"></span></div>
+    <div class="suche"><input id="suche" type="search" placeholder="Suche (Strg+K)" autocomplete="off" aria-label="Globale Suche"><div id="suche-treffer" class="suche-treffer" hidden></div></div>
+    <a href="#cockpit" data-ansicht="cockpit">Cockpit</a>
+    <a href="#einsatz" data-ansicht="einsatz" data-recht="einsatz">Mein Einsatz</a>
+    <a href="#anruf" data-ansicht="anruf">Anruf simulieren</a>
+    <a href="#freigaben" data-ansicht="freigaben">Freigabe-Inbox <span id="zaehler-freigaben" class="zaehler"></span></a>
+    <a href="#vorgaenge" data-ansicht="vorgaenge">Vorgänge</a>
+    <a href="#plantafel" data-ansicht="plantafel">Plantafel</a>
+    <a href="#warteliste" data-ansicht="warteliste" data-recht="bearbeiten">Warteliste</a>
+    <a href="#dienstplan" data-ansicht="dienstplan" data-recht="einsatz">Dienstplan</a>
+    <a href="#kunden" data-ansicht="kunden">Kunden &amp; Anlagen</a>
+    <a href="#wartung" data-ansicht="wartung">Wartungsplanung</a>
+    <a href="#ontologie" data-ansicht="ontologie">Ontologie</a>
+    <a href="#anfragen" data-ansicht="anfragen" data-recht="bearbeiten">Anfragen</a>
+    <a href="#angebote" data-ansicht="angebote">Angebote</a>
+    <a href="#lager" data-ansicht="lager" data-recht="einsatz">Lager &amp; Großhandel</a>
+    <a href="#gutscheine" data-ansicht="gutscheine" data-recht="finanzen">Gutscheine</a>
+    <a href="#vertraege" data-ansicht="vertraege">Wartungsverträge</a>
+    <a href="#rechnungen" data-ansicht="rechnungen" data-recht="finanzen">Rechnungen</a>
+    <a href="#forderungen" data-ansicht="forderungen" data-recht="finanzen">Offene Posten <span id="zaehler-op" class="zaehler"></span></a>
+    <a href="#belege" data-ansicht="belege" data-recht="finanzen">Belege <span id="zaehler-belege" class="zaehler"></span></a>
+    <a href="#zeiten" data-ansicht="zeiten" data-recht="einsatz">Zeiten</a>
+    <a href="#betrieb" data-ansicht="betrieb">Bereitschaft &amp; Fristen</a>
+    <a href="#auswertungen" data-ansicht="auswertungen" data-recht="finanzen">Auswertungen</a>
+    <a href="#protokoll" data-ansicht="protokoll">Ereignisprotokoll</a>
+    <a href="#einstellungen" data-ansicht="einstellungen" id="nav-einstellungen" hidden>Einstellungen</a>
+    <button id="abmelden" class="leise">Abmelden / wechseln</button>
+  </nav>
+  <main id="inhalt" tabindex="-1"></main>
+</div>
+
+<dialog id="anmeldung">
+  <form method="dialog" id="anmeldeformular">
+    <h2>Anmelden</h2>
+    <div id="oidc-bereich" hidden>
+      <p><button id="oidc-anmelden" type="button">Mit Betriebskonto anmelden</button></p>
+      <p class="unterzeile">Administration und Entwicklung: mit API-Key und Betrieb.</p>
+    </div>
+    <label>API-Key <input id="api-key" type="password" autocomplete="off" placeholder="leer lassen, wenn CORE_API_KEY nicht gesetzt ist"></label>
+    <label>Betrieb <select id="mandant-auswahl"></select></label>
+    <p id="anmeldefehler" class="fehler" hidden></p>
+    <div class="aktionen"><button id="mandanten-laden" type="button" class="leise">Betriebe laden</button><button type="submit">Öffnen</button></div>
+  </form>
+</dialog>
+
+<dialog id="detail"><div id="detail-inhalt"></div><form method="dialog"><button class="leise">Schließen</button></form></dialog>
+<script src="app.js"></script>
+</body>
+</html>

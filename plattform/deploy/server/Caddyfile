@@ -1,0 +1,45 @@
+# Reverse-Proxy mit automatischem TLS (Let's Encrypt). DNS: A/AAAA für {$SHK_DOMAIN} und auth.{$SHK_DOMAIN}.
+{
+	email {$ACME_EMAIL}
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+(sicherheit) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		Permissions-Policy "camera=(), geolocation=(), microphone=()"
+		-Server
+	}
+	encode zstd gzip
+	log {
+		output stdout
+		format json
+	}
+}
+
+{$SHK_DOMAIN} {
+	import sicherheit
+	header X-Frame-Options DENY
+	header Content-Security-Policy "default-src 'self'; connect-src 'self' https://auth.{$SHK_DOMAIN}; img-src 'self' data: https://tile.openstreetmap.org; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://auth.{$SHK_DOMAIN} https:"
+	# OpenAPI-Dokumentation nicht öffentlich ausliefern; /portal/*, /buchung/* und /integrationen/datev/rueckruf sind bewusst öffentlich (Token bzw. OAuth-State)
+	@intern path /docs /redoc /openapi.json /metrics
+	respond @intern 404
+	reverse_proxy core:8100 {
+		health_uri /health
+	}
+}
+
+auth.{$SHK_DOMAIN} {
+	import sicherheit
+	# Admin-Konsole nur aus dem Büro-/VPN-Netz; Liste in .env (SHK_ADMIN_NETZE), Standard: niemand
+	@admin {
+		path /admin*
+		not remote_ip {$SHK_ADMIN_NETZE:127.0.0.1/32}
+	}
+	respond @admin 403
+	reverse_proxy keycloak:8080
+}
