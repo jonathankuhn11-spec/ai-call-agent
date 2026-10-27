@@ -42,7 +42,7 @@ def angebot(s: Session, m: Mandant) -> dict[str, Any]:
     """Daten der Buchungsseite: Betrieb, Leistungen, wählbare Mitarbeiter, Hinweise."""
     b = branchen.branche(m)
     st = m.stammdaten or {}
-    ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv).order_by(Ressource.name)).all()
+    ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv, Ressource.art == "person").order_by(Ressource.name)).all()
     return {"betrieb": {"name": m.name, "telefon": st.get("telefon"), "strasse": st.get("strasse"), "plz": st.get("plz"), "ort": st.get("ort"),
                         "impressum_url": st.get("impressum_url"), "datenschutz_url": st.get("datenschutz_url")},
             "branche": {"schluessel": b.schluessel, "bezeichnung": b.bezeichnung, "ressource": b.begriffe["ressource"], "hinweise": b.hinweise_kunde,
@@ -65,7 +65,7 @@ def zeiten(s: Session, m: Mandant, leistung: Artikel, ab: datetime, ressource_id
     tage = tage or int(st.get("buchung_vorlauf_tage", 14) or 14)
     ab = max(als_utc(ab) + timedelta(hours=int(st.get("buchung_vorlauf_stunden", 2) or 2)), als_utc(ab))
     fenster = freie_zeitfenster(s, m, ab, tage=tage, dauer_minuten=leistung.dauer_minuten or 60, qualifikation=leistung.qualifikation,
-                                anzahl=tage * 60, je_ressource=tage * 30)
+                                anzahl=tage * 60, je_ressource=tage * 30, sachmittel=leistung.sachmittel)
     je_tag_liste: dict[str, list[dict[str, Any]]] = {}
     gesehen: set[tuple[str, datetime]] = set()
     for z in fenster:

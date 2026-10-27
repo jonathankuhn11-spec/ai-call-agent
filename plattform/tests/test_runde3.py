@@ -85,7 +85,7 @@ def test_checkliste_befunde_im_rapport(umgebung):
     liste = c.get("/checklisten/gas_brennwert", headers=h).json()
     assert liste["bezeichnung"] == "Gas-Brennwertkessel" and any(p["schluessel"] == "abgas_co" and p["max"] == 400 for p in liste["punkte"])
     assert c.get("/checklisten/unbekannt", headers=h).status_code == 422
-    assert len(c.get("/checklisten", headers=h).json()) == 8
+    assert len(c.get("/checklisten", headers=h).json()) == 15
     fall = c.post("/servicefaelle", headers=h, json={"kunde_id": ids["kunde"], "anlage_id": ids["anlage"], "anliegen": "Wartung"}).json()
     t = c.post(f"/servicefaelle/{fall['id']}/termine", headers=h, json={"ressource_id": ids["monteur_gas"], "beginn": DEMO_ZEIT.replace(hour=9).isoformat()}).json()
     c.post(f"/freigaben/{t['freigabe']['id']}/entscheidung", headers=h, json={"freigeben": True, "wer": "buero"})
@@ -143,7 +143,7 @@ def test_portal_bestaetigung_absage_erinnerung_und_links(betrieb):  # noqa: F811
     assert link["link"] == f"https://shk.example.test/portal/#{fall['id']}/{portal.token(fall['id'])}"
     tok = portal.token(fall["id"])
     assert c.get(f"/portal/faelle/{fall['id']}?token=falsch").status_code == 404
-    assert c.get("/portal/").status_code == 200 and "Ihr Termin" in c.get("/portal/").text
+    assert c.get("/portal/").status_code == 200 and "Ihr Vorgang" in c.get("/portal/").text
     d = c.get(f"/portal/faelle/{fall['id']}?token={tok}").json()
     assert d["betrieb"]["name"] == "Demo Haustechnik GmbH" and d["termine"][0]["status"] == "bestaetigt" and d["termine"][0]["monteur"] == "Monteur A"
     # Terminbestätigung per E-Mail enthält den Portal-Link

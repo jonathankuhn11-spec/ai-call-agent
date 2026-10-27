@@ -65,11 +65,16 @@ Was nur Sie erledigen können, ist mit **(Sie)** markiert: Verträge, Konten, DN
    Anbieter abschließen.
 2. **DNS (Sie):** A- (und AAAA-)Einträge für `backoffice.<domain>` und `auth.<domain>` auf die
    Server-IP.
-3. **Images bauen:** Workflow „Plattform ausrollen“ (Actions, Eingabe Version, z. B. `0.2.0`). Ist das
-   GHCR-Paket privat, auf dem Server einmalig `docker login ghcr.io` mit einem Token (Recht `read:packages`).
-   Der Workflow steht erst nach dem Merge von PR #4 im Standardzweig zur Verfügung; bis dahin (oder ganz ohne
-   GHCR) baut der Server selbst: `deploy/server/einrichten.sh 0.2.0 --lokal` bzw. `SHK_BUILD_LOKAL=1` in `.env`
+3. **Images bauen:** Der Workflow „Plattform“ veröffentlicht bei jedem Push automatisch
+   `ghcr.io/<owner>/shk-core:<sha12>`, `:<zweig>` (z. B. `plattform-backend-grundgeruest`) und auf dem
+   Standardzweig `:latest`, jeweils auch als `-voice`-Variante; `SHK_VERSION` in `.env` kann daher ein
+   Zweigname, ein Commit oder `latest` sein. Der Workflow „Plattform ausrollen“ (Eingabe Version, z. B. `0.2.0`)
+   erzeugt zusätzlich Versions-Tags. Ist das GHCR-Paket privat, auf dem Server einmalig `docker login ghcr.io`
+   mit einem Token (Recht `read:packages`). Ganz ohne GHCR baut der Server selbst:
+   `deploy/server/einrichten.sh 0.2.0 --lokal` bzw. `SHK_BUILD_LOKAL=1` in `.env`
    (Override `deploy/server/docker-compose.lokal.yml`, Bauzeit ca. 3–5 Minuten auf 4 vCPU).
+   Für einen Test ohne Domain und TLS reicht `plattform/schnellstart.sh` (ein Container mit SQLite bzw.
+   `--postgres` mit `docker compose`), siehe README.
 4. **Erstausrollung:** auf dem Server als Nutzer `shk`
    `cd /opt/shk/plattform && deploy/server/einrichten.sh 0.2.0` (oder `… 0.2.0 --lokal`). Das Skript fragt Domain, E-Mail und
    Büro-Netz ab, erzeugt `.env` mit Zufallsgeheimnissen (inkl. `INTEGRATIONS_KEY`), prüft die

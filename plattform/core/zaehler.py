@@ -29,7 +29,8 @@ WARMWASSER_ANTEIL = 0.15                                       # ganzjähriger G
 MINDESTANTEIL = 0.15                                           # Perioden mit kleinerem Jahresanteil fließen nicht in den Vergleich ein
 ARTEN = {"gas_kwh": ("Gas", "kWh", True), "gas_m3": ("Gas", "m³", True), "strom_kwh": ("Strom", "kWh", False),
          "wasser_m3": ("Wasser", "m³", False), "waerme_kwh": ("Wärmemenge", "kWh", True),
-         "betriebsstunden": ("Betriebsstunden", "h", True), "brennerstarts": ("Brennerstarts", "Starts", True)}
+         "betriebsstunden": ("Betriebsstunden", "h", True), "brennerstarts": ("Brennerstarts", "Starts", True),
+         "kilometer": ("Kilometerstand", "km", False)}
 SCHWELLE = 0.15
 TAKTEN_JE_H = 6.0
 M3_ZU_KWH = 10.3    # Erdgas H, Brennwert·Zustandszahl als Näherung

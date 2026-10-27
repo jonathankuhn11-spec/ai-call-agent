@@ -22,7 +22,7 @@ def friseur(c, h):
 def test_branchenliste_und_umstellung_legt_leistungskatalog_an(umgebung):
     c, db, ids, h = umgebung
     liste = c.get("/branchen").json()
-    assert len(liste) == 11 and {b["schluessel"] for b in liste} >= {"shk", "friseur", "kosmetik", "massage", "physiotherapie", "hundesalon", "kfz"}
+    assert len(liste) == 17 and {b["schluessel"] for b in liste} >= {"shk", "friseur", "kosmetik", "massage", "physiotherapie", "hundesalon", "kfz"}
     assert c.get("/betrieb/branche", headers=h).json()["schluessel"] == "shk"      # Standard aus gewerk
     u = friseur(c, h)
     assert u["profil"]["schluessel"] == "friseur" and u["profil"]["begriffe"]["ressource"] == "Mitarbeiter/in" and u["profil"]["begriffe"]["anlagen"] is False
@@ -208,7 +208,7 @@ def test_wiederkehr_erinnerung_im_tageslauf(umgebung):
 
 
 def test_branchen_hilfsfunktionen():
-    assert len(branchen.BRANCHEN) == 11 and sum(len(b.leistungen) for b in branchen.BRANCHEN.values()) >= 60
+    assert len(branchen.BRANCHEN) == 17 and sum(len(b.leistungen) for b in branchen.BRANCHEN.values()) >= 100
     nummern = [le.nummer for b in branchen.BRANCHEN.values() for le in b.leistungen]
     assert len(nummern) == len(set(nummern))
     for b in branchen.BRANCHEN.values():

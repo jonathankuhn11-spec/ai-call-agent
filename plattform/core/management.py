@@ -102,7 +102,7 @@ def plantafel(s: Session, mandant: Mandant, tag: date, tage: int = 5, nur_ressou
     beginn = datetime.combine(tag, datetime.min.time(), ZEITZONE)
     ende = beginn + timedelta(days=tage)
     zeilen = []
-    abfrage = select(Ressource).where(Ressource.mandant_id == mandant.id, Ressource.aktiv).order_by(Ressource.name)
+    abfrage = select(Ressource).where(Ressource.mandant_id == mandant.id, Ressource.aktiv, Ressource.art == "person").order_by(Ressource.name)
     if nur_ressourcen is not None:
         abfrage = abfrage.where(Ressource.id.in_(nur_ressourcen))
     for r in s.scalars(abfrage):

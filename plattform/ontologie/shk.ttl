@@ -35,6 +35,14 @@ shk:Klimaanlage         a owl:Class ; rdfs:subClassOf shk:Anlage ; rdfs:label "K
 shk:Trinkwasseranlage   a owl:Class ; rdfs:subClassOf shk:Anlage ; rdfs:label "Trinkwasseranlage"@de .
 shk:Warmwasserbereiter  a owl:Class ; rdfs:subClassOf shk:Anlage ; rdfs:label "Warmwasserbereiter"@de ; skos:broadMatch brick:Water_Heater .
 shk:Sanitaeranlage      a owl:Class ; rdfs:subClassOf shk:Anlage ; rdfs:label "Sanitäranlage"@de .
+shk:Fahrzeug            a owl:Class ; rdfs:subClassOf shk:Anlage ; rdfs:label "Fahrzeug"@de ; rdfs:comment "Kraftfahrzeug des Kunden (Kfz-Werkstatt): Kennzeichen, FIN, HU in der Anlagenkartei."@de .
+shk:Fahrrad             a owl:Class ; rdfs:subClassOf shk:Anlage ; rdfs:label "Fahrrad"@de .
+shk:Elektroanlage       a owl:Class ; rdfs:subClassOf shk:Anlage ; rdfs:label "Elektroanlage"@de ; skos:broadMatch brick:Electrical_Equipment .
+shk:Photovoltaikanlage  a owl:Class ; rdfs:subClassOf shk:Elektroanlage ; rdfs:label "Photovoltaikanlage"@de ; skos:broadMatch brick:PV_Panel .
+shk:Lueftungsanlage     a owl:Class ; rdfs:subClassOf shk:Anlage ; rdfs:label "Lüftungsanlage"@de ; skos:broadMatch brick:Air_Handling_Unit .
+shk:Dach                a owl:Class ; rdfs:subClassOf shk:Anlage ; rdfs:label "Dach"@de .
+shk:Gartenanlage        a owl:Class ; rdfs:subClassOf shk:Anlage ; rdfs:label "Gartenanlage"@de .
+shk:Sachmittel          a owl:Class ; rdfs:subClassOf shk:Ressource ; rdfs:label "Sachmittel"@de ; rdfs:comment "Planbare Betriebsmittel: Hebebühne, Arbeitsplatz, Raum, Ersatzfahrzeug, Gerät."@de .
 
 # --- Objekteigenschaften -----------------------------------------------------------------------
 shk:betreut            a owl:ObjectProperty ; rdfs:domain shk:Betrieb ; rdfs:range shk:Kunde .

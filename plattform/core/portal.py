@@ -17,7 +17,17 @@ from sqlalchemy.orm import Session
 from core import domaene, hinweise, kalender
 from core.disposition import ZEITZONE
 from core.domaene import als_utc
-from core.modelle import Angebot, Kommunikation, Mandant, OutboxEintrag, Rechnung, Servicefall, Termin
+from core.modelle import (
+    Angebot,
+    Ereignis,
+    Kommunikation,
+    Mandant,
+    OutboxEintrag,
+    Rechnung,
+    Servicefall,
+    Termin,
+    Zeiteintrag,
+)
 
 
 def token(fall_id: str) -> str:
@@ -42,7 +52,7 @@ def _termin(t: Termin) -> dict[str, Any]:
             "text": f"{WOCHENTAGE[beginn.weekday()]}, {beginn.strftime('%d.%m.%Y')} {beginn.strftime('%H:%M')}–{ende.strftime('%H:%M')} Uhr"}
 
 
-def daten(s: Session, m: Mandant, f: Servicefall) -> dict[str, Any]:
+def daten(s: Session, m: Mandant, f: Servicefall, jetzt: datetime | None = None) -> dict[str, Any]:
     st = m.stammdaten or {}
     angebote = s.scalars(select(Angebot).where(Angebot.servicefall_id == f.id, Angebot.status.in_(("versendet", "angenommen")))).all()
     rechnungen = s.scalars(select(Rechnung).where(Rechnung.servicefall_id == f.id, Rechnung.art == "rechnung")).all()
@@ -52,19 +62,111 @@ def daten(s: Session, m: Mandant, f: Servicefall) -> dict[str, Any]:
             "vorgang": {"id": f.id, "anliegen": f.anliegen, "status": f.status, "dringlichkeit": f.dringlichkeit},
             "termine": [_termin(t) for t in sorted(f.termine, key=lambda t: t.beginn) if t.status != "abgesagt"],
             "angebote": [{"id": a.id, "nummer": a.nummer, "titel": a.titel, "brutto": a.brutto, "status": a.status, "gueltig_bis": a.gueltig_bis.isoformat()} for a in angebote],
-            "rechnungen": [{"id": r.id, "nummer": r.nummer, "brutto": r.brutto, "status": r.status, "faellig": r.faellig.isoformat()} for r in rechnungen],
+            "rechnungen": [{"id": r.id, "nummer": r.nummer, "brutto": r.brutto, "status": r.status, "faellig": r.faellig.isoformat(),
+                            "girocode": bool(st.get("iban")) and r.status != "bezahlt"} for r in rechnungen],
+            "zahlung": {"iban": st.get("iban"), "bic": st.get("bic"), "kontoinhaber": st.get("kontoinhaber") or m.name} if st.get("iban") else None,
+            "verlauf": verlauf(s, m, f, jetzt or datetime.now(ZEITZONE)),
+            "alternativen_moeglich": f.status in ("eingegangen", "qualifiziert", "eingeplant") and not any(t.status == "bestaetigt" for t in f.termine),
+            "bewertung": bewertung_lesen(s, f),
+            "bewertung_moeglich": f.status in ("durchgefuehrt", "abgerechnet", "uebergeben"),
             "haus": _haus(s, m, f)}
+
+
+SCHRITTE = (("eingegangen", "Anfrage eingegangen"), ("geplant", "Termin geplant"), ("unterwegs", "Wir sind unterwegs"),
+            ("erledigt", "Arbeit erledigt"), ("rechnung", "Rechnung"))
+
+
+def verlauf(s: Session, m: Mandant, f: Servicefall, jetzt: datetime) -> list[dict[str, Any]]:
+    """Statuszeitachse für Kunden: fünf verständliche Schritte statt interner Zustände. „Unterwegs“ entsteht aus einem laufenden
+    Zeiteintrag der Art fahrt des eingeteilten Monteurs am Termintag (mobile Zeiterfassung), mit Ankunft = Terminbeginn."""
+    termine = [t for t in f.termine if t.status != "abgesagt"]
+    bestaetigt = [t for t in termine if t.status == "bestaetigt"]
+    erledigt = f.status in ("durchgefuehrt", "abgerechnet", "uebergeben")
+    rechnungen = s.scalars(select(Rechnung).where(Rechnung.servicefall_id == f.id, Rechnung.art == "rechnung")).all()
+    unterwegs = None
+    if bestaetigt and not erledigt:
+        heute = als_utc(jetzt).astimezone(ZEITZONE).date()
+        for t in bestaetigt:
+            if als_utc(t.beginn).astimezone(ZEITZONE).date() != heute:
+                continue
+            fahrt = s.scalar(select(Zeiteintrag).where(Zeiteintrag.ressource_id == t.ressource_id, Zeiteintrag.art == "fahrt", Zeiteintrag.ende.is_(None),
+                                                       Zeiteintrag.beginn >= als_utc(jetzt) - timedelta(hours=4)).order_by(Zeiteintrag.beginn.desc()))
+            if fahrt is not None and (fahrt.servicefall_id in (None, f.id)):
+                unterwegs = {"seit": als_utc(fahrt.beginn).astimezone(ZEITZONE).isoformat(), "ankunft": als_utc(t.beginn).astimezone(ZEITZONE).strftime("%H:%M"),
+                             "monteur": t.ressource.name.split(" (")[0]}
+    zustand = {"eingegangen": "erledigt",
+               "geplant": "erledigt" if bestaetigt or erledigt else ("aktiv" if termine else "offen"),
+               "unterwegs": "erledigt" if erledigt else ("aktiv" if unterwegs else "offen"),
+               "erledigt": "erledigt" if erledigt else "offen",
+               "rechnung": "offen" if not rechnungen else ("erledigt" if all(r.status == "bezahlt" for r in rechnungen) else "aktiv")}
+    if f.status == "storniert":
+        zustand = {k: "offen" for k, _ in SCHRITTE} | {"eingegangen": "erledigt"}
+    hinweise_ = {"geplant": (f"{_termin(bestaetigt[0])['text']}" if bestaetigt else ("Terminvorschlag wartet auf Ihre Bestätigung." if termine else "Wir melden uns mit einem Terminvorschlag.")),
+                 "unterwegs": (f"{unterwegs['monteur']} ist seit {unterwegs['seit'][11:16]} Uhr unterwegs, Ankunft gegen {unterwegs['ankunft']} Uhr." if unterwegs else None),
+                 "erledigt": "Vielen Dank für Ihren Auftrag." if erledigt else None,
+                 "rechnung": ("Alles bezahlt, vielen Dank." if rechnungen and zustand["rechnung"] == "erledigt" else ("Rechnung liegt unten zum Herunterladen bereit." if rechnungen else None))}
+    if f.status == "storniert":
+        hinweise_["geplant"] = "Der Vorgang wurde storniert."
+    return [{"schluessel": k, "titel": titel, "zustand": zustand[k], "hinweis": hinweise_.get(k)} for k, titel in SCHRITTE]
+
+
+def alternativen(s: Session, m: Mandant, f: Servicefall, jetzt: datetime, anzahl: int = 6) -> list[dict[str, Any]]:
+    """Freie Fenster, die der Kunde statt des vorgeschlagenen Termins wählen kann (gleiche Dauer, Qualifikation, Sachmittel)."""
+    from core.disposition import freie_zeitfenster
+    fenster = freie_zeitfenster(s, m, als_utc(jetzt) + timedelta(hours=2), 10, f.dauer_minuten, f.benoetigte_qualifikation, anzahl, je_ressource=3, sachmittel=f.sachmittel)
+    aus = []
+    for z in fenster:
+        b, e = als_utc(z.beginn).astimezone(ZEITZONE), als_utc(z.ende).astimezone(ZEITZONE)
+        aus.append({"ressource_id": z.ressource_id, "beginn": b.isoformat(), "ende": e.isoformat(), "sachmittel_id": z.sachmittel_id,
+                    "text": f"{WOCHENTAGE[b.weekday()]}, {b.strftime('%d.%m.%Y')} {b.strftime('%H:%M')}–{e.strftime('%H:%M')} Uhr"})
+    return aus
+
+
+def alternative_gewaehlt(s: Session, m: Mandant, f: Servicefall, neu: Termin, jetzt: datetime) -> dict[str, Any]:
+    """Nach dem Anlegen des Wunschtermins: bisherige Vorschläge zurückziehen, Büro informieren."""
+    for t in f.termine:
+        if t.id != neu.id and t.status == "vorgeschlagen":
+            t.status = "abgesagt"
+            domaene.protokollieren(s, m.id, "termin.abgesagt", "termin", t.id, "mensch", {"servicefall_id": f.id, "grund": "Kunde hat im Portal einen anderen Termin gewählt", "quelle": "portal"}, f.kunde.name)
+    _kommunikation(s, f, f"Kunde hat im Portal den Termin {_termin(neu)['text']} gewählt", jetzt)
+    hinweise.senden(s, m, "info", "Terminwunsch im Portal", f"{f.kunde.name}: {f.anliegen} – Wunsch {_termin(neu)['text']} (Freigabe offen).", f"wunsch:{neu.id}", "freigaben")
+    return {"termin": _termin(neu), "hinweis": "Vielen Dank, wir haben Ihren Wunschtermin vorgemerkt und bestätigen ihn in Kürze."}
+
+
+def bewertung_lesen(s: Session, f: Servicefall) -> dict[str, Any] | None:
+    e = s.scalar(select(Ereignis).where(Ereignis.typ == "bewertung.abgegeben", Ereignis.entitaet_id == f.id).order_by(Ereignis.zeit.desc()))
+    return {"sterne": e.payload.get("sterne"), "text": e.payload.get("text"), "zeit": als_utc(e.zeit).isoformat()} if e else None
+
+
+def bewerten(s: Session, m: Mandant, f: Servicefall, sterne: int, text: str | None, jetzt: datetime) -> dict[str, Any]:
+    if f.status not in ("durchgefuehrt", "abgerechnet", "uebergeben"):
+        raise domaene.Domaenenfehler("Eine Bewertung ist erst nach erledigter Arbeit möglich")
+    if not 1 <= sterne <= 5:
+        raise domaene.Domaenenfehler("Bewertung mit 1 bis 5 Sternen")
+    domaene.protokollieren(s, m.id, "bewertung.abgegeben", "servicefall", f.id, "mensch", {"sterne": sterne, "text": (text or "")[:1000] or None, "kunde_id": f.kunde_id}, f.kunde.name)
+    _kommunikation(s, f, f"Bewertung im Portal: {sterne}/5" + (f" – {text[:300]}" if text else ""), jetzt)
+    if sterne <= 2:
+        hinweise.senden(s, m, "warnung", "Kritische Bewertung", f"{f.kunde.name}: {sterne}/5 – {(text or '')[:200]}", f"bewertung:{f.id}", "vorgaenge")
+    return {"bewertung": bewertung_lesen(s, f), "hinweis": "Vielen Dank für Ihre Bewertung!" if sterne >= 4 else "Vielen Dank für Ihre Rückmeldung, wir melden uns bei Ihnen."}
+
+
+def bewertungen(s: Session, m: Mandant, limit: int = 50) -> dict[str, Any]:
+    eintraege = s.scalars(select(Ereignis).where(Ereignis.mandant_id == m.id, Ereignis.typ == "bewertung.abgegeben").order_by(Ereignis.zeit.desc()).limit(limit)).all()
+    sterne = [e.payload.get("sterne") for e in eintraege if e.payload.get("sterne")]
+    return {"anzahl": len(sterne), "durchschnitt": round(sum(sterne) / len(sterne), 2) if sterne else None,
+            "verteilung": {str(n): sterne.count(n) for n in range(1, 6)},
+            "eintraege": [{"servicefall_id": e.entitaet_id, "kunde": e.akteur_name, "sterne": e.payload.get("sterne"), "text": e.payload.get("text"), "zeit": als_utc(e.zeit).isoformat()} for e in eintraege]}
 
 
 def _haus(s: Session, m: Mandant, f: Servicefall) -> dict[str, Any]:
     """„Ihr Haus“: Anlagen des Kunden mit anstehenden Erneuerungen/Prüfungen und meldbaren Zählerarten."""
-    from core import lebenszyklus, zaehler   # später Import (Zyklus über portal)
+    from core import lebenszyklus, zaehler  # später Import (Zyklus über portal)
     from core.modelle import Anlage, Objekt
     from core.ontologie import ANLAGENTYPEN
     heute = datetime.now(ZEITZONE).date()
     kal = lebenszyklus.kalender(s, m, f.kunde, heute, jahre=3)
     anlagen = s.scalars(select(Anlage).join(Objekt, Objekt.id == Anlage.objekt_id).where(Objekt.kunde_id == f.kunde_id)).all()
-    return {"anlagen": [{"id": a.id, "typ": getattr(ANLAGENTYPEN.get(a.anlagentyp), "bezeichnung", a.anlagentyp), "hersteller": a.hersteller, "modell": a.modell, "baujahr": a.baujahr} for a in anlagen],
+    return {"anlagen": [{"id": a.id, "typ": getattr(ANLAGENTYPEN.get(a.anlagentyp), "bezeichnung", a.anlagentyp), "hersteller": a.hersteller, "modell": a.modell, "baujahr": a.baujahr, "merkmale": {k: v for k, v in (a.merkmale or {}).items() if k in ("kennzeichen", "hu_bis", "kilometerstand")}} for a in anlagen],
             "anstehend": [{"jahr": j["jahr"], "eintraege": [{"bezeichnung": e["bezeichnung"], "pflicht": e["pflicht"], "faellig": e["faellig"], "kosten": e["kosten_schaetzung"]} for e in j["eintraege"]]}
                           for j in kal["jahre"] if j["eintraege"]][:3],
             "ueberfaellig": [{"bezeichnung": e["bezeichnung"], "faellig": e["faellig"]} for e in kal["ueberfaellig"]],

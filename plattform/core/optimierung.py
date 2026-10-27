@@ -223,7 +223,7 @@ def problem_laden(s: Session, m: Mandant, tag: date, router: Router, toleranz_mi
                                              Termin.status.in_(("vorgeschlagen", "bestaetigt"))).order_by(Termin.beginn)).all()
     abwesend = {a.ressource_id for a in s.scalars(select(Abwesenheit).where(Abwesenheit.mandant_id == m.id, Abwesenheit.von <= tag, Abwesenheit.bis >= tag))}
     dienste = dienstkarte(s, m.id, tag, tag)
-    ressourcen = [r for r in s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv).order_by(Ressource.name))
+    ressourcen = [r for r in s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv, Ressource.art == "person").order_by(Ressource.name))
                   if arbeitszeit(r, tag, dienste, m.stammdaten) and r.id not in abwesend]
     zeiten = {r.id: arbeitszeit(r, tag, dienste, m.stammdaten) for r in ressourcen}
     betrieb = _betrieb(m)

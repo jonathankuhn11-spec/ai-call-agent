@@ -16,6 +16,7 @@ legt auf Wunsch einen Vorgang an.
 """
 from __future__ import annotations
 
+from calendar import monthrange
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
@@ -119,8 +120,10 @@ def faelligkeit(b: Bauteil) -> date | None:
 
 
 def _plus_monate(d: date, monate: int) -> date:
+    # auch negative Monate
     monat = d.month - 1 + monate
-    return date(d.year + monat // 12, monat % 12 + 1, min(d.day, 28))
+    jahr, mon = d.year + monat // 12, monat % 12 + 1
+    return date(jahr, mon, min(d.day, monthrange(jahr, mon)[1]))
 
 
 def status(b: Bauteil, heute: date) -> str:
@@ -197,6 +200,23 @@ def erneuern(s: Session, m: Mandant, b: Bauteil, am: date, kosten: str | None = 
         b.notiz = notiz
     domaene.protokollieren(s, m.id, "bauteil.geprueft" if b.pflicht else "bauteil.erneuert", "anlage", b.anlage_id, "mensch", {"bauteil_id": b.id, "art": b.art, "am": am.isoformat()}, akteur_name)
     return b
+
+
+def merkmale_uebernehmen(s: Session, m: Mandant, a: Anlage, heute: date) -> None:
+    """Anlagenkartei in den Kalender spiegeln: HU-Datum (Fahrzeug) setzt die Prüfpflicht „hu“ so, dass sie genau dann fällig ist;
+    Kilometerstand wird als Zählerstand „kilometer“ erfasst (nur bei Anstieg)."""
+    mk = a.merkmale or {}
+    if a.anlagentyp == "fahrzeug":
+        if mk.get("hu_bis"):
+            hu = s.scalar(select(Bauteil).where(Bauteil.anlage_id == a.id, Bauteil.art == "hu"))
+            if hu is not None:
+                hu.letzte_erneuerung = _plus_monate(date.fromisoformat(mk["hu_bis"]), -(hu.intervall_monate or 24))
+        if mk.get("kilometerstand") is not None:
+            from core import zaehler
+            try:
+                zaehler.erfassen(s, m, a.objekt.kunde, "kilometer", float(mk["kilometerstand"]), heute, a, "buero")
+            except ValueError:
+                pass   # kein Anstieg oder gleicher Stand: nichts zu erfassen
 
 
 def faellig(s: Session, m: Mandant, heute: date, vorlauf_tage: int = 90) -> list[dict[str, Any]]:

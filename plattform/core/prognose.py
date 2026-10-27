@@ -141,7 +141,7 @@ def mittlere_dauer_h(s: Session, m: Mandant) -> float:
 
 def kapazitaet(s: Session, m: Mandant, woche: date) -> dict[str, float]:
     brutto, gebucht = 0.0, 0.0
-    ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv)).all()
+    ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv, Ressource.art == "person")).all()
     abwesenheiten = s.scalars(select(Abwesenheit).where(Abwesenheit.mandant_id == m.id, Abwesenheit.bis >= woche, Abwesenheit.von < woche + timedelta(days=7))).all()
     dienste = dienstkarte(s, m.id, woche, woche + timedelta(days=6))
     for r in ressourcen:

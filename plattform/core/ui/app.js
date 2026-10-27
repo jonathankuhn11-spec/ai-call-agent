@@ -21,6 +21,13 @@ const $ = (sel, wurzel = document) => wurzel.querySelector(sel);
 const esc = (w) => String(w ?? "").replace(/[&<>"']/g, (z) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[z]);
 const tag = (wert, klasse = wert, text = wert) => `<span class="marke-tag t-${esc(klasse)}">${esc(text)}</span>`;
 const zeit = (iso) => (iso ? DATUMZEIT.format(new Date(iso)) : "–");
+// Rückmeldungen als Toast statt blockierender melden()-Dialoge: art = fehler | ok | info
+function melden(text, art = "fehler", dauer = art === "fehler" ? 7000 : 3500) {
+  let box = $("#toasts"); if (!box) { box = document.createElement("div"); box.id = "toasts"; box.className = "toasts"; box.setAttribute("aria-live", "polite"); document.body.append(box); }
+  const el = document.createElement("div"); el.className = `toast t-${art}`; el.textContent = String(text ?? ""); el.setAttribute("role", art === "fehler" ? "alert" : "status");
+  box.append(el); setTimeout(() => { el.classList.add("weg"); setTimeout(() => el.remove(), 300); }, dauer);
+}
+const leer = (text, aktion) => `<div class="leer">${esc(text)}${aktion ? `<br>${aktion}` : ""}</div>`;
 
 function speicher(schluessel, wert) {
   try { if (wert === undefined) return sessionStorage.getItem(schluessel); sessionStorage.setItem(schluessel, wert); } catch { return null; }
@@ -132,7 +139,7 @@ $("#anmeldeformular").addEventListener("submit", () => {
 $("#abmelden").addEventListener("click", () => abmelden());
 
 // --- Routing ---------------------------------------------------------------------------------
-const ANSICHTEN = { cockpit, anruf, freigaben, vorgaenge, plantafel, kunden, wartung, ontologie, rechnungen, protokoll, einstellungen,
+const ANSICHTEN = { einrichtung: einrichtungAnsicht, cockpit, anruf, freigaben, vorgaenge, plantafel, kunden, wartung, ontologie, rechnungen, protokoll, einstellungen,
   einsatz: einsatzAnsicht, belege: belegeAnsicht, zeiten: zeitenAnsicht, betrieb: betriebAnsicht, angebote: angeboteAnsicht,
   forderungen: forderungenAnsicht, vertraege: vertraegeAnsicht, anfragen: anfragenAnsicht, auswertungen: auswertungenAnsicht, lager: lagerAnsicht, gutscheine: gutscheineAnsicht,
   warteliste: wartelisteAnsicht, dienstplan: dienstplanAnsicht };
@@ -188,7 +195,7 @@ async function freigabenZaehlen() {
 }
 async function dateiLaden(pfad, name) {
   const r = await fetch(pfad, { headers: authKopf() });
-  if (!r.ok) return alert(`HTTP ${r.status}`);
+  if (!r.ok) return melden(`HTTP ${r.status}`);
   const url = URL.createObjectURL(await r.blob()); const a = document.createElement("a"); a.href = url; a.download = name; a.target = "_blank"; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
@@ -219,8 +226,11 @@ async function cockpit(ziel) {
   const [risiko, prognose] = await Promise.all([api("/risiko?limit=5").catch(() => null), api("/prognose/auslastung?wochen=8").catch(() => null)]);
   const dringend = [...notfaelle, ...hoch].filter((f) => ["eingegangen", "qualifiziert"].includes(f.status));
   const kachel = (wert, bez) => `<div class="karte kachel"><div class="wert">${esc(wert ?? "–")}</div><div class="bez">${esc(bez)}</div></div>`;
+  const einr = ICH?.rechte?.includes("verwalten") ? await api("/betrieb/einrichtung").catch(() => null) : null;
   ziel.innerHTML = `
     <h1>Cockpit</h1><p class="unterzeile">Digital Twin des Betriebs · letzte ${k.zeitraum_tage} Tage</p>
+    ${einr && !einr.fertig ? `<a class="karte banner klickbar" href="#einrichtung"><div><strong>Einrichtung: ${einr.erledigt} von ${einr.pflicht} Schritten erledigt</strong><div class="balken"><span style="width:${Math.round(einr.fortschritt * 100)}%"></span></div>
+      <small>Als Nächstes: ${einr.naechste.map((s) => esc(s.titel)).join(" · ")}</small></div><span class="knopf">Weiter einrichten ›</span></a>` : ""}
     <div class="kacheln">
       ${kachel(k.offene_vorgaenge, "offene Vorgänge")}
       ${kachel(k.offene_freigaben, "offene Freigaben")}
@@ -411,7 +421,7 @@ async function freigaben(ziel) {
     b.disabled = true;
     const wer = b.dataset.klasse === "C" ? "inhaber" : "buero";  // ohne Anmeldung: Klasse C ausdrücklich als Inhaber, mit OIDC zählt der Token
     try { await api(`/freigaben/${b.dataset.entscheidung}/entscheidung`, { methode: "POST", daten: { freigeben: b.dataset.ja === "1", wer } }); zeigen(); }
-    catch (e) { b.disabled = false; alert(e.message); }
+    catch (e) { b.disabled = false; melden(e.message); }
   }));
   ziel.querySelectorAll("a[data-fall]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); fallDetail(a.dataset.fall); }));
 }
@@ -445,7 +455,7 @@ async function fallDetail(id) {
   fallGarantie(wurzel, id);
   wurzel.querySelectorAll("[data-absage]").forEach((b) => b.addEventListener("click", async () => {
     const grund = prompt("Grund der Absage (optional):"); if (grund === null) return;
-    try { await api(`/termine/${b.dataset.absage}/absagen`, { methode: "POST", daten: { grund: grund || null } }); await fallDetail(id); zeigen(); } catch (e) { alert(e.message); }
+    try { await api(`/termine/${b.dataset.absage}/absagen`, { methode: "POST", daten: { grund: grund || null } }); await fallDetail(id); zeigen(); } catch (e) { melden(e.message); }
   }));
   $("#warteliste-knopf", wurzel)?.addEventListener("click", () => {
     const heute = TAGESSCHLUESSEL.format(new Date()), bis = TAGESSCHLUESSEL.format(new Date(Date.now() + 14 * 86400000));
@@ -461,11 +471,11 @@ async function fallDetail(id) {
   });
   wurzel.querySelectorAll("[data-noshow]").forEach((b) => b.addEventListener("click", async () => {
     if (!confirm("Termin als „nicht erschienen“ markieren?")) return;
-    try { await api(`/termine/${b.dataset.noshow}/nicht-erschienen`, { methode: "POST" }); await fallDetail(id); zeigen(); } catch (e) { alert(e.message); }
+    try { await api(`/termine/${b.dataset.noshow}/nicht-erschienen`, { methode: "POST" }); await fallDetail(id); zeigen(); } catch (e) { melden(e.message); }
   }));
   wurzel.querySelectorAll("[data-ziel]").forEach((b) => b.addEventListener("click", async () => {
     try { await api(`/servicefaelle/${id}/status`, { methode: "POST", daten: { ziel: b.dataset.ziel, wer: "buero" } }); await fallDetail(id); zeigen(); }
-    catch (e) { alert(e.message); }
+    catch (e) { melden(e.message); }
   }));
   $("#termin-suchen", wurzel)?.addEventListener("click", async () => {
     const q = f.benoetigte_qualifikation ? `&qualifikation=${encodeURIComponent(f.benoetigte_qualifikation)}` : "";
@@ -474,7 +484,7 @@ async function fallDetail(id) {
     $("#terminwahl", wurzel).querySelectorAll("[data-i]").forEach((b) => b.addEventListener("click", async () => {
       const z = fenster[Number(b.dataset.i)];
       try { await api(`/servicefaelle/${id}/termine`, { methode: "POST", daten: { ressource_id: z.ressource_id, beginn: z.beginn } }); await fallDetail(id); zeigen(); }
-      catch (e) { alert(e.message); }
+      catch (e) { melden(e.message); }
     }));
   });
 }
@@ -573,10 +583,10 @@ async function wartelisteAnsicht(ziel) {
           <td>${l.bester ? `<button class="leise" data-anbieten="${esc(l.ressource_id)}" data-beginn="${esc(l.beginn)}" data-ende="${esc(l.ende)}">Anbieten</button>` : ""}</td></tr>`).join("") || "<tr><td colspan='5'>Keine Lücken.</td></tr>"}</tbody></table></div></div>
     </div>`;
   ziel.querySelectorAll("[data-fall]").forEach((z) => z.addEventListener("click", () => fallDetail(z.dataset.fall)));
-  ziel.querySelectorAll("[data-zurueck]").forEach((b) => b.addEventListener("click", async () => { try { await api(`/warteliste/${b.dataset.zurueck}/zurueckziehen`, { methode: "POST" }); zeigen(); } catch (e) { alert(e.message); } }));
+  ziel.querySelectorAll("[data-zurueck]").forEach((b) => b.addEventListener("click", async () => { try { await api(`/warteliste/${b.dataset.zurueck}/zurueckziehen`, { methode: "POST" }); zeigen(); } catch (e) { melden(e.message); } }));
   ziel.querySelectorAll("[data-anbieten]").forEach((b) => b.addEventListener("click", async () => {
     try { const r = await api(`/warteliste/anbieten?ressource_id=${encodeURIComponent(b.dataset.anbieten)}&beginn=${encodeURIComponent(b.dataset.beginn)}&ende=${encodeURIComponent(b.dataset.ende)}`, { methode: "POST" });
-      alert(r.hinweis || `Angeboten an ${r.kunde}, Frist ${DATUMZEIT.format(new Date(r.frist))}`); zeigen(); } catch (e) { alert(e.message); }
+      melden(r.hinweis || `Angeboten an ${r.kunde}, Frist ${DATUMZEIT.format(new Date(r.frist))}`); zeigen(); } catch (e) { melden(e.message); }
   }));
 }
 
@@ -584,17 +594,31 @@ async function wartelisteAnsicht(ziel) {
 async function monteureVerwalten(ziel) {
   const liste = await api("/ressourcen");
   const bereich = document.createElement("div");
-  bereich.innerHTML = `<h2 style="margin-top:24px">Monteure</h2>
-    <div class="karte"><div class="tabelle-rahmen"><table><thead><tr><th>Monteur</th><th>Qualifikationen</th><th>Anmeldename (Keycloak)</th><th></th></tr></thead><tbody>
-    ${liste.map((r) => `<tr><td>${esc(r.name)}${r.aktiv ? "" : ` ${tag("inaktiv", "neutral")}`}</td><td>${esc(r.qualifikationen.join(", "))}</td>
+  const katalog = BRANCHE?.sachmittel_katalog || {};
+  const personen = liste.filter((r) => r.art !== "sachmittel"), mittel = liste.filter((r) => r.art === "sachmittel");
+  bereich.innerHTML = `<h2 style="margin-top:24px">${esc(wort("ressourcen", "Monteure"))} und Sachmittel</h2>
+    <div class="karte"><div class="tabelle-rahmen"><table><thead><tr><th>${esc(wort("ressource", "Monteur"))}</th><th>Qualifikationen</th><th>Anmeldename (Keycloak)</th><th></th></tr></thead><tbody>
+    ${personen.map((r) => `<tr><td>${esc(r.name)}${r.aktiv ? "" : ` ${tag("inaktiv", "neutral")}`}</td><td>${esc(r.qualifikationen.join(", "))}</td>
       <td><input data-benutzer="${esc(r.id)}" value="${esc(r.benutzer || "")}" placeholder="z. B. m.arndt" autocomplete="off"></td>
-      <td><button class="leise" data-speichern="${esc(r.id)}">Speichern</button></td></tr>`).join("")}</tbody></table></div></div>`;
+      <td><button class="leise" data-speichern="${esc(r.id)}">Speichern</button></td></tr>`).join("") || `<tr><td colspan="4">${leer("Noch niemand angelegt.")}</td></tr>`}</tbody></table></div>
+    <form id="res-neu" class="zeile" style="margin-top:10px"><input name="name" placeholder="Name" required><input name="qualifikationen" placeholder="Qualifikationen, kommagetrennt"><button type="submit" class="leise">${esc(wort("ressource", "Monteur"))} anlegen</button></form>
+    ${BRANCHE?.sachmittel?.length || mittel.length ? `<h3 style="margin-top:16px">Sachmittel (Hebebühne, Arbeitsplatz, Raum, Ersatzfahrzeug …)</h3><p class="unterzeile">Ein Termin belegt neben der Person auch ein Sachmittel; die Disposition bietet nur Fenster an, in denen eines frei ist.</p>
+      <table><tbody>${mittel.map((r) => `<tr><td>${esc(r.name)}</td><td>${esc(katalog[r.sachmittel_typ] || r.sachmittel_typ || "")}</td><td>${r.aktiv ? "" : tag("inaktiv", "neutral")}</td></tr>`).join("") || `<tr><td colspan="3">${leer("Noch kein Sachmittel angelegt.")}</td></tr>`}</tbody></table>
+      <form id="sm-neu" class="zeile" style="margin-top:10px"><input name="name" placeholder="z. B. Bühne 1" required><select name="sachmittel_typ">${Object.entries(katalog).map(([k, b]) => `<option value="${esc(k)}" ${(BRANCHE.sachmittel || [])[0] === k ? "selected" : ""}>${esc(b)}</option>`).join("")}</select><button type="submit" class="leise">Sachmittel anlegen</button></form>` : ""}</div>`;
   ziel.append(bereich);
+  $("#res-neu", bereich).addEventListener("submit", async (ev) => {
+    ev.preventDefault(); const fd = new FormData(ev.target);
+    try { await api("/ressourcen", { methode: "POST", daten: { name: fd.get("name"), qualifikationen: String(fd.get("qualifikationen") || "").split(",").map((x) => x.trim()).filter(Boolean) } }); melden("Angelegt", "ok"); zeigen(); } catch (e) { melden(e.message); }
+  });
+  $("#sm-neu", bereich)?.addEventListener("submit", async (ev) => {
+    ev.preventDefault(); const fd = new FormData(ev.target);
+    try { await api("/ressourcen", { methode: "POST", daten: { name: fd.get("name"), art: "sachmittel", sachmittel_typ: fd.get("sachmittel_typ"), arbeitstage: [0, 1, 2, 3, 4, 5, 6], arbeitsbeginn: "00:00", arbeitsende: "23:59" } }); melden("Angelegt", "ok"); zeigen(); } catch (e) { melden(e.message); }
+  });
   bereich.querySelectorAll("[data-speichern]").forEach((b) => b.addEventListener("click", async () => {
     const id = b.dataset.speichern, wert = bereich.querySelector(`[data-benutzer="${id}"]`).value.trim();
     b.disabled = true;
     try { await api(`/ressourcen/${id}`, { methode: "PATCH", daten: { benutzer: wert || null } }); b.textContent = "Gespeichert"; }
-    catch (e) { alert(e.message); } finally { b.disabled = false; }
+    catch (e) { melden(e.message); } finally { b.disabled = false; }
   }));
 }
 
@@ -694,23 +718,46 @@ async function kundeDetail(id) {
   wurzel.querySelectorAll("[data-fall]").forEach((z) => z.addEventListener("click", () => fallDetail(z.dataset.fall)));
   $("#kd-bearbeiten", wurzel)?.addEventListener("click", () => kundeFormular(d.kunde));
   $("#kd-ew", wurzel).addEventListener("change", async (ev) => {
-    try { await api(`/kunden/${id}/einwilligungen`, { methode: "PUT", daten: { [ev.target.name]: ev.target.checked } }); kundeDetail(id); } catch (e) { alert(e.message); }
+    try { await api(`/kunden/${id}/einwilligungen`, { methode: "PUT", daten: { [ev.target.name]: ev.target.checked } }); kundeDetail(id); } catch (e) { melden(e.message); }
   });
   $("#kd-kartei", wurzel)?.addEventListener("submit", async (ev) => {
     ev.preventDefault(); const felder = {};
     for (const [key, v2] of new FormData(ev.target).entries()) if (v2 !== "") felder[key] = v2;
-    try { await api(`/kunden/${id}/kartei`, { methode: "PUT", daten: { felder } }); kundeDetail(id); } catch (e) { alert(e.message); }
+    try { await api(`/kunden/${id}/kartei`, { methode: "PUT", daten: { felder } }); kundeDetail(id); } catch (e) { melden(e.message); }
   });
   $("#kd-objekt-neu", wurzel)?.addEventListener("click", () => {
     $("#kd-formular", wurzel).innerHTML = `<form id="kd-of" class="karte"><div class="raster"><label>Bezeichnung <input name="bezeichnung" value="Hauptobjekt"></label><label>Straße <input name="strasse" value="${esc(d.kunde.strasse || "")}"></label><label>PLZ <input name="plz" value="${esc(d.kunde.plz || "")}"></label><label>Ort <input name="ort" value="${esc(d.kunde.ort || "")}"></label>
       <label>Gebäudetyp <select name="gebaeudetyp"><option value="">–</option>${["Einfamilienhaus", "Mehrfamilienhaus", "Gewerbe"].map((g) => `<option>${g}</option>`).join("")}</select></label></div><div class="aktionen"><button type="submit">Objekt anlegen</button></div></form>`;
-    $("#kd-of", wurzel).addEventListener("submit", async (ev) => { ev.preventDefault(); const daten = Object.fromEntries([...new FormData(ev.target).entries()].filter(([, v]) => v !== "")); try { await api(`/kunden/${id}/objekte`, { methode: "POST", daten }); kundeDetail(id); } catch (e) { alert(e.message); } });
+    $("#kd-of", wurzel).addEventListener("submit", async (ev) => { ev.preventDefault(); const daten = Object.fromEntries([...new FormData(ev.target).entries()].filter(([, v]) => v !== "")); try { await api(`/kunden/${id}/objekte`, { methode: "POST", daten }); kundeDetail(id); } catch (e) { melden(e.message); } });
   });
   wurzel.querySelectorAll("[data-anlage-neu]").forEach((b) => b.addEventListener("click", () => {
-    $("#kd-formular", wurzel).innerHTML = `<form id="kd-af" class="karte"><div class="raster"><label>Anlagentyp <select name="anlagentyp">${Object.entries(typen).map(([k, t]) => `<option value="${k}">${esc(t.bezeichnung)}</option>`).join("")}</select></label>
-      <label>Hersteller <input name="hersteller"></label><label>Modell <input name="modell"></label><label>Baujahr <input name="baujahr" type="number" min="1950" max="2100"></label><label>Letzte Wartung <input name="letzte_wartung" type="date"></label></div><div class="aktionen"><button type="submit">Anlage anlegen</button></div></form>`;
-    $("#kd-af", wurzel).addEventListener("submit", async (ev) => { ev.preventDefault(); const daten = Object.fromEntries([...new FormData(ev.target).entries()].filter(([, v]) => v !== "")); if (daten.baujahr) daten.baujahr = Number(daten.baujahr); try { await api(`/objekte/${b.dataset.anlageNeu}/anlagen`, { methode: "POST", daten }); kundeDetail(id); } catch (e) { alert(e.message); } });
+    const erlaubt = BRANCHE?.anlagentypen?.length ? Object.entries(typen).filter(([k]) => BRANCHE.anlagentypen.includes(k)) : Object.entries(typen);
+    const karteiFelder = (typ) => (BRANCHE?.anlagenkartei?.[typ] || []).map((f) => `<label data-kartei>${esc(f.titel)}${f.hinweis ? `<br><small>${esc(f.hinweis)}</small>` : ""} <input name="merkmale.${esc(f.schluessel)}" ${f.art === "datum" ? 'type="date"' : f.art === "zahl" ? 'type="number" step="any"' : ""}></label>`).join("");
+    $("#kd-formular", wurzel).innerHTML = `<form id="kd-af" class="karte"><div class="raster"><label>${erlaubt.length === 1 ? esc(erlaubt[0][1].bezeichnung) : "Anlagentyp"} <select name="anlagentyp" ${erlaubt.length === 1 ? "hidden" : ""}>${erlaubt.map(([k, t]) => `<option value="${k}">${esc(t.bezeichnung)}</option>`).join("")}</select></label>
+      <label>Hersteller <input name="hersteller"></label><label>Modell <input name="modell"></label><label>Baujahr <input name="baujahr" type="number" min="1950" max="2100"></label><label>Letzte Wartung <input name="letzte_wartung" type="date"></label><div id="kd-af-kartei" class="raster" style="grid-column:1/-1">${karteiFelder(erlaubt[0]?.[0])}</div></div><div class="aktionen"><button type="submit">${erlaubt.length === 1 ? esc(erlaubt[0][1].bezeichnung) : "Anlage"} anlegen</button></div></form>`;
+    $("#kd-af select[name=anlagentyp]", wurzel).addEventListener("change", (ev) => { $("#kd-af-kartei", wurzel).innerHTML = karteiFelder(ev.target.value); });
+    $("#kd-af", wurzel).addEventListener("submit", async (ev) => {
+      ev.preventDefault(); const daten = {}, merkmale = {};
+      for (const [k, v] of new FormData(ev.target).entries()) { if (v === "") continue; if (k.startsWith("merkmale.")) merkmale[k.slice(9)] = v; else daten[k] = v; }
+      if (daten.baujahr) daten.baujahr = Number(daten.baujahr); daten.merkmale = merkmale;
+      try { await api(`/objekte/${b.dataset.anlageNeu}/anlagen`, { methode: "POST", daten }); melden("Angelegt", "ok"); kundeDetail(id); } catch (e) { melden(e.message); }
+    });
   }));
+  // Anlagenkartei je Anlage (Fahrzeug: Kennzeichen, FIN, HU, Kilometerstand …), siehe branchen.ANLAGENKARTEI
+  for (const a of anlagen) {
+    const felder = BRANCHE?.anlagenkartei?.[a.anlagentyp]; if (!felder?.length) continue;
+    const mk = a.merkmale || {};
+    const box = document.createElement("form"); box.className = "karte"; box.style.marginTop = "10px"; box.dataset.kartei = a.id;
+    box.innerHTML = `<h4 style="margin:0 0 8px">${esc(typen[a.anlagentyp]?.bezeichnung || a.anlagentyp)}kartei · ${esc([a.hersteller, a.modell, mk.kennzeichen].filter(Boolean).join(" ") || "ohne Bezeichnung")}</h4><div class="raster">
+      ${felder.map((f) => `<label>${esc(f.titel)}${f.hinweis ? `<br><small>${esc(f.hinweis)}</small>` : ""} <input name="${esc(f.schluessel)}" ${f.art === "datum" ? 'type="date"' : f.art === "zahl" ? 'type="number" step="any"' : ""} value="${esc(mk[f.schluessel] ?? "")}" ${darf ? "" : "disabled"}></label>`).join("")}</div>
+      ${darf ? `<div class="aktionen"><button type="submit" class="leise">Kartei speichern</button></div>` : ""}`;
+    $("#kd-formular", wurzel).before(box);
+    box.addEventListener("submit", async (ev) => {
+      ev.preventDefault(); const merkmale = {};
+      for (const [k, v] of new FormData(box).entries()) if (v !== "") merkmale[k] = v;
+      try { await api(`/anlagen/${a.id}`, { methode: "PATCH", daten: { merkmale } }); melden("Kartei gespeichert", "ok"); kundeDetail(id); } catch (e) { melden(e.message); }
+    });
+  }
   kundeDokumente(wurzel, id);
   if (BRANCHE?.begriffe?.anlagen !== false) kundeLebenszyklus(wurzel, id, anlagen);
 }
@@ -791,13 +838,13 @@ async function rechnungen(ziel) {
   ziel.querySelectorAll("[data-xml]").forEach((b) => b.addEventListener("click", () => dateiLaden(`/rechnungen/${b.dataset.xml}/xrechnung`, `${b.dataset.xml}.xml`)));
   ziel.querySelectorAll("[data-storno]").forEach((b) => b.addEventListener("click", async () => {
     const grund = prompt("Grund des Stornos (erscheint im Protokoll):"); if (!grund) return;
-    try { await api(`/rechnungen/${b.dataset.storno}/storno`, { methode: "POST", daten: { grund } }); alert("Storno liegt in der Freigabe-Inbox (Klasse C)."); zeigen(); }
-    catch (e) { alert(e.message); }
+    try { await api(`/rechnungen/${b.dataset.storno}/storno`, { methode: "POST", daten: { grund } }); melden("Storno liegt in der Freigabe-Inbox (Klasse C)."); zeigen(); }
+    catch (e) { melden(e.message); }
   }));
   $("#r-belegpaket").addEventListener("click", async () => {
-    const z = $("#r-zeitraum").value; if (!z) return alert("Monat wählen");
-    try { await api("/kanzlei/belegpaket", { methode: "POST", daten: { zeitraum: z } }); alert("Belegpaket liegt in der Freigabe-Inbox (Klasse C)."); }
-    catch (e) { alert(e.message); }
+    const z = $("#r-zeitraum").value; if (!z) return melden("Monat wählen");
+    try { await api("/kanzlei/belegpaket", { methode: "POST", daten: { zeitraum: z } }); melden("Belegpaket liegt in der Freigabe-Inbox (Klasse C)."); }
+    catch (e) { melden(e.message); }
   });
 }
 
@@ -847,7 +894,7 @@ async function einstellungen(ziel) {
     const fd = new FormData(ev.target); const daten = {};
     for (const [k, v] of fd.entries()) if (k !== "kleinunternehmer" && v !== "") daten[k] = ["lat", "lon", "zahlungsziel_tage", "absage_frist_stunden", "stundensatz_kosten", "stundensatz_verrechnung", "materialaufschlag_prozent", "angebot_gueltig_tage", "mahn_karenz_tage", "mahn_frist_tage", "mahngebuehr_stufe2", "mahngebuehr_stufe3"].includes(k) ? Number(String(v).replace(",", ".")) : v;
     daten.kleinunternehmer = fd.has("kleinunternehmer");
-    try { await api("/betrieb/stammdaten", { methode: "PUT", daten }); alert("Gespeichert"); } catch (e) { alert(e.message); }
+    try { await api("/betrieb/stammdaten", { methode: "PUT", daten }); melden("Gespeichert", "ok"); } catch (e) { melden(e.message); }
   });
   ziel.querySelectorAll("form[data-ziel]").forEach((f) => f.addEventListener("submit", async (ev) => {
     ev.preventDefault();
@@ -874,8 +921,8 @@ async function einstellungen(ziel) {
     try { const e = await api("/betrieb/branche", { methode: "PUT", daten: { branche: $("#br-wahl").value, leistungen_anlegen: $("#br-leistungen").checked } }); BRANCHE = null; $("#br-status").textContent = `${e.leistungen_angelegt} Leistungen angelegt`; zeigen(); }
     catch (e) { $("#br-status").innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
   });
-  $("#bu-an").addEventListener("click", async () => { try { if (buchung.aktiv) await api("/betrieb/buchung?aktiv=false", { methode: "PUT" }); await api("/betrieb/buchung?aktiv=true", { methode: "PUT" }); zeigen(); } catch (e) { alert(e.message); } });
-  $("#bu-aus")?.addEventListener("click", async () => { try { await api("/betrieb/buchung?aktiv=false", { methode: "PUT" }); zeigen(); } catch (e) { alert(e.message); } });
+  $("#bu-an").addEventListener("click", async () => { try { if (buchung.aktiv) await api("/betrieb/buchung?aktiv=false", { methode: "PUT" }); await api("/betrieb/buchung?aktiv=true", { methode: "PUT" }); zeigen(); } catch (e) { melden(e.message); } });
+  $("#bu-aus")?.addEventListener("click", async () => { try { await api("/betrieb/buchung?aktiv=false", { methode: "PUT" }); zeigen(); } catch (e) { melden(e.message); } });
   const datevKarte = document.createElement("div");
   datevKarte.className = "karte"; datevKarte.style.marginBottom = "16px";
   datevKarte.innerHTML = `<h2>DATEV-Datenservices verbinden</h2><p class="unterzeile">Nach dem Speichern der DATEV-Zugangsdaten (Buchhaltung oder Steuerkanzlei → datev) meldet sich der Betrieb einmalig mit dem DATEV-Login an; die Plattform speichert nur das verschlüsselte Refresh-Token. Voraussetzung: Stammdatum „Öffentliche Adresse“ und Freischaltung der Datenservices durch die Kanzlei.</p>
@@ -940,14 +987,14 @@ async function einsatzAnsicht(ziel) {
       <button id="e-beleg-senden" class="leise">Hochladen</button></div><p id="e-beleg-status"></p></div>`}`;
   $("#e-ressource")?.addEventListener("change", (ev) => { speicher("einsatzRessource", ev.target.value); zeigen(); });
   const rid = buero ? gewaehlt : undefined;
-  const starten = async (art, fall) => { try { await api("/zeiten/start", { methode: "POST", daten: { art, servicefall_id: fall, ressource_id: rid } }); zeigen(); } catch (e) { alert(e.message); } };
+  const starten = async (art, fall) => { try { await api("/zeiten/start", { methode: "POST", daten: { art, servicefall_id: fall, ressource_id: rid } }); zeigen(); } catch (e) { melden(e.message); } };
   ziel.querySelectorAll("[data-start]").forEach((b) => b.addEventListener("click", () => starten(b.dataset.start)));
   ziel.querySelectorAll("[data-arbeit]").forEach((b) => b.addEventListener("click", () => starten("arbeit", b.dataset.arbeit)));
-  $("#e-stop")?.addEventListener("click", async () => { try { await api(`/zeiten/${laufend.id}/stop`, { methode: "POST" }); zeigen(); } catch (e) { alert(e.message); } });
+  $("#e-stop")?.addEventListener("click", async () => { try { await api(`/zeiten/${laufend.id}/stop`, { methode: "POST" }); zeigen(); } catch (e) { melden(e.message); } });
   ziel.querySelectorAll("[data-fall]").forEach((b) => b.addEventListener("click", () => fallDetail(b.dataset.fall)));
   ziel.querySelectorAll("[data-rapport]").forEach((b) => b.addEventListener("click", () => rapportFormular(b.dataset.rapport, b.dataset.termin, rid)));
   $("#e-beleg-senden")?.addEventListener("click", async () => {
-    const datei = $("#e-beleg").files[0]; if (!datei) return alert("Bitte Datei oder Foto wählen");
+    const datei = $("#e-beleg").files[0]; if (!datei) return melden("Bitte Datei oder Foto wählen");
     const fd = new FormData(); fd.append("datei", datei); if ($("#e-beleg-fall").value) fd.append("servicefall_id", $("#e-beleg-fall").value);
     $("#e-beleg-status").textContent = "Wird hochgeladen …";
     try { const b = await api("/belege", { methode: "POST", daten: fd }); $("#e-beleg-status").innerHTML = `Erfasst: ${esc(b.lieferant)} · ${esc(EURO.format(b.brutto))} ${tag(`Konfidenz ${Math.round((b.erkennung.konfidenz || 0) * 100)} %`, "neutral")}`; $("#e-beleg").value = ""; }
@@ -1087,7 +1134,7 @@ async function belegeAnsicht(ziel) {
     catch (e) { $("#b-status").innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
   };
   $("#b-hochladen").addEventListener("click", () => {
-    const datei = $("#b-datei").files[0]; if (!datei) return alert("Datei wählen");
+    const datei = $("#b-datei").files[0]; if (!datei) return melden("Datei wählen");
     const fd = new FormData(); fd.append("datei", datei); fd.append("kategorie", $("#b-kategorie").value); senden(fd);
   });
   $("#b-manuell").addEventListener("click", () => {
@@ -1099,7 +1146,7 @@ async function belegeAnsicht(ziel) {
     [...$("#b-bilder").files].forEach((f, i) => { const img = document.createElement("img"); img.alt = `Seite ${i + 1}`; img.src = URL.createObjectURL(f); leiste.append(img); });
   });
   $("#b-scannen").addEventListener("click", async () => {
-    const dateien = [...$("#b-bilder").files]; if (!dateien.length) return alert("Seiten fotografieren oder wählen");
+    const dateien = [...$("#b-bilder").files]; if (!dateien.length) return melden("Seiten fotografieren oder wählen");
     const fd = new FormData(); dateien.forEach((f) => fd.append("bilder", f)); fd.append("kategorie", $("#b-kategorie").value); fd.append("scanmodus", $("#b-scanmodus").checked ? "true" : "false");
     $("#b-scan-status").textContent = `${dateien.length} Seite(n) werden zusammengefasst …`;
     try { const b = await api("/belege/scan", { methode: "POST", daten: fd }); $("#b-scan-status").textContent = `Erfasst: ${b.lieferant}, ${EURO.format(b.brutto)}.`; zeigen(); belegDetail(b.id); }
@@ -1143,8 +1190,8 @@ async function belegDetail(id, darf = true) {
   $("#b-speichern", wurzel)?.addEventListener("click", () => speichern());
   $("#b-pruefen", wurzel)?.addEventListener("click", () => speichern({ status: "geprueft" }));
   $("#b-uebergabe", wurzel)?.addEventListener("click", async () => { try { await api(`/belege/${id}/uebergabe`, { methode: "POST", daten: {} }); $("#b-meldung", wurzel).textContent = "Übergabe eingereiht; der Worker stellt zu."; } catch (e) { $("#b-meldung", wurzel).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; } });
-  $("#b-bezahlt", wurzel)?.addEventListener("click", async () => { try { await api(`/belege/${id}`, { methode: "PATCH", daten: { status: "bezahlt" } }); $("#detail").close(); zeigen(); } catch (e) { alert(e.message); } });
-  $("#b-loeschen", wurzel)?.addEventListener("click", async () => { if (!confirm("Beleg und Datei löschen?")) return; try { await api(`/belege/${id}`, { methode: "DELETE" }); $("#detail").close(); zeigen(); } catch (e) { alert(e.message); } });
+  $("#b-bezahlt", wurzel)?.addEventListener("click", async () => { try { await api(`/belege/${id}`, { methode: "PATCH", daten: { status: "bezahlt" } }); $("#detail").close(); zeigen(); } catch (e) { melden(e.message); } });
+  $("#b-loeschen", wurzel)?.addEventListener("click", async () => { if (!confirm("Beleg und Datei löschen?")) return; try { await api(`/belege/${id}`, { methode: "DELETE" }); $("#detail").close(); zeigen(); } catch (e) { melden(e.message); } });
 }
 
 // --- Zeiten: Liste, Nachtrag, Lohnexport ------------------------------------------------------
@@ -1204,15 +1251,15 @@ async function betriebAnsicht(ziel) {
     try { await api("/bereitschaft", { methode: "POST", daten: { ressource_id: $("#bs-ressource").value, von: new Date($("#bs-von").value).toISOString(), bis: new Date($("#bs-bis").value).toISOString(), telefon: $("#bs-telefon").value } }); zeigen(); }
     catch (e) { $("#bs-status").innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
   });
-  ziel.querySelectorAll("[data-bl]").forEach((b) => b.addEventListener("click", async () => { try { await api(`/bereitschaft/${b.dataset.bl}`, { methode: "DELETE" }); zeigen(); } catch (e) { alert(e.message); } }));
+  ziel.querySelectorAll("[data-bl]").forEach((b) => b.addEventListener("click", async () => { try { await api(`/bereitschaft/${b.dataset.bl}`, { methode: "DELETE" }); zeigen(); } catch (e) { melden(e.message); } }));
   $("#fr-anlegen")?.addEventListener("click", async () => {
     const [typ, id] = $("#fr-bezug").value.split(":");
     if ($("#fr-bez").value.trim().length < 2 || !$("#fr-faellig").value) { $("#fr-status").innerHTML = `<span class="fehler">Bezeichnung und Fälligkeit angeben.</span>`; return; }
     try { await api("/fristen", { methode: "POST", daten: { art: $("#fr-art").value, bezeichnung: $("#fr-bez").value, faellig: $("#fr-faellig").value, intervall_monate: Number($("#fr-intervall").value) || null, bezug_typ: typ, bezug_id: id || null } }); zeigen(); }
     catch (e) { $("#fr-status").innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
   });
-  ziel.querySelectorAll("[data-fe]").forEach((b) => b.addEventListener("click", async () => { try { const r = await api(`/fristen/${b.dataset.fe}/erledigt`, { methode: "POST", daten: {} }); if (r.folgefrist) alert(`Folgefrist angelegt: fällig ${DATUM.format(new Date(r.folgefrist.faellig))}`); zeigen(); } catch (e) { alert(e.message); } }));
-  ziel.querySelectorAll("[data-fl]").forEach((b) => b.addEventListener("click", async () => { try { await api(`/fristen/${b.dataset.fl}`, { methode: "DELETE" }); zeigen(); } catch (e) { alert(e.message); } }));
+  ziel.querySelectorAll("[data-fe]").forEach((b) => b.addEventListener("click", async () => { try { const r = await api(`/fristen/${b.dataset.fe}/erledigt`, { methode: "POST", daten: {} }); if (r.folgefrist) melden(`Folgefrist angelegt: fällig ${DATUM.format(new Date(r.folgefrist.faellig))}`); zeigen(); } catch (e) { melden(e.message); } }));
+  ziel.querySelectorAll("[data-fl]").forEach((b) => b.addEventListener("click", async () => { try { await api(`/fristen/${b.dataset.fl}`, { methode: "DELETE" }); zeigen(); } catch (e) { melden(e.message); } }));
 }
 
 // Dokumente am Kunden (Angebote, Wartungsverträge, Pläne)
@@ -1225,7 +1272,7 @@ async function kundeDokumente(wurzel, id) {
   wurzel.append(teil);
   teil.querySelectorAll("[data-dok]").forEach((a) => a.addEventListener("click", (ev) => { ev.preventDefault(); dateiLaden(`/anhaenge/${a.dataset.dok}/inhalt`, a.dataset.name); }));
   $("#kd-hochladen", teil)?.addEventListener("click", async () => {
-    const datei = $("#kd-datei", teil).files[0]; if (!datei) return alert("Datei wählen");
+    const datei = $("#kd-datei", teil).files[0]; if (!datei) return melden("Datei wählen");
     const fd = new FormData(); fd.append("datei", datei); fd.append("bezug_typ", "kunde"); fd.append("bezug_id", id); fd.append("art", datei.type.startsWith("image/") ? "foto" : "dokument"); if ($("#kd-notiz", teil).value) fd.append("notiz", $("#kd-notiz", teil).value);
     try { await api("/anhaenge", { methode: "POST", daten: fd }); kundeDetail(id); } catch (e) { $("#kd-status", teil).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
   });
@@ -1307,7 +1354,7 @@ async function angeboteAnsicht(ziel) {
   ziel.querySelectorAll("[data-pdf]").forEach((b) => b.addEventListener("click", () => dateiLaden(`/angebote/${b.dataset.pdf}/pdf`, `${b.dataset.nr}.pdf`)));
   ziel.querySelectorAll("[data-fall]").forEach((b) => b.addEventListener("click", () => fallDetail(b.dataset.fall)));
   const aktion = (attr, pfad, meldung, koerper) => ziel.querySelectorAll(`[${attr}]`).forEach((b) => b.addEventListener("click", async () => {
-    try { const d = koerper ? koerper() : undefined; if (d === null) return; await api(`/angebote/${b.getAttribute(attr)}/${pfad}`, { methode: "POST", daten: d }); if (meldung) alert(meldung); zeigen(); } catch (e) { alert(e.message); }
+    try { const d = koerper ? koerper() : undefined; if (d === null) return; await api(`/angebote/${b.getAttribute(attr)}/${pfad}`, { methode: "POST", daten: d }); if (meldung) melden(meldung); zeigen(); } catch (e) { melden(e.message); }
   }));
   aktion("data-senden", "senden", "Versand liegt in der Freigabe-Inbox (Klasse B).");
   aktion("data-annehmen", "annehmen", "Auftrag angelegt; die Auftragsbestätigung liegt in der Freigabe-Inbox.");
@@ -1354,7 +1401,7 @@ async function forderungenAnsicht(ziel) {
   ziel.querySelectorAll("[data-zahlung]").forEach((b) => b.addEventListener("click", async () => {
     const betrag = prompt(`Zahlung zu ${b.dataset.nr} (offen ${EURO.format(b.dataset.offen)}). Betrag in €:`, b.dataset.offen); if (!betrag) return;
     const art = prompt("Art: ueberweisung, bar, karte, skonto oder ausbuchung", "ueberweisung") || "ueberweisung";
-    try { await api("/zahlungen", { methode: "POST", daten: { rechnung_id: b.dataset.zahlung, betrag: Number(betrag.replace(",", ".")), art } }); zeigen(); } catch (e) { alert(e.message); }
+    try { await api("/zahlungen", { methode: "POST", daten: { rechnung_id: b.dataset.zahlung, betrag: Number(betrag.replace(",", ".")), art } }); zeigen(); } catch (e) { melden(e.message); }
   }));
   ziel.querySelectorAll("[data-mpdf]").forEach((b) => b.addEventListener("click", () => dateiLaden(`/mahnungen/${b.dataset.mpdf}/pdf`, "Mahnung.pdf")));
 }
@@ -1387,7 +1434,7 @@ async function vertraegeAnsicht(ziel) {
   });
   ziel.querySelectorAll("[data-kuendigen]").forEach((b) => b.addEventListener("click", async () => {
     if (!confirm("Vertrag zum nächstmöglichen Termin kündigen?")) return;
-    try { const v = await api(`/vertraege/${b.dataset.kuendigen}/kuendigen`, { methode: "POST", daten: {} }); alert(`Gekündigt zum ${DATUM.format(new Date(v.gekuendigt_zum))}`); zeigen(); } catch (e) { alert(e.message); }
+    try { const v = await api(`/vertraege/${b.dataset.kuendigen}/kuendigen`, { methode: "POST", daten: {} }); melden(`Gekündigt zum ${DATUM.format(new Date(v.gekuendigt_zum))}`); zeigen(); } catch (e) { melden(e.message); }
   }));
 }
 
@@ -1445,7 +1492,7 @@ async function abwesenheitenVerwalten(ziel, ressourcen) {
     try { await api("/abwesenheiten", { methode: "POST", daten: { ressource_id: $("#ab-ressource", teil).value, von: $("#ab-von", teil).value, bis: $("#ab-bis", teil).value || $("#ab-von", teil).value, art: $("#ab-art", teil).value } }); zeigen(); }
     catch (e) { $("#ab-status", teil).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
   });
-  teil.querySelectorAll("[data-al]").forEach((b) => b.addEventListener("click", async () => { try { await api(`/abwesenheiten/${b.dataset.al}`, { methode: "DELETE" }); zeigen(); } catch (e) { alert(e.message); } }));
+  teil.querySelectorAll("[data-al]").forEach((b) => b.addEventListener("click", async () => { try { await api(`/abwesenheiten/${b.dataset.al}`, { methode: "DELETE" }); zeigen(); } catch (e) { melden(e.message); } }));
 }
 
 // --- Einstellungen: Artikelstamm, Webformular, Postfach -------------------------------------
@@ -1486,9 +1533,9 @@ async function einstellungenErgaenzen(ziel) {
     ev.preventDefault(); const daten = {}; for (const [k, v] of new FormData(ev.target).entries()) if (v !== "") daten[k] = ["einkauf_netto", "verkauf_netto", "dauer_minuten"].includes(k) ? Number(v) : v;
     try { await api("/artikel", { methode: "POST", daten }); zeigen(); } catch (e) { $("#art-status", teil).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
   });
-  teil.querySelectorAll("[data-aktiv]").forEach((c) => c.addEventListener("change", async () => { try { await api(`/artikel/${c.dataset.aktiv}`, { methode: "PATCH", daten: { aktiv: c.checked } }); } catch (e) { alert(e.message); } }));
-  $("#wf-an", teil).addEventListener("click", async () => { try { await api("/betrieb/webformular", { methode: "PUT", daten: { aktiv: true, erneuern: web.aktiv, danke_url: $("#wf-danke", teil).value || null } }); zeigen(); } catch (e) { alert(e.message); } });
-  $("#wf-aus", teil)?.addEventListener("click", async () => { try { await api("/betrieb/webformular", { methode: "PUT", daten: { aktiv: false } }); zeigen(); } catch (e) { alert(e.message); } });
+  teil.querySelectorAll("[data-aktiv]").forEach((c) => c.addEventListener("change", async () => { try { await api(`/artikel/${c.dataset.aktiv}`, { methode: "PATCH", daten: { aktiv: c.checked } }); } catch (e) { melden(e.message); } }));
+  $("#wf-an", teil).addEventListener("click", async () => { try { await api("/betrieb/webformular", { methode: "PUT", daten: { aktiv: true, erneuern: web.aktiv, danke_url: $("#wf-danke", teil).value || null } }); zeigen(); } catch (e) { melden(e.message); } });
+  $("#wf-aus", teil)?.addEventListener("click", async () => { try { await api("/betrieb/webformular", { methode: "PUT", daten: { aktiv: false } }); zeigen(); } catch (e) { melden(e.message); } });
   $("#pe-form", teil).addEventListener("submit", async (ev) => {
     ev.preventDefault(); const daten = Object.fromEntries(new FormData(ev.target).entries()); daten.port = Number(daten.port) || 993;
     try { await api("/betrieb/posteingang", { methode: "PUT", daten }); $("#pe-status", teil).innerHTML = `<span class="hinweis">Gespeichert</span>`; } catch (e) { $("#pe-status", teil).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
@@ -1545,7 +1592,7 @@ async function lagerAnsicht(ziel) {
     const g = vorschlag.gruppen[Number(b.dataset.ids)];
     const positionen = g.positionen.map((p) => ({ nummer: p.nummer, menge: p.menge, einheit: p.einheit, bezeichnung: p.bezeichnung }));
     const r = await fetch("/lager/warenkorb", { method: "POST", headers: { ...authKopf(), "Content-Type": "application/json" }, body: JSON.stringify({ positionen }) });
-    if (!r.ok) { const d = await r.json().catch(() => ({})); return alert(d.detail || `HTTP ${r.status}`); }
+    if (!r.ok) { const d = await r.json().catch(() => ({})); return melden(d.detail || `HTTP ${r.status}`); }
     const fenster = window.open("", "_blank"); fenster.document.write(await r.text()); fenster.document.close();
   }));
 }
@@ -1576,7 +1623,7 @@ async function gutscheineAnsicht(ziel) {
     catch (e) { $("#gs-ein-status").innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
   });
   ziel.querySelectorAll("[data-pdf]").forEach((b) => b.addEventListener("click", () => dateiLaden(`/gutscheine/${b.dataset.pdf}/pdf`, `gutschein-${b.dataset.pdf}.pdf`)));
-  ziel.querySelectorAll("[data-storno]").forEach((b) => b.addEventListener("click", async () => { if (!confirm("Gutschein stornieren?")) return; try { await api(`/gutscheine/${b.dataset.storno}/storno`, { methode: "POST" }); zeigen(); } catch (e) { alert(e.message); } }));
+  ziel.querySelectorAll("[data-storno]").forEach((b) => b.addEventListener("click", async () => { if (!confirm("Gutschein stornieren?")) return; try { await api(`/gutscheine/${b.dataset.storno}/storno`, { methode: "POST" }); zeigen(); } catch (e) { melden(e.message); } }));
 }
 
 // --- Runde 6: Lebenszyklus, Zähler, Gewährleistung im Kundendetail ----------------------------------
@@ -1610,9 +1657,9 @@ async function kundeLebenszyklus(wurzel, id, anlagen) {
     $("#lz", teil).querySelectorAll("[data-erneuert]").forEach((b) => b.addEventListener("click", async () => {
       const am = prompt(b.dataset.pflicht === "true" ? "Geprüft am (JJJJ-MM-TT):" : "Erneuert am (JJJJ-MM-TT):", TAGESSCHLUESSEL.format(new Date())); if (am === null) return;
       const kosten = b.dataset.pflicht === "true" ? null : prompt("Tatsächliche Kosten brutto (optional, z. B. 480.00):") || null;
-      try { await api(`/bauteile/${b.dataset.erneuert}/erneuert`, { methode: "POST", daten: { am, kosten } }); kundeDetail(id); } catch (e) { alert(e.message); }
+      try { await api(`/bauteile/${b.dataset.erneuert}/erneuert`, { methode: "POST", daten: { am, kosten } }); kundeDetail(id); } catch (e) { melden(e.message); }
     }));
-    $("#lz", teil).querySelectorAll("[data-katalog]").forEach((b) => b.addEventListener("click", async () => { try { await api(`/anlagen/${b.dataset.katalog}/bauteile/anlegen`, { methode: "POST" }); kundeDetail(id); } catch (e) { alert(e.message); } }));
+    $("#lz", teil).querySelectorAll("[data-katalog]").forEach((b) => b.addEventListener("click", async () => { try { await api(`/anlagen/${b.dataset.katalog}/bauteile/anlegen`, { methode: "POST" }); kundeDetail(id); } catch (e) { melden(e.message); } }));
   }
   // Zählerstände
   if (zs.fehler) $("#zs", teil).innerHTML = `<span class="fehler">${esc(zs.fehler)}</span>`;
@@ -1629,7 +1676,7 @@ async function kundeLebenszyklus(wurzel, id, anlagen) {
         <input name="notiz" placeholder="Notiz (z. B. Zählerwechsel)" style="width:180px"><button type="submit" class="leise">Erfassen</button></form>` : ""}`;
     $("#zs-form", teil)?.addEventListener("submit", async (ev) => {
       ev.preventDefault(); const daten = Object.fromEntries([...new FormData(ev.target).entries()].filter(([, v]) => v !== "")); daten.wert = Number(daten.wert);
-      try { await api(`/kunden/${id}/zaehlerstaende`, { methode: "POST", daten }); kundeDetail(id); } catch (e) { alert(e.message); }
+      try { await api(`/kunden/${id}/zaehlerstaende`, { methode: "POST", daten }); kundeDetail(id); } catch (e) { melden(e.message); }
     });
   }
   // Gewährleistung
@@ -1697,10 +1744,10 @@ async function dienstplanAnsicht(ziel) {
       ev.preventDefault(); const fd = new FormData(ev.target); const schicht = fd.get("schicht") || null;
       const daten = { ressource_id: td.dataset.r, datum: td.dataset.tag, art: "arbeit", schicht, pause_minuten: Number(fd.get("pause_minuten")) };
       if (!schicht) { daten.beginn = fd.get("beginn"); daten.ende = fd.get("ende"); }
-      try { await api("/dienste", { methode: "POST", daten }); zeigen(); } catch (e) { alert(e.message); }
+      try { await api("/dienste", { methode: "POST", daten }); zeigen(); } catch (e) { melden(e.message); }
     });
-    $("#dp-frei").addEventListener("click", async () => { try { await api("/dienste", { methode: "POST", daten: { ressource_id: td.dataset.r, datum: td.dataset.tag, art: "frei" } }); zeigen(); } catch (e) { alert(e.message); } });
-    $("#dp-f").querySelectorAll("[data-loeschen]").forEach((b) => b.addEventListener("click", async () => { try { await api(`/dienste/${b.dataset.loeschen}`, { methode: "DELETE" }); zeigen(); } catch (e) { alert(e.message); } }));
+    $("#dp-frei").addEventListener("click", async () => { try { await api("/dienste", { methode: "POST", daten: { ressource_id: td.dataset.r, datum: td.dataset.tag, art: "frei" } }); zeigen(); } catch (e) { melden(e.message); } });
+    $("#dp-f").querySelectorAll("[data-loeschen]").forEach((b) => b.addEventListener("click", async () => { try { await api(`/dienste/${b.dataset.loeschen}`, { methode: "DELETE" }); zeigen(); } catch (e) { melden(e.message); } }));
   }));
   $("#dp-vorschlag")?.addEventListener("click", async () => {
     const box = $("#dp-vorschlag-box"); box.innerHTML = "Berechne …";
@@ -1709,7 +1756,7 @@ async function dienstplanAnsicht(ziel) {
       box.innerHTML = `<div class="karte" style="margin-top:8px"><h3>Vorschlag KW ${v.kw}${v.schichtbetrieb ? " (Schichtbetrieb)" : ""}</h3><p class="unterzeile">Bedarf aus gebuchten Terminen und Prognose (${v.bedarf_woche_h} h/Woche, +15 % Reserve); wer zuletzt am wenigsten Stunden hatte, wird zuerst eingeteilt. Bestehende Dienste bleiben.</p>
         <table><thead><tr><th>Tag</th><th>Bedarf</th><th>Bereits geplant</th><th>Vorschlag</th></tr></thead><tbody>${v.tage.map((t) => `<tr><td>${esc(t.datum.split("-").reverse().join("."))}</td><td>${t.bedarf_h} h (${t.benoetigt} Pers.)${t.unterdeckung_h ? ` <span class="fehler">−${t.unterdeckung_h} h</span>` : ""}</td><td>${esc(t.geplant.join(", ") || "–")}</td><td>${t.vorschlag.map((d) => `${esc(d.name.split(" (")[0])} ${esc(SCHICHT_TEXT[d.schicht])} ${d.beginn}–${d.ende}`).join("<br>") || "–"}</td></tr>`).join("")}</tbody></table>
         <div class="aktionen" style="margin-top:8px">${v.dienste.length ? `<button id="dp-uebernehmen">${v.dienste.length} Dienste übernehmen</button>` : "<span>Nichts zu ergänzen.</span>"}</div></div>`;
-      $("#dp-uebernehmen")?.addEventListener("click", async () => { try { await api("/dienstplan/vorschlag", { methode: "POST", daten: { dienste: v.dienste } }); zeigen(); } catch (e) { alert(e.message); } });
+      $("#dp-uebernehmen")?.addEventListener("click", async () => { try { await api("/dienstplan/vorschlag", { methode: "POST", daten: { dienste: v.dienste } }); zeigen(); } catch (e) { melden(e.message); } });
     } catch (e) { box.innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
   });
   ziel.querySelectorAll("td[data-q]").forEach((td) => td.addEventListener("click", async () => {
@@ -1720,7 +1767,61 @@ async function dienstplanAnsicht(ziel) {
     const res = await api("/ressourcen").then((l) => l.find((x) => x.id === r.ressource_id));
     const quals = new Set(res.qualifikationen);
     if (ablauf === "-") quals.delete(q); else quals.add(q);
-    try { await api(`/ressourcen/${r.ressource_id}`, { methode: "PATCH", daten: { qualifikationen: [...quals], qualifikationen_ablauf: { [q]: ablauf && ablauf !== "-" ? ablauf : null } } }); zeigen(); } catch (e) { alert(e.message); }
+    try { await api(`/ressourcen/${r.ressource_id}`, { methode: "PATCH", daten: { qualifikationen: [...quals], qualifikationen_ablauf: { [q]: ablauf && ablauf !== "-" ? ablauf : null } } }); zeigen(); } catch (e) { melden(e.message); }
   }));
 }
 function verschieben(iso, tage) { const d = new Date(`${iso}T12:00:00`); d.setDate(d.getDate() + tage); return TAGESSCHLUESSEL.format(d); }
+
+
+// --- Einrichtungsassistent: Fortschritt, Betrieb/Team/Sachmittel in einem Formular, Kundenimport aus CSV ---
+async function einrichtungAnsicht(ziel) {
+  const [st, branchen, betrieb, ressourcen] = await Promise.all([api("/betrieb/einrichtung"), api("/branchen"), api("/betrieb"), api("/ressourcen").catch(() => [])]);
+  const sd = betrieb.stammdaten || {}; const katalog = BRANCHE?.sachmittel_katalog || {};
+  const personen = ressourcen.filter((r) => r.art !== "sachmittel"), mittel = ressourcen.filter((r) => r.art === "sachmittel");
+  const feld = (k, b, typ = "text") => `<label>${esc(b)} <input name="${k}" type="${typ}" value="${esc(sd[k] ?? "")}"></label>`;
+  ziel.innerHTML = `<h1>Einrichtung</h1><p class="unterzeile">${esc(betrieb.name)} · ${esc(st.bezeichnung)} · ${st.erledigt} von ${st.pflicht} Pflichtschritten erledigt</p>
+    <div class="karte" style="margin-bottom:16px"><div class="balken"><span style="width:${Math.round(st.fortschritt * 100)}%"></span></div>
+      <ul class="schritte">${st.schritte.map((s) => `<li class="${s.erledigt ? "erledigt" : "offen"}"><span class="punkt">${s.erledigt ? "✓" : ""}</span><div><strong>${esc(s.titel)}</strong>${s.optional ? ` ${tag("optional", "neutral")}` : ""}<br><small>${esc(s.hinweis || "")}</small></div>${s.erledigt || s.pfad === "einrichtung" ? "" : `<a class="knopf leise" href="#${esc(s.pfad)}">Öffnen ›</a>`}</li>`).join("")}</ul>
+      ${st.fertig ? `<p class="hinweis">Alles eingerichtet. Der Betrieb kann loslegen.</p>` : ""}</div>
+    <form id="ea" class="karte" style="margin-bottom:16px"><h2>Betrieb, Team und Sachmittel</h2><p class="unterzeile">Alles in einem Schritt; ein zweiter Lauf legt nichts doppelt an.</p>
+      <div class="raster">
+        <label>Branche <select name="branche">${branchen.map((b) => `<option value="${esc(b.schluessel)}" ${b.schluessel === st.branche ? "selected" : ""}>${esc(b.bezeichnung)}</option>`).join("")}</select></label>
+        <label>Name des Betriebs <input name="name" value="${esc(betrieb.name)}" required></label>
+        ${feld("strasse", "Straße und Hausnummer")}${feld("plz", "PLZ")}${feld("ort", "Ort")}${feld("telefon", "Telefon", "tel")}${feld("email", "E-Mail", "email")}
+        ${feld("iban", "IBAN (GiroCode auf Rechnungen)")}${feld("basis_url", "Öffentliche Adresse (https://…)", "url")}${feld("impressum_url", "Impressum-URL", "url")}${feld("datenschutz_url", "Datenschutz-URL", "url")}
+      </div>
+      <h3>${esc(wort("ressourcen", "Team"))}</h3><p class="unterzeile">${personen.length ? `Vorhanden: ${esc(personen.map((p) => p.name).join(", "))}` : "Noch niemand angelegt."} Je Zeile ein Name, optional Qualifikationen nach Doppelpunkt (z. B. <code>Anna Weber: gas, heizung</code>).</p>
+      <textarea name="mitarbeiter" rows="3" placeholder="Anna Weber: gas, heizung&#10;Ben Koch"></textarea>
+      ${BRANCHE?.sachmittel?.length ? `<h3>Sachmittel</h3><p class="unterzeile">${mittel.length ? `Vorhanden: ${esc(mittel.map((p) => p.name).join(", "))}.` : ""} Je Zeile <code>Name: Typ</code>; Typen: ${Object.entries(katalog).filter(([k]) => BRANCHE.sachmittel.includes(k)).map(([k, b]) => `<code>${esc(k)}</code> (${esc(b)})`).join(", ")}.</p>
+      <textarea name="sachmittel" rows="2" placeholder="Bühne 1: ${esc(BRANCHE.sachmittel[0])}"></textarea>` : ""}
+      <div class="zeile" style="margin-top:10px"><label><span><input type="checkbox" name="leistungen_anlegen" checked> Leistungskatalog der Branche anlegen</span></label>
+        ${BRANCHE?.online_buchung !== false ? `<label><span><input type="checkbox" name="online_buchung" ${sd.buchung_token ? "checked disabled" : ""}> Online-Buchung aktivieren</span></label>` : ""}</div>
+      <div class="aktionen" style="margin-top:12px"><button type="submit">Speichern und weiter</button></div></form>
+    <div class="karte" style="margin-bottom:16px"><h2>Kunden aus der bisherigen Software übernehmen</h2><p class="unterzeile">CSV-Export (Excel: „Speichern unter → CSV“). Spalten wie Name, Vorname/Nachname, Telefon, E-Mail, Straße, PLZ, Ort werden erkannt${BRANCHE?.anlagentypen?.includes("fahrzeug") ? "; eine Spalte „Kennzeichen“ (mit Marke, Modell, HU bis, Kilometerstand) legt je Kunde das Fahrzeug an" : ""}. Dubletten (Rufnummer, E-Mail) werden übersprungen.</p>
+      <form id="ei" class="zeile"><input type="file" name="datei" accept=".csv,text/csv,.txt" required><button type="button" class="leise" id="ei-pruefen">Prüfen</button><button type="submit">Importieren</button></form><div id="ei-ergebnis"></div></div>`;
+  $("#ea").addEventListener("submit", async (ev) => {
+    ev.preventDefault(); const fd = new FormData(ev.target); const stammdaten = {};
+    for (const k of ["strasse", "plz", "ort", "telefon", "email", "iban", "basis_url", "impressum_url", "datenschutz_url"]) if (fd.get(k)) stammdaten[k] = fd.get(k);
+    const zeilen = (name) => String(fd.get(name) || "").split("\n").map((z) => z.trim()).filter(Boolean);
+    const daten = { branche: fd.get("branche"), name: fd.get("name"), stammdaten, leistungen_anlegen: fd.has("leistungen_anlegen"), online_buchung: fd.has("online_buchung"),
+      mitarbeiter: zeilen("mitarbeiter").map((z) => { const [n, q] = z.split(":"); return { name: n.trim(), qualifikationen: (q || "").split(",").map((x) => x.trim()).filter(Boolean) }; }),
+      sachmittel: zeilen("sachmittel").map((z) => { const [n, typ] = z.split(":"); return { name: n.trim(), typ: (typ || "").trim() }; }) };
+    try { const e = await api("/betrieb/einrichten", { methode: "POST", daten }); BRANCHE = null; melden(`Gespeichert: ${e.mitarbeiter_angelegt} ${wort("ressourcen", "Personen")}, ${e.sachmittel_angelegt} Sachmittel neu`, "ok"); zeigen(); }
+    catch (e) { melden(e.message); }
+  });
+  const importieren = async (pruefen) => {
+    const datei = $("#ei input[type=file]").files[0]; if (!datei) return melden("Bitte eine CSV-Datei wählen.");
+    const fd = new FormData(); fd.append("datei", datei); fd.append("pruefen", pruefen ? "true" : "false");
+    const box = $("#ei-ergebnis"); box.innerHTML = "<p>Wird verarbeitet …</p>";
+    try {
+      const e = await api("/kunden/import", { methode: "POST", daten: fd });
+      box.innerHTML = `<p>${pruefen ? "Vorschau" : "Import"}: Trennzeichen <code>${esc(e.trennzeichen)}</code> · ${e.zeilen} Zeilen · ${e.angelegt} ${pruefen ? "würden angelegt" : "angelegt"} · ${e.uebersprungen} Dubletten übersprungen${e.fahrzeuge ? ` · ${e.fahrzeuge} Fahrzeuge` : ""}${e.fehler.length ? ` · ${e.fehler.length} Fehler` : ""}</p>
+        <p><small>Zuordnung: ${Object.entries(e.zuordnung).map(([k, v]) => `${esc(k)} ← ${esc(v)}`).join(", ")}</small></p>
+        ${e.vorschau.length ? `<table><thead><tr><th>Name</th><th>Telefon</th><th>E-Mail</th><th>Ort</th>${e.fahrzeuge ? "<th>Kennzeichen</th>" : ""}</tr></thead><tbody>${e.vorschau.map((v) => `<tr><td>${esc(v.name)}</td><td>${esc(v.telefon || "")}</td><td>${esc(v.email || "")}</td><td>${esc(v.ort || "")}</td>${e.fahrzeuge ? `<td>${esc(v.kennzeichen || "")}</td>` : ""}</tr>`).join("")}</tbody></table>` : ""}
+        ${e.fehler.length ? `<p class="fehler">${e.fehler.map((f) => `Zeile ${f.zeile}: ${esc(f.grund)}`).join("<br>")}</p>` : ""}`;
+      if (!pruefen) melden(`${e.angelegt} Kunden importiert`, "ok");
+    } catch (e) { box.innerHTML = `<p class="fehler">${esc(e.message)}</p>`; }
+  };
+  $("#ei-pruefen").addEventListener("click", () => importieren(true));
+  $("#ei").addEventListener("submit", (ev) => { ev.preventDefault(); importieren(false); });
+}

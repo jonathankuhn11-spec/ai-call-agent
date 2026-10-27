@@ -37,6 +37,14 @@ ANLAGENTYPEN: dict[str, Anlagentyp] = {
     "trinkwasser": Anlagentyp("Trinkwasseranlage", "Trinkwasseranlage", "trinkwasser", 12),
     "warmwasser": Anlagentyp("Warmwasserbereiter", "Warmwasserbereiter", None, 24),
     "sanitaer": Anlagentyp("Sanitaeranlage", "Sanitäranlage", None, None),
+    # Runde 7: weitere Gewerke und Werkstätten
+    "fahrzeug": Anlagentyp("Fahrzeug", "Fahrzeug", "kfz", 12),
+    "fahrrad": Anlagentyp("Fahrrad", "Fahrrad", None, 12),
+    "elektroanlage": Anlagentyp("Elektroanlage", "Elektroanlage", "elektro", 48),
+    "pv": Anlagentyp("Photovoltaikanlage", "Photovoltaikanlage", "elektro", 12),
+    "lueftung": Anlagentyp("Lueftungsanlage", "Lüftungsanlage", None, 12),
+    "dach": Anlagentyp("Dach", "Dach", None, 12),
+    "gartenanlage": Anlagentyp("Gartenanlage", "Gartenanlage", None, 12),
 }
 
 

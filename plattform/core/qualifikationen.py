@@ -69,7 +69,7 @@ def status(r: Ressource, q: str, heute: date) -> dict[str, Any]:
 
 
 def matrix(s: Session, m: Mandant, heute: date) -> dict[str, Any]:
-    ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv).order_by(Ressource.name)).all()
+    ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv, Ressource.art == "person").order_by(Ressource.name)).all()
     pflicht = list((m.stammdaten or {}).get("pflichtqualifikationen") or ["erste_hilfe", "fuehrerschein", "leitern_geruest"])
     spalten: list[str] = []
     for q in pflicht + [q for r in ressourcen for q in (r.qualifikationen or [])]:

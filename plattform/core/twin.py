@@ -77,7 +77,7 @@ def betriebs_zwilling(s: Session, mandant: Mandant, jetzt_: datetime, tage: int 
     auslastung = []
     stammdaten = mandant.stammdaten
     dienste = dienstkarte(s, m, jetzt_.date(), jetzt_.date() + timedelta(days=tage))
-    for r in s.scalars(select(Ressource).where(Ressource.mandant_id == m, Ressource.aktiv)):
+    for r in s.scalars(select(Ressource).where(Ressource.mandant_id == m, Ressource.aktiv, Ressource.art == "person")):
         termine = s.scalars(select(Termin).where(Termin.ressource_id == r.id, Termin.status.in_(BLOCKIERENDE_STATUS),
                                                  Termin.beginn >= als_utc(jetzt_), Termin.beginn < bis)).all()
         gebucht = sum((als_utc(t.ende) - als_utc(t.beginn)).total_seconds() for t in termine) / 3600

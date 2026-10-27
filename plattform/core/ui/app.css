@@ -154,10 +154,21 @@ a.kachel { text-decoration: none; color: inherit; }
 .suche { position: relative; margin: 4px 0 8px; }
 .suche input { width: 100%; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--linie); background: var(--fläche); color: var(--text); font: inherit; }
 .suche-treffer { position: absolute; left: 0; right: 0; top: 100%; z-index: 30; background: var(--karte); border: 1px solid var(--linie); border-radius: 8px; box-shadow: 0 8px 24px rgba(10,15,20,.18); max-height: 60vh; overflow: auto; min-width: 320px; }
-.suche-treffer .gruppe { padding: 6px 10px 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-leise, #6b7a88); }
+.suche-treffer .gruppe { padding: 6px 10px 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--gedämpft); }
 .suche-treffer button { display: block; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--linie); padding: 7px 10px; color: var(--text); font: inherit; cursor: pointer; }
 .suche-treffer button:hover, .suche-treffer button:focus { background: var(--fläche); outline: none; }
-.suche-treffer small { display: block; color: var(--text-leise, #6b7a88); }
+.suche-treffer small { display: block; color: var(--gedämpft); }
 .pruefpunkte { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: center; }
-.pruefpunkte .norm { font-size: 11px; color: var(--text-leise, #6b7a88); }
+.pruefpunkte .norm { font-size: 11px; color: var(--gedämpft); }
 .pruefpunkte input, .pruefpunkte select { width: 9em; }
+
+/* Toasts, Leerzustände, Fortschritt (Einrichtung) */
+.toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 60; max-width: min(420px, calc(100vw - 32px)); }
+.toast { padding: 10px 14px; border-radius: 8px; background: var(--karte); border: 1px solid var(--linie); box-shadow: var(--schatten); border-left: 4px solid var(--akzent); transition: opacity .3s, transform .3s; }
+.toast.t-fehler { border-left-color: var(--kritisch); } .toast.t-ok { border-left-color: var(--ok, #1f7a4d); } .toast.weg { opacity: 0; transform: translateY(8px); }
+.leer { color: var(--gedämpft); padding: 14px 0; text-align: center; }
+.balken { height: 8px; border-radius: 999px; background: var(--info-fläche); overflow: hidden; margin: 8px 0; } .balken span { display: block; height: 100%; background: var(--akzent); transition: width .4s; }
+.banner { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 16px; text-decoration: none; color: inherit; }
+.schritte { list-style: none; margin: 8px 0 0; padding: 0; } .schritte li { display: flex; gap: 12px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--linie); }
+.schritte li > div { flex: 1; } .schritte .punkt { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--linie); display: inline-flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+.schritte .erledigt .punkt { background: var(--ok, #1f7a4d); border-color: var(--ok, #1f7a4d); color: #fff; } .schritte .erledigt strong { color: var(--gedämpft); font-weight: 500; }

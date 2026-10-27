@@ -90,6 +90,18 @@ def _ganztag(uid: str, titel: str, von, bis_einschliesslich, beschreibung: str |
     return e
 
 
+def termin_ics(m: Mandant, t: Termin) -> bytes:
+    """ICS mit genau einem Termin, z. B. zum Herunterladen aus dem Kundenportal (Erinnerung 30 Minuten vorher)."""
+    cal = Calendar()
+    cal.add("prodid", "-//SHK-Backoffice//Termin//DE")
+    cal.add("version", "2.0")
+    cal.add("method", "PUBLISH")
+    e = _termin_ereignis(t, mit_kunde=False, mit_monteur=False)
+    e["summary"] = f"{m.name}: {t.servicefall.anliegen[:60]}"
+    cal.add_component(e)
+    return cal.to_ical()
+
+
 def kalender(s: Session, m: Mandant, r: Ressource | None, jetzt_: datetime, wochen_zurueck: int = 4, wochen_voraus: int = 12) -> bytes:
     """ICS für einen Monteur (r) oder den Betrieb (r=None: alle Monteure, Termine mit Monteurname)."""
     von = als_utc(jetzt_) - timedelta(weeks=wochen_zurueck)

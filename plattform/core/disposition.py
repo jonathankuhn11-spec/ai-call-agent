@@ -29,6 +29,8 @@ class Zeitfenster:
     ressource_name: str
     beginn: datetime
     ende: datetime
+    sachmittel_id: str | None = None
+    sachmittel_name: str | None = None
 
 
 def _belegungen(s: Session, mandant_id: str, ressource_ids: list[str], von: datetime, bis: datetime,
@@ -47,12 +49,31 @@ def _belegungen(s: Session, mandant_id: str, ressource_ids: list[str], von: date
     return belegt
 
 
+def sachmittel_belegungen(s: Session, mandant_id: str, sachmittel_ids: list[str], von: datetime, bis: datetime, puffer: timedelta) -> dict[str, list[tuple[datetime, datetime]]]:
+    belegt: dict[str, list[tuple[datetime, datetime]]] = {r: [] for r in sachmittel_ids}
+    if not sachmittel_ids:
+        return belegt
+    for t in s.scalars(select(Termin).where(Termin.mandant_id == mandant_id, Termin.sachmittel_id.in_(sachmittel_ids), Termin.status.in_(BLOCKIERENDE_STATUS),
+                                            Termin.ende > von - puffer, Termin.beginn < bis + puffer)):
+        belegt[t.sachmittel_id].append((als_utc(t.beginn) - puffer, als_utc(t.ende) + puffer))
+    return belegt
+
+
+def sachmittel_frei(belegt: dict[str, list[tuple[datetime, datetime]]], reihenfolge: list[Ressource], beginn: datetime, ende: datetime) -> Ressource | None:
+    """Erstes Sachmittel (in Reihenfolge), das im Fenster frei ist; None, wenn alle belegt."""
+    for sm in reihenfolge:
+        if not any(b < als_utc(ende) and als_utc(beginn) < e for b, e in belegt.get(sm.id, [])):
+            return sm
+    return None
+
+
 def freie_zeitfenster(s: Session, mandant: Mandant, ab: datetime, tage: int = 5, dauer_minuten: int = 90,
-                      qualifikation: str | None = None, anzahl: int = 5, je_ressource: int = 2) -> list[Zeitfenster]:
+                      qualifikation: str | None = None, anzahl: int = 5, je_ressource: int = 2, sachmittel: str | None = None) -> list[Zeitfenster]:
     """Früheste freie Fenster ab `ab`, sortiert nach Beginn; höchstens `je_ressource` je Monteur,
-    damit der Agent echte Alternativen anbietet statt fünf Fenster desselben Tages."""
+    damit der Agent echte Alternativen anbietet statt fünf Fenster desselben Tages. Mit `sachmittel` (z. B. hebebuehne)
+    muss zusätzlich ein freies Sachmittel dieses Typs im Fenster verfügbar sein; es wird mit zurückgegeben."""
     ab = als_utc(ab)
-    ressourcen = [r for r in s.scalars(select(Ressource).where(Ressource.mandant_id == mandant.id, Ressource.aktiv))
+    ressourcen = [r for r in s.scalars(select(Ressource).where(Ressource.mandant_id == mandant.id, Ressource.aktiv, Ressource.art == "person"))
                   if qualifikation is None or qualifikation_gueltig(r, qualifikation, ab.astimezone(ZEITZONE).date())]
     if not ressourcen:
         return []
@@ -63,6 +84,14 @@ def freie_zeitfenster(s: Session, mandant: Mandant, ab: datetime, tage: int = 5,
     belegt = _belegungen(s, mandant.id, [r.id for r in ressourcen], ab, bis, puffer)
     erster_tag = ab.astimezone(ZEITZONE).date()
     dienste = dienstkarte(s, mandant.id, erster_tag, erster_tag + timedelta(days=tage + 1), [r.id for r in ressourcen])
+    mittel: list[Ressource] = []
+    mittel_belegt: dict[str, list[tuple[datetime, datetime]]] = {}
+    if sachmittel:
+        mittel = s.scalars(select(Ressource).where(Ressource.mandant_id == mandant.id, Ressource.aktiv, Ressource.art == "sachmittel",
+                                                   Ressource.sachmittel_typ == sachmittel).order_by(Ressource.name)).all()
+        if not mittel:
+            return []
+        mittel_belegt = sachmittel_belegungen(s, mandant.id, [x.id for x in mittel], ab, bis, puffer)
 
     kandidaten: list[Zeitfenster] = []
     for r in ressourcen:
@@ -76,8 +105,9 @@ def freie_zeitfenster(s: Session, mandant: Mandant, ab: datetime, tage: int = 5,
                 beginn = max(tagesbeginn, _aufrunden(ab.astimezone(ZEITZONE), raster, tagesbeginn))
                 while beginn + dauer <= tagesende and gefunden < je_ressource:
                     ende = beginn + dauer
-                    if not any(b < ende and beginn < e for b, e in belegt[r.id]):
-                        kandidaten.append(Zeitfenster(r.id, r.name, beginn.astimezone(ZEITZONE), ende.astimezone(ZEITZONE)))
+                    sm = sachmittel_frei(mittel_belegt, mittel, beginn, ende) if sachmittel else None
+                    if not any(b < ende and beginn < e for b, e in belegt[r.id]) and (sm is not None or not sachmittel):
+                        kandidaten.append(Zeitfenster(r.id, r.name, beginn.astimezone(ZEITZONE), ende.astimezone(ZEITZONE), sm.id if sm else None, sm.name if sm else None))
                         gefunden += 1
                         beginn = ende + puffer  # nächstes Angebot nicht direkt überlappend
                     else:
@@ -95,9 +125,13 @@ def _aufrunden(zeit: datetime, raster: timedelta, bezug: datetime) -> datetime:
     return bezug + schritte * raster
 
 
-def kollidiert(s: Session, mandant: Mandant, ressource_id: str, beginn: datetime, ende: datetime) -> bool:
+def kollidiert(s: Session, mandant: Mandant, ressource_id: str, beginn: datetime, ende: datetime, sachmittel_id: str | None = None) -> bool:
     puffer = timedelta(minutes=mandant.puffer_minuten)
     for b, e in _belegungen(s, mandant.id, [ressource_id], als_utc(beginn), als_utc(ende), puffer)[ressource_id]:
         if b < als_utc(ende) and als_utc(beginn) < e:
             return True
+    if sachmittel_id:
+        for b, e in sachmittel_belegungen(s, mandant.id, [sachmittel_id], als_utc(beginn), als_utc(ende), puffer)[sachmittel_id]:
+            if b < als_utc(ende) and als_utc(beginn) < e:
+                return True
     return False

@@ -93,3 +93,50 @@ jobs:
           docker run --rm -e SHK_DOMAIN=backoffice.example.de -e ACME_EMAIL=it@example.de \
             -v "$PWD/deploy/server/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile
           python -c "import json; json.load(open('deploy/keycloak/shk-realm.json'))"
+
+  image:
+    # Fertige Images nach GHCR: ghcr.io/<owner>/shk-core:<sha> und :<branch>; auf main zusätzlich :latest.
+    # deploy/server/deploy.sh zieht sie mit SHK_VERSION=<sha|branch|latest>; schnellstart.sh mit SHK_IMAGE=ghcr.io/<owner>/shk-core:latest.
+    needs: [tests, docker]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Image-Namen bestimmen
+        id: namen
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          ZWEIG=$(echo "${GITHUB_REF_NAME}" | tr '/' '-' | tr '[:upper:]' '[:lower:]')
+          KURZ=$(echo "${GITHUB_SHA}" | cut -c1-12)
+          echo "basis=ghcr.io/$OWNER/shk-core" >> "$GITHUB_OUTPUT"
+          echo "zweig=$ZWEIG" >> "$GITHUB_OUTPUT"
+          echo "kurz=$KURZ" >> "$GITHUB_OUTPUT"
+      - name: Core-Image bauen und veröffentlichen
+        uses: docker/build-push-action@v6
+        with:
+          context: plattform
+          push: true
+          tags: |
+            ${{ steps.namen.outputs.basis }}:${{ steps.namen.outputs.kurz }}
+            ${{ steps.namen.outputs.basis }}:${{ steps.namen.outputs.zweig }}
+            ${{ github.ref_name == github.event.repository.default_branch && format('{0}:latest', steps.namen.outputs.basis) || '' }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+      - name: Voice-Image bauen und veröffentlichen
+        uses: docker/build-push-action@v6
+        with:
+          context: plattform
+          push: true
+          build-args: MIT_VOICE=1
+          tags: |
+            ${{ steps.namen.outputs.basis }}:${{ steps.namen.outputs.kurz }}-voice
+            ${{ steps.namen.outputs.basis }}:${{ steps.namen.outputs.zweig }}-voice

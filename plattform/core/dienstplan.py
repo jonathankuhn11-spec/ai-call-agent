@@ -133,7 +133,7 @@ def montag(d: date) -> date:
 def woche(s: Session, m: Mandant, start: date) -> dict[str, Any]:
     start = montag(start)
     ende = start + timedelta(days=6)
-    ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv).order_by(Ressource.name)).all()
+    ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv, Ressource.art == "person").order_by(Ressource.name)).all()
     karte = dienstkarte(s, m.id, start, ende)
     abwesend = s.scalars(select(Abwesenheit).where(Abwesenheit.mandant_id == m.id, Abwesenheit.bis >= start, Abwesenheit.von <= ende)).all()
     von_dt = datetime.combine(start, time.min)
@@ -241,7 +241,7 @@ def _stunden_letzte_wochen(s: Session, m: Mandant, start: date, wochen: int = 4)
 def vorschlag(s: Session, m: Mandant, start: date) -> dict[str, Any]:
     from core import prognose   # später Import: prognose nutzt dienstplan.arbeitszeit
     start = montag(start)
-    ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv).order_by(Ressource.name)).all()
+    ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv, Ressource.art == "person").order_by(Ressource.name)).all()
     karte = dienstkarte(s, m.id, start, start + timedelta(days=6))
     abwesend = s.scalars(select(Abwesenheit).where(Abwesenheit.mandant_id == m.id, Abwesenheit.bis >= start, Abwesenheit.von <= start + timedelta(days=6))).all()
     last = _stunden_letzte_wochen(s, m, start)
@@ -360,4 +360,4 @@ def urlaub(s: Session, m: Mandant, r: Ressource, jahr: int, heute: date) -> dict
 
 
 def urlaubsuebersicht(s: Session, m: Mandant, jahr: int, heute: date) -> list[dict[str, Any]]:
-    return [urlaub(s, m, r, jahr, heute) for r in s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv).order_by(Ressource.name))]
+    return [urlaub(s, m, r, jahr, heute) for r in s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv, Ressource.art == "person").order_by(Ressource.name))]

@@ -38,14 +38,32 @@ plattform/
 └── VOICE-AGENT.md        Auswahl des Voice-Agenten und Aufbau des Voice-Backends
 ```
 
-## Schnellstart
+## Schnellstart in einem Befehl
 
 ```bash
 cd plattform
+./schnellstart.sh --name "Autohaus Beispiel" --branche kfz \
+  --mitarbeiter "Ali Yilmaz:kfz_mechatroniker" --sachmittel "Bühne 1:hebebuehne"
+```
+
+Baut das Container-Image (oder zieht `SHK_IMAGE=ghcr.io/<owner>/shk-core:latest`), startet den Core mit
+SQLite im Volume `shk-daten`, erzeugt einen API-Schlüssel (`.schnellstart.env`) und richtet den Betrieb
+über den Assistenten ein: Branche, Betriebsdaten, Team, Sachmittel, Leistungskatalog, Online-Buchung.
+Danach `http://localhost:8100/` öffnen; die Ansicht **Einrichtung** zeigt die restlichen Schritte
+(IBAN, öffentliche Adresse, Impressum, Kundenimport). Varianten: `--demo` (fiktive Daten),
+`--ohne-docker` (Python-Umgebung, Server im Vordergrund), `--postgres` (`docker compose` mit
+PostgreSQL und Worker für den Dauerbetrieb). Für Internet-Betrieb mit TLS, Anmeldung und Telefonie:
+HOSTING.md. Kunden aus der bisherigen Software: `python -m core import-kunden kunden.csv --mandant <ID>`
+(oder in der Oberfläche unter Einrichtung; `--pruefen` zeigt nur die Spaltenzuordnung).
+
+Entwicklung ohne Container:
+
+```bash
 pip install -r requirements.txt
 python -m core demo                 # Referenzfluss im Speicher, ohne Telefonie und LLM
 python -m pytest -q                 # Tests (SQLite)
 python -m core serve --demo         # API und Oberfläche auf :8100 mit fiktiven Demodaten
+python -m core einrichten --name "Müller Haustechnik" --branche shk   # eigener Betrieb statt Demodaten
 ```
 
 Danach `http://localhost:8100/` öffnen (Oberfläche) bzw. `/docs` (OpenAPI). Ohne gesetzten
@@ -78,9 +96,12 @@ Danach `http://localhost:8100/` öffnen (Oberfläche) bzw. `/docs` (OpenAPI). Oh
 | Globale Suche | Suchfeld in der Seitenleiste (Strg+K) über Kunden (auch Rufnummer), Vorgänge, Rechnungen, Angebote, Belege, Anfragen und Artikel, nach Rechten gefiltert; Treffer öffnen die Detailansicht |
 | Rapport (Ergänzung) | **Wartungs-Checkliste** je Anlagentyp (Gas-Brennwert, Öl, Wärmepumpe, Solarthermie, Klima, Trinkwasser, Warmwasser, Sanitär) mit Prüfpunkten, Messwertgrenzen und Normbezug; Befunde (ok/auffällig/offen) landen am Rapport, Auffälligkeiten als Kundenhinweis |
 | Angebote (Ergänzung) | **BEG-Förderrechner** (KfW 458 Heizungsförderung mit Grund-, Klimageschwindigkeits-, Einkommens- und Effizienz-Bonus; BAFA-Einzelmaßnahmen mit iSFP-Bonus) mit Übernahme als Vorbehaltstext in die Angebotseinleitung |
-| Kundenportal (öffentlich) | `/portal/#<vorgang>/<token>`: Termin bestätigen oder absagen (Absage setzt den Vorgang zurück und meldet dem Inhaber), Angebote und Rechnungen als PDF, Betriebskontakt; Link steht in Terminbestätigung und Terminerinnerung (Tageslauf, Vortag) |
+| Kundenportal (öffentlich) | `/portal/#<vorgang>/<token>`: Zeitachse „Anfrage eingegangen → Termin geplant → Wir sind unterwegs (aus der Fahrtzeit des Monteurs, Ankunft) → Arbeit erledigt → Rechnung“, Termin bestätigen oder absagen, **Wunschtermin** aus freien Fenstern wählen (ersetzt den Vorschlag, Freigabe im Büro), Termin als ICS in den eigenen Kalender, Angebote und Rechnungen als PDF, **GiroCode** zur Rechnung (Banking-App scannen), **Bewertung** mit Sternen nach erledigter Arbeit (kritische Bewertungen gehen als Hinweis ans Büro), „Ihr Haus/Ihr Fahrzeug“ mit Erneuerungen und Zählerstandsmeldung; Dunkelmodus, 44-px-Bedienelemente; Link steht in Terminbestätigung und Terminerinnerung (Tageslauf, Vortag) |
+| Einrichtung | Assistent mit Fortschritt (Pflichtschritte: Branche, Betriebsdaten, IBAN, Team, Leistungen, Kunden, öffentliche Adresse, Impressum/Datenschutz; optional Sachmittel, Online-Buchung, Telefonie), alles in einem Formular (idempotent), **Kundenimport aus CSV** (Spalten und Trennzeichen werden erkannt, Vorschau, Dubletten nach Rufnummer/E-Mail; Spalte „Kennzeichen“ legt je Kunde das Fahrzeug mit Kartei, HU-Fälligkeit und Kilometerstand an); Cockpit-Banner, solange Schritte fehlen |
+| Sachmittel | Hebebühne, Arbeitsplatz, Raum, Ersatzfahrzeug, Gerät, Prüfstand als Ressourcen der Art `sachmittel` (Einstellungen → Team und Sachmittel); Leistungen und Vorgänge nennen das nötige Sachmittel, die Disposition bietet nur Fenster an, in denen eines frei ist, der Termin belegt es (automatische Wahl, Kollisionsprüfung) |
+| Anlagenkartei | Je Anlagentyp eigene Felder (`branchen.ANLAGENKARTEI`): Fahrzeug (Kennzeichen, FIN, Erstzulassung, Kilometerstand, HU bis, Kraftstoff, Reifenlager, nächster Service, Schlüssel), Fahrrad, Elektroanlage, PV, Lüftung, Dach, Gartenanlage; validiert (Zahl, Datum, Text), HU-Datum setzt die Prüfpflicht im Erneuerungskalender, Kilometerstand wird als Zählerstand geführt; Direktannahme-Checklisten je Typ |
 | Einstellungen (Ergänzung 2) | DATEV-Datenservices (Client-ID/-Secret, Berater-/Mandantennummer, Sandbox/Produktion) mit „DATEV verbinden“ (DATEV-Login, OAuth2 mit PKCE), IDS-Shop-Adresse, Portal-Absagefrist, Impressum-/Datenschutz-Links |
-| Einstellungen (Branche) | **Branchenprofil** (SHK, Elektro, Friseur/Barbier, Kosmetik, Nagelstudio, Massage, Physiotherapie, Fußpflege, Hundesalon, Fahrradwerkstatt, Kfz-Werkstatt): setzt Begriffe der Oberfläche (Monteur/Stylist/Therapeut, Einsatz/Termin, Kundenkartei), legt den Leistungskatalog mit Terminlänge, Qualifikation und Bruttopreis an, Takt und Puffer der Disposition, Wiederkehr-Intervall, Rolle des Sprachagenten, rechtliche Hinweise (Art. 9 DSGVO, KassenSichV, Heilmittel); Online-Buchung aktivieren/erneuern/abschalten |
+| Einstellungen (Branche) | **Branchenprofil** (17: SHK, Elektro, Friseur/Barbier, Kosmetik, Nagelstudio, Massage, Physiotherapie, Fußpflege, Hundesalon, Fahrradwerkstatt, Kfz-Werkstatt, Maler, Dachdecker, Garten- und Landschaftsbau, Gebäudereinigung, Tischlerei, Schlüsseldienst; je Profil Anlagentypen und Sachmittel): setzt Begriffe der Oberfläche (Monteur/Stylist/Therapeut, Einsatz/Termin, Kundenkartei), legt den Leistungskatalog mit Terminlänge, Qualifikation und Bruttopreis an, Takt und Puffer der Disposition, Wiederkehr-Intervall, Rolle des Sprachagenten, rechtliche Hinweise (Art. 9 DSGVO, KassenSichV, Heilmittel); Online-Buchung aktivieren/erneuern/abschalten |
 | Kundenkartei (Branche) | Branchenspezifische Karteifelder (Farbrezeptur, Hauttyp, Kontraindikationen, Tier, Fahrzeug …); Gesundheitsdaten sind mit 🔒 markiert und nur mit Einwilligung „gesundheitsdaten“ beschreibbar; No-Show-Zähler je Kunde; Objekte/Anlagen nur in Handwerksprofilen |
 | Gutscheine | Wertgutscheine ausstellen (Code XXXX-XXXX-XXXX, gültig bis Ende des dritten Folgejahres, § 195 BGB), teilweise einlösen, stornieren (nur ungenutzt), PDF mit QR-Code; Übersicht offener Gutscheinwerte |
 | Vorgang (Ergänzung) | „Nicht erschienen“ für vergangene bestätigte Termine: Termin wird markiert, Zähler am Kunden erhöht, Vorgang zurück auf „qualifiziert“ |
@@ -160,6 +181,7 @@ Fachendpunkte verlangen einen Mandantenkontext: bei Maschinen `X-Mandant`, bei P
 | Suche, Checklisten, Förderung | `GET /suche?q=`, `GET /checklisten`, `GET /checklisten/{anlagentyp}`, `POST /foerderung/rechner`, `GET /foerderung/heizungsarten` |
 | Kundenportal (öffentlich, Token) | `GET /portal/` (Seite), `GET /portal/faelle/{id}?token=`, `POST /portal/faelle/{id}/termine/{termin_id}?token=` (`bestaetigen`/`absagen`), `…/angebote/{id}.pdf`, `…/rechnungen/{id}.pdf`; Büro: `GET /servicefaelle/{id}/portal` (Link) |
 | Branche, Kartei, No-Show | `GET /branchen`, `GET/PUT /betrieb/branche` (`leistungen_anlegen`), `GET /voice/kontext` (Branchenkontext für den Sprachagenten), `PUT /kunden/{id}/kartei`, `POST /termine/{id}/nicht-erschienen` |
+| Einrichtung, Sachmittel, Anlagenkartei, Portal-UX | `GET /betrieb/einrichtung` (Fortschritt, nächste Schritte), `POST /betrieb/einrichten` (Branche, Name, Stammdaten, Mitarbeiter, Sachmittel, Online-Buchung; idempotent), `POST /kunden/import` (multipart CSV, `pruefen`), `POST /ressourcen` mit `art=sachmittel`, `sachmittel_typ`; `GET /disposition/zeitfenster?sachmittel=`, `POST /servicefaelle` mit `sachmittel`, Termine mit `sachmittel_id`; `POST /objekte/{id}/anlagen` und `PATCH /anlagen/{id}` mit `merkmale`; Portal: `GET/POST /portal/faelle/{id}/alternativen`, `GET …/termine/{tid}.ics`, `GET …/rechnungen/{rid}/girocode.png`, `POST …/bewertung`; Büro: `GET /bewertungen`; CLI `python -m core einrichten`, `python -m core import-kunden` |
 | Gutscheine | `GET/POST /gutscheine`, `GET /gutscheine/{code}`, `POST /gutscheine/{code}/einloesen`, `POST /gutscheine/{code}/storno`, `GET /gutscheine/{code}/pdf` |
 | Online-Buchung (öffentlich, Token) | `GET/PUT /betrieb/buchung?aktiv=` (Büro), `GET /buchung/` (Seite), `GET /buchung/{token}` (Betrieb, Leistungen, Mitarbeiter), `GET /buchung/{token}/zeiten?leistung_id=&ressource_id=&ab=`, `POST /buchung/{token}` |
 | Optimierung, Warteliste | `GET /plantafel/optimieren?tag=&toleranz_minuten=`, `POST /plantafel/optimieren/umsetzen`, `GET /warteliste?tage=`, `POST /servicefaelle/{id}/warteliste`, `POST /warteliste/{id}/zurueckziehen`, `POST /warteliste/anbieten?ressource_id=&beginn=&ende=`, `POST /termine/{id}/absagen` |
@@ -201,6 +223,8 @@ Zusätzlich getestet (Runde 4): Branchenliste und Umstellung mit Leistungskatalo
 Zusätzlich getestet (Runde 5): Optimiererkern (Bündelung, harte Qualifikation, fixe bestätigte Termine), Tagesplan über die API (Ersparnis, Umsetzung, Idempotenz, Toleranz), Warteliste (Eintrag, Lücken, Nachbesetzung nach Büro-Absage, Portal-Annahme mit Absage des späteren Termins, Verfall und Weitergabe im Tageslauf), Weibull-Hazard (Monotonie, Kovariaten, Treiber, Empfehlungen), Holt-Winters auf synthetischer Saison, Prognose mit Prior und Intervallen, Dauer-Schätzung (Kategorien, Ebenen, Shrinkage, Einfluss auf neue Vorgänge), Kölner Phonetik gegen Referenzwerte, Jaro-Winkler, Dublettenfund und generische Zusammenführung mit Audit.
 
 Zusätzlich getestet (Runde 6): Bauteile aus dem Katalog beim Anlegen der Anlage (Fälligkeiten, Status, Rücklage, Idempotenz), Erneuerungskalender, Erneuert/Geprüft mit Ereignis, eigene Bauteile mit Validierung, Erinnerung nur mit Einwilligung und einmalig; Dienste übersteuern die Regelarbeitszeit in Disposition und Kapazität, ArbZG-Prüfung (10 h, Pausen, 11 h Ruhezeit, Sonntag), Wochenvorschlag (Abwesenheit, Fairness, Schichtbetrieb, Übernahme, keine Doppelungen), Zeitkonto mit Gutschrift, Urlaubskonto; Gradtagszahl-Anteile, klimabereinigte Anomalie mit Hinweis, rückläufiger Stand/Zählerwechsel, Takten; Gewährleistung aus eigenem Rapport (BGB/VOB), Herstellergarantie aus Frist, Hinweis als Ereignis beim neuen Vorgang; Qualifikationsmatrix (abgelaufen/läuft ab/fehlt, Abdeckung, Schlüsselpersonenrisiko) und Wirkung abgelaufener Qualifikationen auf die Disposition; Portal „Ihr Haus“ mit Zählerstandsmeldung; Löschkonzept mit Bauteilen und Zählerständen.
+
+Zusätzlich getestet (Runde 7): Sachmittel in Zeitfenstern, automatische Wahl beim Termin, Kollision bei einziger Bühne, nicht angelegtes Sachmittel, Typprüfung; Fahrzeugkartei (unbekannte Felder, ungültiges Datum, Zahlen), HU-Datum → Prüfpflicht, Kilometerstand → Zählerstand, Merge beim Ändern, Anzeige im Portal; 17 Profile mit Anlagentypen, Sachmitteln, Checklisten und Kartei je Typ, Umstellung auf Dachdecker mit Sprachkontext; Einrichtungsstatus, Assistent idempotent mit Buchungs-Token, Validierung; CSV-Import (Trennzeichen, Synonyme, Vor-/Nachname, Latin-1, Vorschau ohne Schreiben, Fahrzeuge, Dubletten im zweiten Lauf, fehlende Namensspalte); CLI `einrichten` und `import-kunden` als Unterprozess; Portal-Zeitachse mit „unterwegs“ aus der Fahrtzeit, ICS je Termin, Bewertung erst nach erledigter Arbeit mit Hinweis ans Büro und Auswertung, GiroCode-PNG zur Rechnung; Wunschtermin aus Alternativen (Vergangenheit abgelehnt, alter Vorschlag zurückgezogen, Freigabe offen, kein Zugriff ohne Token). Browser-Prüfung mit Playwright ohne Konsolenfehler (Einrichtung, Kundenimport, Sachmittel, Fahrzeugkartei, Portal hell/dunkel).
 
 Zusätzlich getestet: Rechnungsnummern, XRechnung 3.0 (UBL, Pflichtfelder), PDF, Storno, Adapter
 Lexware/sevDesk/E-Mail/SMS/Webhook mit Attrappen, DATEV-Buchungsstapel im Belegpaket, verschlüsselte

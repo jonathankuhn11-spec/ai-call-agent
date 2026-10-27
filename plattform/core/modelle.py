@@ -105,6 +105,7 @@ class Anlage(_Mandantenbezug, Basis):
     baujahr: Mapped[int | None] = mapped_column(Integer)
     wartungsintervall_monate: Mapped[int | None] = mapped_column(Integer, default=12)
     letzte_wartung: Mapped[date | None] = mapped_column(Date)
+    merkmale: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)   # Anlagenkartei je Typ (Kfz: Kennzeichen, FIN, HU …), siehe branchen.ANLAGENKARTEI
 
     objekt: Mapped[Objekt] = relationship(back_populates="anlagen")
 
@@ -124,6 +125,8 @@ class Ressource(_Mandantenbezug, Basis):
     qualifikationen_ablauf: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)   # {"gas": "2027-05-01"} Ablauf/Nachschulung, siehe qualifikationen.py
     wochenstunden: Mapped[float] = mapped_column(Float, default=40.0)                    # Soll für das Zeitkonto
     urlaubsanspruch_tage: Mapped[int] = mapped_column(Integer, default=30)
+    art: Mapped[str] = mapped_column(String(20), default="person")                      # person | sachmittel (Hebebühne, Arbeitsplatz, Raum, Ersatzfahrzeug, Gerät)
+    sachmittel_typ: Mapped[str | None] = mapped_column(String(30))                      # Schlüssel aus branchen.SACHMITTEL, nur bei art = sachmittel
 
 
 class Servicefall(_Mandantenbezug, Basis):
@@ -137,6 +140,7 @@ class Servicefall(_Mandantenbezug, Basis):
     status: Mapped[str] = mapped_column(String(30), default="eingegangen")
     quelle: Mapped[str] = mapped_column(String(20), default="manuell")  # telefon, email, web, manuell
     benoetigte_qualifikation: Mapped[str | None] = mapped_column(String(50))
+    sachmittel: Mapped[str | None] = mapped_column(String(30))              # benötigtes Sachmittel (z. B. hebebuehne), siehe branchen.SACHMITTEL
     dauer_minuten: Mapped[int] = mapped_column(Integer, default=90)
     erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
     geaendert: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt, onupdate=jetzt)
@@ -155,9 +159,11 @@ class Termin(_Mandantenbezug, Basis):
     beginn: Mapped[datetime] = mapped_column(UtcZeit)
     ende: Mapped[datetime] = mapped_column(UtcZeit)
     status: Mapped[str] = mapped_column(String(20), default="vorgeschlagen")  # vorgeschlagen, bestaetigt, abgesagt
+    sachmittel_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("ressource.id"), index=True)   # belegtes Sachmittel
 
     servicefall: Mapped[Servicefall] = relationship(back_populates="termine")
-    ressource: Mapped[Ressource] = relationship()
+    ressource: Mapped[Ressource] = relationship(foreign_keys=[ressource_id])
+    sachmittel_ressource: Mapped[Ressource | None] = relationship(foreign_keys=[sachmittel_id])
 
 
 class Kommunikation(_Mandantenbezug, Basis):
@@ -403,6 +409,7 @@ class Artikel(_Mandantenbezug, Basis):
     aktiv: Mapped[bool] = mapped_column(default=True)
     dauer_minuten: Mapped[int | None] = mapped_column(Integer)          # Leistungen (Friseur, Massage …): Terminlänge
     qualifikation: Mapped[str | None] = mapped_column(String(50))       # Leistungen: nötige Qualifikation der Ressource
+    sachmittel: Mapped[str | None] = mapped_column(String(30))          # Leistungen: nötiges Sachmittel (Hebebühne, Raum …)
 
 
 class Bestand(_Mandantenbezug, Basis):

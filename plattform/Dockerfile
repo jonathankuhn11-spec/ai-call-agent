@@ -18,7 +18,8 @@ COPY voice voice
 COPY ontologie ontologie
 COPY alembic.ini ./
 COPY migrations migrations
-RUN useradd --create-home app && mkdir -p /app/export && chown app /app/export
+RUN useradd --create-home app && mkdir -p /app/export /app/daten && chown app /app/export /app/daten
+VOLUME ["/app/daten"]
 USER app
 EXPOSE 8100
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health')" || exit 1

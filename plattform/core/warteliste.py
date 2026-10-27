@@ -56,7 +56,7 @@ def eintragen(s: Session, m: Mandant, f: Servicefall, wunsch_von: date, wunsch_b
 def luecken(s: Session, m: Mandant, ab: datetime, tage: int = 7, mindest_minuten: int = 30) -> list[dict[str, Any]]:
     """Freie Fenster je Monteur und Tag innerhalb der Arbeitszeit, abzüglich Termine (mit Puffer) und Abwesenheiten."""
     ab = als_utc(ab)
-    ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv).order_by(Ressource.name)).all()
+    ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv, Ressource.art == "person").order_by(Ressource.name)).all()
     if not ressourcen:
         return []
     puffer = timedelta(minutes=m.puffer_minuten)

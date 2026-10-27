@@ -7,43 +7,133 @@ Jeder Endpunkt verlangt ein Recht (lesen, status, bearbeiten, freigeben, verwalt
 """
 from __future__ import annotations
 
+import base64
+import html
 import os
+import time
 from datetime import date, datetime, timedelta, timezone
 from datetime import time as time_
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
 
-import base64
-import html
-import time
-
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
-from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
+from schwifty import IBAN
+from schwifty.exceptions import SchwiftyException
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from core import (anfragen, angebote, belege, branchen, buchung, checklisten, dienstplan, domaene, dubletten, einsatz, feiertage, foerderung, forderungen,
-                  garantie, grosshandel, gutscheine, hinweise, kalender, karte, lebenszyklus, loeschung, management, metriken, optimierung, portal, prognose,
-                  qualifikationen, risiko, routing, scanner, schaetzung, suche, tagesaufgaben, twin, vertraege, warteliste, zaehler)
-from core.auth import Abgewiesen, Authentifizierung, Prinzipal
-from core.db import Datenbank, mandant_binden
-from core.disposition import ZEITZONE, freie_zeitfenster, kollidiert
-from core.domaene import als_utc
+from core import (
+    anfragen,
+    angebote,
+    belege,
+    branchen,
+    buchung,
+    checklisten,
+    dienstplan,
+    domaene,
+    dubletten,
+    einrichtung,
+    einsatz,
+    feiertage,
+    foerderung,
+    forderungen,
+    garantie,
+    grosshandel,
+    gutscheine,
+    hinweise,
+    kalender,
+    karte,
+    lebenszyklus,
+    loeschung,
+    management,
+    metriken,
+    optimierung,
+    portal,
+    prognose,
+    qualifikationen,
+    risiko,
+    routing,
+    scanner,
+    schaetzung,
+    suche,
+    tagesaufgaben,
+    twin,
+    vertraege,
+    warteliste,
+    zaehler,
+)
 from core.adapter import ERLAUBT, ZIELE, konfiguration_pruefen
 from core.adapter import datev as datev_api
-from core.geheimnisse import GEHEIME_FELDER, konfiguration_entschluesseln, konfiguration_maskieren, konfiguration_verschluesseln
-from core.modelle import (Abwesenheit, Anfrage, Angebot, Anhang, Anlage, Artikel, Bauteil, Beleg, Bereitschaft, Dienst, Ereignis, Freigabe, Frist, Wartelisteneintrag,
-                          Kommunikation, Kunde, Mahnung, Mandant, Objekt, OutboxEintrag, Rapport, Rechnung, Ressource, Servicefall,
-                          Termin, Vertrag, Zahlung, Zeiteintrag)
+from core.auth import Abgewiesen, Authentifizierung, Prinzipal
+from core.db import Datenbank, mandant_binden
+from core.disposition import (
+    ZEITZONE,
+    freie_zeitfenster,
+    kollidiert,
+    sachmittel_belegungen,
+    sachmittel_frei,
+)
+from core.domaene import als_utc
+from core.geheimnisse import (
+    GEHEIME_FELDER,
+    konfiguration_entschluesseln,
+    konfiguration_maskieren,
+    konfiguration_verschluesseln,
+)
+from core.modelle import (
+    Abwesenheit,
+    Anfrage,
+    Angebot,
+    Anhang,
+    Anlage,
+    Artikel,
+    Bauteil,
+    Beleg,
+    Bereitschaft,
+    Dienst,
+    Ereignis,
+    Freigabe,
+    Frist,
+    Kommunikation,
+    Kunde,
+    Mahnung,
+    Mandant,
+    Objekt,
+    OutboxEintrag,
+    Rapport,
+    Rechnung,
+    Ressource,
+    Servicefall,
+    Termin,
+    Vertrag,
+    Wartelisteneintrag,
+    Zahlung,
+    Zeiteintrag,
+)
 from core.ontologie import ANLAGENTYPEN, TBOX, anlagentyp, exportieren
-from core.regeln import dringlichkeit_bewerten, qualifikation_fuer, telefon_normalisieren
+from core.rechnung import girocode as rechnung_girocode
 from core.rechnung import pdf as rechnung_pdf
-from core.rechnung import positionen_aus_payload, summen
-from core.rechnung import xrechnung
-from schwifty import IBAN
-from schwifty.exceptions import SchwiftyException
+from core.rechnung import positionen_aus_payload, summen, xrechnung
+from core.regeln import (
+    dringlichkeit_bewerten,
+    qualifikation_fuer,
+    telefon_normalisieren,
+)
 
 UI_VERZEICHNIS = Path(__file__).resolve().parent / "ui"
 
@@ -134,11 +224,22 @@ class AnlageNeu(_Schema):
     baujahr: int | None = Field(None, ge=1950, le=2100)
     wartungsintervall_monate: int | None = None
     letzte_wartung: date | None = None
+    merkmale: dict[str, Any] = {}      # Anlagenkartei (branchen.ANLAGENKARTEI), z. B. Kennzeichen, FIN, HU
+
+
+class AnlageAenderung(_Schema):
+    hersteller: str | None = None
+    modell: str | None = None
+    baujahr: int | None = Field(None, ge=1950, le=2100)
+    wartungsintervall_monate: int | None = None
+    letzte_wartung: date | None = None
+    merkmale: dict[str, Any] | None = None   # wird zusammengeführt; leerer Wert löscht das Merkmal
 
 
 class AnlageAus(AnlageNeu):
     id: str
     objekt_id: str
+    merkmale: dict[str, Any] = {}
 
 
 class RessourceNeu(_Schema):
@@ -151,6 +252,8 @@ class RessourceNeu(_Schema):
     qualifikationen_ablauf: dict[str, str] = {}
     wochenstunden: float = Field(40.0, ge=0, le=60)
     urlaubsanspruch_tage: int = Field(30, ge=0, le=60)
+    art: Literal["person", "sachmittel"] = "person"
+    sachmittel_typ: str | None = Field(None, max_length=30)
 
 
 class RessourceAenderung(_Schema):
@@ -164,6 +267,7 @@ class RessourceAenderung(_Schema):
     qualifikationen_ablauf: dict[str, str | None] | None = None
     wochenstunden: float | None = Field(None, ge=0, le=60)
     urlaubsanspruch_tage: int | None = Field(None, ge=0, le=60)
+    sachmittel_typ: str | None = Field(None, max_length=30)
 
 
 class RessourceAus(_Schema):
@@ -178,6 +282,8 @@ class RessourceAus(_Schema):
     qualifikationen_ablauf: dict[str, Any] = {}
     wochenstunden: float = 40.0
     urlaubsanspruch_tage: int = 30
+    art: str = "person"
+    sachmittel_typ: str | None = None
 
 
 class BauteilNeu(_Schema):
@@ -231,6 +337,7 @@ class ServicefallNeu(_Schema):
     dringlichkeit: Dringlichkeit | None = None
     quelle: Literal["telefon", "email", "web", "manuell"] = "manuell"
     benoetigte_qualifikation: str | None = None
+    sachmittel: str | None = Field(None, max_length=30)      # nötiges Sachmittel, z. B. hebebuehne (branchen.SACHMITTEL)
     dauer_minuten: int | None = Field(None, ge=15, le=600)   # None: lernende Schätzung aus Rapporten (schaetzung.py)
 
 
@@ -244,6 +351,7 @@ class ServicefallAus(_Schema):
     status: str
     quelle: str
     benoetigte_qualifikation: str | None
+    sachmittel: str | None = None
     dauer_minuten: int
     erstellt: datetime
 
@@ -258,6 +366,7 @@ class TerminNeu(_Schema):
     ressource_id: str
     beginn: datetime
     ende: datetime | None = None
+    sachmittel_id: str | None = None   # leer: wird automatisch gewählt, wenn der Vorgang ein Sachmittel braucht
 
 
 class TerminAus(_Schema):
@@ -267,6 +376,7 @@ class TerminAus(_Schema):
     beginn: datetime
     ende: datetime
     status: str
+    sachmittel_id: str | None = None
 
 
 class FreigabeAus(_Schema):
@@ -446,6 +556,32 @@ class BrancheSetzen(_Schema):
     leistungen_anlegen: bool = True
 
 
+class EinrichtungMitarbeiter(_Schema):
+    name: str
+    qualifikationen: list[str] = []
+    arbeitstage: list[int] | None = None
+    arbeitsbeginn: str | None = None
+    arbeitsende: str | None = None
+    wochenstunden: float | None = None
+    benutzer: str | None = None
+
+
+class EinrichtungSachmittel(_Schema):
+    name: str
+    typ: str
+
+
+class Einrichtung(_Schema):
+    """Einrichtungsassistent: alles in einem Aufruf, idempotent."""
+    branche: str | None = None
+    name: str | None = None
+    stammdaten: Stammdaten | None = None
+    mitarbeiter: list[EinrichtungMitarbeiter] = []
+    sachmittel: list[EinrichtungSachmittel] = []
+    leistungen_anlegen: bool = True
+    online_buchung: bool = False
+
+
 class KarteiAenderung(_Schema):
     felder: dict[str, Any]
 
@@ -500,6 +636,17 @@ class Zusammenfuehren(_Schema):
 class PortalAktion(_Schema):
     aktion: Literal["bestaetigen", "absagen"]
     grund: str | None = Field(None, max_length=300)
+
+
+class PortalWunschtermin(_Schema):
+    ressource_id: str
+    beginn: datetime
+    sachmittel_id: str | None = None
+
+
+class PortalBewertung(_Schema):
+    sterne: int = Field(ge=1, le=5)
+    text: str | None = Field(None, max_length=1000)
 
 
 class RechnungAus(_Schema):
@@ -1138,10 +1285,25 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         typ = fachlich(lambda: anlagentyp(daten.anlagentyp))
         werte = daten.model_dump()
         werte["wartungsintervall_monate"] = werte["wartungsintervall_monate"] or typ.wartungsintervall_monate
+        werte["merkmale"] = fachlich(lambda: branchen.merkmale_pruefen(daten.anlagentyp, daten.merkmale))
         a = Anlage(mandant_id=m.id, objekt_id=o.id, **werte)
         s.add(a)
         s.flush()
         lebenszyklus.bauteile_anlegen(s, m, a)
+        lebenszyklus.merkmale_uebernehmen(s, m, a, app.state.uhr().date())
+        s.commit()
+        return a
+
+    @app.patch("/anlagen/{anlage_id}", response_model=AnlageAus, dependencies=[Depends(recht("bearbeiten"))])
+    def anlage_aendern(anlage_id: str, daten: AnlageAenderung, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
+        a = holen(s, Anlage, anlage_id, m)
+        for feld, wert in daten.model_dump(exclude_unset=True).items():
+            if feld == "merkmale":
+                zusammen = {**(a.merkmale or {}), **(wert or {})}
+                a.merkmale = fachlich(lambda: branchen.merkmale_pruefen(a.anlagentyp, {k: v for k, v in zusammen.items() if v not in (None, "")}))
+            else:
+                setattr(a, feld, wert)
+        lebenszyklus.merkmale_uebernehmen(s, m, a, app.state.uhr().date())
         s.commit()
         return a
 
@@ -1155,6 +1317,12 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         werte = daten.model_dump()
         werte["arbeitsbeginn"] = datetime.strptime(daten.arbeitsbeginn, "%H:%M").time()
         werte["arbeitsende"] = datetime.strptime(daten.arbeitsende, "%H:%M").time()
+        if daten.art == "sachmittel":
+            if daten.sachmittel_typ not in branchen.SACHMITTEL:
+                raise HTTPException(422, f"Sachmitteltyp fehlt oder unbekannt; erlaubt: {sorted(branchen.SACHMITTEL)}")
+            werte["arbeitstage"] = [0, 1, 2, 3, 4, 5, 6]
+        else:
+            werte["sachmittel_typ"] = None
         r = Ressource(mandant_id=m.id, **werte)
         s.add(r)
         s.commit()
@@ -1180,9 +1348,9 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
 
     @app.get("/disposition/zeitfenster")
     def zeitfenster(dauer_minuten: int = 90, qualifikation: str | None = None, ab: datetime | None = None,
-                    tage: int = Query(5, le=30), anzahl: int = Query(5, le=20),
+                    tage: int = Query(5, le=30), anzahl: int = Query(5, le=20), sachmittel: str | None = None,
                     m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> list[dict[str, Any]]:
-        fenster = freie_zeitfenster(s, m, ab or app.state.uhr(), tage, dauer_minuten, qualifikation, anzahl)
+        fenster = freie_zeitfenster(s, m, ab or app.state.uhr(), tage, dauer_minuten, qualifikation, anzahl, sachmittel=sachmittel)
         return [vars(z) for z in fenster]
 
     @app.get("/termine", response_model=list[TerminAus])
@@ -1214,6 +1382,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
                         symptom=daten.symptom, dringlichkeit=dringlichkeit, quelle=daten.quelle,
                         benoetigte_qualifikation=daten.benoetigte_qualifikation
                         or qualifikation_fuer(anlage.anlagentyp if anlage else None),
+                        sachmittel=daten.sachmittel,
                         dauer_minuten=daten.dauer_minuten or (geschaetzt["planung_minuten"] if geschaetzt else 90))
         s.add(f)
         s.flush()
@@ -1272,11 +1441,25 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         if f.benoetigte_qualifikation and f.benoetigte_qualifikation not in (r.qualifikationen or []):
             raise HTTPException(409, f"{r.name} hat die Qualifikation {f.benoetigte_qualifikation} nicht")
         ende = daten.ende or daten.beginn + timedelta(minutes=f.dauer_minuten)
-        if kollidiert(s, m, r.id, daten.beginn, ende):
+        sachmittel_id = daten.sachmittel_id
+        if sachmittel_id:
+            sm = holen(s, Ressource, sachmittel_id, m)
+            if sm.art != "sachmittel":
+                raise HTTPException(422, f"{sm.name} ist kein Sachmittel")
+        elif f.sachmittel:
+            mittel = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv, Ressource.art == "sachmittel", Ressource.sachmittel_typ == f.sachmittel).order_by(Ressource.name)).all()
+            if not mittel:
+                raise HTTPException(409, f"Kein Sachmittel vom Typ {f.sachmittel} angelegt (Einstellungen → Team und Sachmittel)")
+            belegt = sachmittel_belegungen(s, m.id, [x.id for x in mittel], als_utc(daten.beginn), als_utc(ende), timedelta(minutes=m.puffer_minuten))
+            frei = sachmittel_frei(belegt, mittel, daten.beginn, ende)
+            if frei is None:
+                raise HTTPException(409, f"Alle Sachmittel vom Typ {f.sachmittel} sind im Zeitfenster belegt")
+            sachmittel_id = frei.id
+        if kollidiert(s, m, r.id, daten.beginn, ende, sachmittel_id):
             raise HTTPException(409, "Zeitfenster ist inzwischen belegt")
         if f.status == "eingegangen":
             domaene.uebergang(s, f, "qualifiziert", akteur, "Termin vorgeschlagen")
-        t = Termin(mandant_id=m.id, servicefall_id=f.id, ressource_id=r.id, beginn=daten.beginn, ende=ende)
+        t = Termin(mandant_id=m.id, servicefall_id=f.id, ressource_id=r.id, beginn=daten.beginn, ende=ende, sachmittel_id=sachmittel_id)
         s.add(t)
         s.flush()
         domaene.protokollieren(s, m.id, "termin.vorgeschlagen", "termin", t.id, akteur, {"servicefall_id": f.id})
@@ -1379,7 +1562,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         jetzt_ = app.state.uhr()
         zeitpunkt = datetime.combine(tag, datetime.min.time(), timezone.utc) + timedelta(hours=12) if tag else jetzt_
         eigene = eigene_ressourcen(p, s, m)
-        ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv).order_by(Ressource.name)).all()
+        ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv, Ressource.art == "person").order_by(Ressource.name)).all()
         if ressource_id:
             ressourcen = [holen(s, Ressource, ressource_id, m)]
         if eigene is not None:
@@ -1399,7 +1582,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     @app.get("/kalender/links", dependencies=[Depends(recht("bearbeiten"))])
     def kalender_links(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
         basis = (m.stammdaten or {}).get("basis_url") or os.environ.get("BASIS_URL") or "http://localhost:8100"
-        ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv).order_by(Ressource.name)).all()
+        ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv, Ressource.art == "person").order_by(Ressource.name)).all()
         return kalender.links(m, ressourcen, basis)
 
     @app.get("/kalender/betrieb/{mandant_id}.ics", include_in_schema=False)
@@ -2508,7 +2691,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     @app.get("/portal/faelle/{fall_id}")
     def portal_daten(fall_id: str, token: str | None = None, s: Session = Depends(sitzung)) -> dict[str, Any]:
         f, m = portal_fall(s, fall_id, token)
-        return portal.daten(s, m, f)
+        return portal.daten(s, m, f, app.state.uhr())
 
     @app.post("/portal/faelle/{fall_id}/termine/{termin_id}")
     def portal_termin(fall_id: str, termin_id: str, daten: PortalAktion, token: str | None = None, s: Session = Depends(sitzung)) -> dict[str, Any]:
@@ -2522,6 +2705,57 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
             ergebnis = fachlich(lambda: portal.termin_absagen(s, m, f, t, app.state.uhr(), daten.grund))
         s.commit()
         return ergebnis
+
+    @app.get("/portal/faelle/{fall_id}/alternativen")
+    def portal_alternativen(fall_id: str, token: str | None = None, s: Session = Depends(sitzung)) -> list[dict[str, Any]]:
+        f, m = portal_fall(s, fall_id, token)
+        if not (f.status in ("eingegangen", "qualifiziert", "eingeplant") and not any(t.status == "bestaetigt" for t in f.termine)):
+            return []
+        return portal.alternativen(s, m, f, app.state.uhr())
+
+    @app.post("/portal/faelle/{fall_id}/alternativen")
+    def portal_alternative_waehlen(fall_id: str, daten: PortalWunschtermin, token: str | None = None, s: Session = Depends(sitzung)) -> dict[str, Any]:
+        """Kunde wählt eines der angebotenen Fenster: neuer Terminvorschlag (Freigabe B im Büro), alte Vorschläge werden zurückgezogen."""
+        f, m = portal_fall(s, fall_id, token)
+        if any(t.status == "bestaetigt" for t in f.termine):
+            raise HTTPException(409, "Es gibt bereits einen bestätigten Termin; bitte zuerst absagen oder anrufen.")
+        if als_utc(daten.beginn) < als_utc(app.state.uhr()):
+            raise HTTPException(422, "Der Termin liegt in der Vergangenheit")
+        t, _ = fachlich(lambda: termin_vorschlagen(s, m, f, TerminNeu(ressource_id=daten.ressource_id, beginn=daten.beginn, sachmittel_id=daten.sachmittel_id), "mensch"))
+        ergebnis = portal.alternative_gewaehlt(s, m, f, t, app.state.uhr())
+        s.commit()
+        return ergebnis
+
+    @app.get("/portal/faelle/{fall_id}/termine/{termin_id}.ics")
+    def portal_termin_ics(fall_id: str, termin_id: str, token: str | None = None, s: Session = Depends(sitzung)) -> Response:
+        f, m = portal_fall(s, fall_id, token)
+        t = s.get(Termin, termin_id)
+        if t is None or t.servicefall_id != f.id or t.status == "abgesagt":
+            raise HTTPException(404, "Termin nicht gefunden")
+        return Response(kalender.termin_ics(m, t), media_type="text/calendar; charset=utf-8", headers={"Content-Disposition": 'attachment; filename="termin.ics"'})
+
+    @app.get("/portal/faelle/{fall_id}/rechnungen/{rechnung_id}/girocode.png")
+    def portal_girocode(fall_id: str, rechnung_id: str, token: str | None = None, s: Session = Depends(sitzung)) -> Response:
+        """EPC-QR-Code zur Rechnung: Banking-App scannen, Überweisung ist vorausgefüllt (nur mit IBAN in den Stammdaten)."""
+        f, m = portal_fall(s, fall_id, token)
+        r = s.get(Rechnung, rechnung_id)
+        if r is None or r.servicefall_id != f.id or r.art != "rechnung":
+            raise HTTPException(404, "Rechnung nicht gefunden")
+        png = rechnung_girocode(m, Decimal(r.brutto), f"Rechnung {r.nummer}")
+        if png is None:
+            raise HTTPException(404, "Keine Bankverbindung hinterlegt")
+        return Response(png, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
+
+    @app.post("/portal/faelle/{fall_id}/bewertung")
+    def portal_bewertung(fall_id: str, daten: PortalBewertung, token: str | None = None, s: Session = Depends(sitzung)) -> dict[str, Any]:
+        f, m = portal_fall(s, fall_id, token)
+        ergebnis = fachlich(lambda: portal.bewerten(s, m, f, daten.sterne, daten.text, app.state.uhr()))
+        s.commit()
+        return ergebnis
+
+    @app.get("/bewertungen", dependencies=[Depends(recht("bearbeiten"))])
+    def bewertungen_lesen(limit: int = Query(50, le=500), m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        return portal.bewertungen(s, m, limit)
 
     @app.get("/portal/faelle/{fall_id}/angebote/{angebot_id}.pdf")
     def portal_angebot_pdf(fall_id: str, angebot_id: str, token: str | None = None, s: Session = Depends(sitzung)) -> Response:
@@ -2606,6 +2840,42 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         ergebnis = fachlich(lambda: branchen.umstellen(s, m, daten.branche.lower(), daten.leistungen_anlegen, p.name))
         s.commit()
         return {**ergebnis, "profil": branchen.profil(m)}
+
+    @app.get("/betrieb/einrichtung", dependencies=[Depends(recht("bearbeiten"))])
+    def einrichtung_status(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        """Fortschritt der Einrichtung mit den nächsten Schritten (für Cockpit-Banner und Assistent)."""
+        return einrichtung.status(s, m)
+
+    @app.post("/betrieb/einrichten", dependencies=[Depends(recht("verwalten"))])
+    def betrieb_einrichten(daten: Einrichtung, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                           p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        """Einrichtungsassistent: Branche, Betriebsdaten, Team, Sachmittel, Leistungskatalog und Online-Buchung in einem Schritt."""
+        werte = daten.model_dump(exclude_none=True)
+        if daten.branche:
+            werte["branche"] = daten.branche.lower()
+        if daten.stammdaten is not None:
+            werte["stammdaten"] = daten.stammdaten.model_dump(exclude_none=True)
+        ergebnis = fachlich(lambda: einrichtung.einrichten(s, m, werte, p.name))
+        s.commit()
+        return {**ergebnis, "profil": branchen.profil(m)}
+
+    @app.post("/kunden/import", dependencies=[Depends(recht("verwalten"))])
+    async def kunden_importieren(datei: UploadFile = File(...), pruefen: bool = Form(False), trennzeichen: str | None = Form(None),
+                                 m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        """CSV-Import aus der bisherigen Software (Spalten werden erkannt; Kennzeichen legt Fahrzeuge an). pruefen=true zeigt nur die Vorschau."""
+        roh = await datei.read()
+        if len(roh) > 20 * 1024 * 1024:
+            raise HTTPException(413, "Datei größer als 20 MB")
+        try:
+            text = roh.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = roh.decode("latin-1")
+        ergebnis = fachlich(lambda: einrichtung.kunden_import(s, m, text, trennzeichen or None, pruefen, akteur_name=p.name))
+        if pruefen:
+            s.rollback()
+        else:
+            s.commit()
+        return ergebnis
 
     @app.get("/voice/kontext", dependencies=[Depends(recht("bearbeiten"))])
     def voice_kontext(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
@@ -2765,7 +3035,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         if neu:
             domaene.protokollieren(s, m.id, "kunde.angelegt", "kunde", k.id, "system", {"quelle": "buchung"})
         anliegen = le.bezeichnung + (f" – {daten.hinweis.strip()}" if daten.hinweis else "")
-        f = servicefall_erzeugen(s, m, ServicefallNeu(kunde_id=k.id, anliegen=anliegen, quelle="web", benoetigte_qualifikation=le.qualifikation,
+        f = servicefall_erzeugen(s, m, ServicefallNeu(kunde_id=k.id, anliegen=anliegen, quelle="web", benoetigte_qualifikation=le.qualifikation, sachmittel=le.sachmittel,
                                                       dauer_minuten=max(15, le.dauer_minuten or 60), dringlichkeit="normal"), "system")
         t, freigabe = fachlich(lambda: termin_vorschlagen(s, m, f, TerminNeu(ressource_id=daten.ressource_id, beginn=daten.beginn), "system"))
         s.commit()
@@ -2970,7 +3240,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         von = von or heute.replace(day=1)
         bis = bis or heute
         eigene = eigene_ressourcen(p, s, m)
-        ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv).order_by(Ressource.name)).all()
+        ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv, Ressource.art == "person").order_by(Ressource.name)).all()
         if ressource_id:
             ressourcen = [r for r in ressourcen if r.id == ressource_id]
         if eigene is not None:

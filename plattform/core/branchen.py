@@ -43,6 +43,7 @@ class Leistung:
     preis_brutto: str           # Endkundenpreis inkl. USt (Dienstleistung an Verbraucher)
     qualifikation: str | None = None
     ust_satz: str = "19"
+    sachmittel: str | None = None     # nötiges Sachmittel (Schlüssel aus SACHMITTEL), z. B. hebebuehne
 
 
 @dataclass(frozen=True)
@@ -69,10 +70,31 @@ class Branche:
     sprachagent: str                      # Rolle und Ablaufhinweise für den Telefonassistenten
     hinweise_kunde: list[str] = field(default_factory=list)   # erscheinen in Buchung und Terminbestätigung
     rechtliches: list[str] = field(default_factory=list)      # Hinweise für den Betrieb (Einstellungen)
+    anlagentypen: list[str] = field(default_factory=list)     # angebotene Anlagentypen (leer: SHK-Typen); Schlüssel aus ontologie.ANLAGENTYPEN
+    sachmittel: list[str] = field(default_factory=list)       # typische Sachmittel der Branche (Schlüssel aus SACHMITTEL)
 
 
-def _l(nummer: str, bez: str, dauer: int, preis: str, quali: str | None = None) -> Leistung:
-    return Leistung(nummer, bez, dauer, preis, quali)
+def _l(nummer: str, bez: str, dauer: int, preis: str, quali: str | None = None, sachmittel: str | None = None) -> Leistung:
+    return Leistung(nummer, bez, dauer, preis, quali, sachmittel=sachmittel)
+
+
+# Planbare Betriebsmittel (Ressource mit art = sachmittel): ein Termin belegt Person und Sachmittel gemeinsam.
+SACHMITTEL: dict[str, str] = {"hebebuehne": "Hebebühne", "arbeitsplatz": "Arbeitsplatz/Stuhl", "raum": "Behandlungs-/Besprechungsraum",
+                              "ersatzfahrzeug": "Ersatzfahrzeug", "geraet": "Spezialgerät (Diagnose, Reinigung, Hubsteiger)", "pruefstand": "Prüfstand"}
+
+# Anlagenkartei: Merkmale je Anlagentyp (anlage.merkmale); art text | zahl | datum. Fahrzeuge: HU-Datum speist den Erneuerungskalender.
+ANLAGENKARTEI: dict[str, list[KarteiFeld]] = {
+    "fahrzeug": [KarteiFeld("kennzeichen", "Kennzeichen"), KarteiFeld("fin", "FIN (Fahrzeug-Identifizierungsnummer)"), KarteiFeld("erstzulassung", "Erstzulassung", "datum"),
+                 KarteiFeld("kilometerstand", "Kilometerstand", "zahl"), KarteiFeld("hu_bis", "HU/AU gültig bis", "datum", False, "Monat der Plakette; daraus die HU-Erinnerung"),
+                 KarteiFeld("kraftstoff", "Antrieb (Benzin, Diesel, Hybrid, Elektro)"), KarteiFeld("reifen_lager", "Eingelagerte Reifen (Lagerplatz, DOT, Profil)"),
+                 KarteiFeld("naechster_service_km", "Nächster Service bei km", "zahl"), KarteiFeld("schluessel", "Schlüssel/Zugang (Schlüsselbox, Codierung)")],
+    "fahrrad": [KarteiFeld("rahmennummer", "Rahmennummer"), KarteiFeld("antrieb", "Antrieb/Motor (Bosch, Shimano …)"), KarteiFeld("akku", "Akku (Wh, Zustand)"), KarteiFeld("schaltung", "Schaltung/Bremsen")],
+    "elektroanlage": [KarteiFeld("zaehlernummer", "Zählernummer"), KarteiFeld("hauptsicherung_a", "Hauptsicherung (A)", "zahl"), KarteiFeld("fi", "FI-Schutzschalter vorhanden (Typ)"), KarteiFeld("letzte_pruefung", "Letzte Prüfung (DGUV V3 / DIN VDE 0105-100)", "datum")],
+    "pv": [KarteiFeld("leistung_kwp", "Leistung (kWp)", "zahl"), KarteiFeld("wechselrichter", "Wechselrichter"), KarteiFeld("speicher_kwh", "Speicher (kWh)", "zahl"), KarteiFeld("mastr", "Marktstammdatenregister-Nr.")],
+    "lueftung": [KarteiFeld("volumenstrom", "Volumenstrom (m³/h)", "zahl"), KarteiFeld("filterklasse", "Filterklasse"), KarteiFeld("letzter_filterwechsel", "Letzter Filterwechsel", "datum")],
+    "dach": [KarteiFeld("dachform", "Dachform (Sattel, Walm, Flach …)"), KarteiFeld("eindeckung", "Eindeckung (Ziegel, Beton, Bitumen, Metall)"), KarteiFeld("flaeche_m2", "Dachfläche (m²)", "zahl"), KarteiFeld("letzte_inspektion", "Letzte Dachinspektion", "datum")],
+    "gartenanlage": [KarteiFeld("flaeche_m2", "Fläche (m²)", "zahl"), KarteiFeld("rasen_m2", "Rasenfläche (m²)", "zahl"), KarteiFeld("bewaesserung", "Bewässerung (automatisch/manuell)"), KarteiFeld("hecken_m", "Heckenlänge (m)", "zahl")],
+}
 
 
 BRANCHEN: dict[str, Branche] = {
@@ -171,17 +193,61 @@ BRANCHEN: dict[str, Branche] = {
     "fahrrad": Branche("fahrrad", "Fahrradwerkstatt", WERKSTATT_BEGRIFFE,
                        [_l("L-1000", "Inspektion klein", 45, "49.00"), _l("L-1010", "Inspektion groß", 90, "99.00"), _l("L-1020", "E-Bike-Diagnose (Bosch/Shimano)", 30, "39.00", "ebike"),
                         _l("L-1030", "Reifenwechsel/Platten", 20, "19.00"), _l("L-1040", "Bremsen einstellen", 30, "29.00"), _l("L-1050", "Laufrad zentrieren", 30, "25.00")],
-                       [KarteiFeld("rad", "Fahrrad (Marke, Modell, Rahmennummer)"), KarteiFeld("motor", "E-Bike-System/Akku"), KarteiFeld("hinweise", "Besonderheiten")],
+                       [KarteiFeld("hinweise", "Besonderheiten")],
                        365, True, 10, 15, False,
                        "Du bist die telefonische Assistenz einer Fahrradwerkstatt. Erfrage Fahrradtyp (E-Bike?) und Problem und biete Annahmezeiten an.",
-                       ["Bitte das Rad gereinigt und mit geladenem Akku bringen."], []),
+                       ["Bitte das Rad gereinigt und mit geladenem Akku bringen."], [], ["fahrrad"], ["arbeitsplatz"]),
     "kfz": Branche("kfz", "Kfz-Werkstatt", WERKSTATT_BEGRIFFE,
-                   [_l("L-1100", "Inspektion nach Herstellervorgabe", 120, "199.00", "kfz"), _l("L-1110", "Ölwechsel", 45, "89.00"), _l("L-1120", "HU/AU-Vorbereitung", 60, "79.00", "kfz"),
-                    _l("L-1130", "Reifenwechsel saisonal", 30, "39.00"), _l("L-1140", "Bremsen vorn (Scheiben/Beläge)", 120, "0.00", "kfz"), _l("L-1150", "Klimaservice", 60, "99.00", "klima")],
-                   [KarteiFeld("fahrzeug", "Fahrzeug (Kennzeichen, FIN, Modell, Baujahr)"), KarteiFeld("km", "Kilometerstand letzter Besuch"), KarteiFeld("reifen", "Eingelagerte Reifen (Platz)"), KarteiFeld("hinweise", "Besonderheiten")],
+                   [_l("L-1100", "Inspektion nach Herstellervorgabe", 120, "199.00", "kfz", "hebebuehne"), _l("L-1110", "Ölwechsel", 45, "89.00", None, "hebebuehne"), _l("L-1120", "HU/AU-Vorbereitung", 60, "79.00", "kfz", "hebebuehne"),
+                    _l("L-1130", "Reifenwechsel saisonal", 30, "39.00", None, "hebebuehne"), _l("L-1140", "Bremsen vorn (Scheiben/Beläge)", 120, "0.00", "kfz", "hebebuehne"), _l("L-1150", "Klimaservice", 60, "99.00", "klima"),
+                    _l("L-1160", "Direktannahme mit Kunde (Dialogannahme)", 20, "0.00"), _l("L-1170", "Fehlerspeicher auslesen (Diagnose)", 30, "49.00", "kfz", "geraet"), _l("L-1180", "Reifeneinlagerung je Saison", 15, "39.00")],
+                   [KarteiFeld("zahlung", "Zahlungsart/Firmenkunde (Rechnung, Flotte)"), KarteiFeld("hinweise", "Besonderheiten (Ersatzwagenwunsch, Hol-/Bringservice)")],
                    365, True, 15, 30, False,
                    "Du bist die telefonische Assistenz einer Kfz-Werkstatt. Erfrage Fahrzeug, Kennzeichen und Anliegen und biete Annahmezeiten an; Preise nur aus dem Leistungskatalog, sonst Kostenvoranschlag.",
-                   ["Bitte Fahrzeugschein mitbringen."], ["Reifeneinlagerung und Ersatzwagen bleiben manuelle Prozesse."]),
+                   ["Bitte Fahrzeugschein mitbringen."], ["Preisangaben für Reparaturen nur als Kostenvoranschlag (§ 632 BGB); Altteile nach § 11 Nr. 11 KfzReparaturbedingungen dem Kunden anbieten."],
+                   ["fahrzeug"], ["hebebuehne", "ersatzfahrzeug", "geraet"]),
+    "maler": Branche("maler", "Maler und Lackierer", {**SHK_BEGRIFFE, "ressource": "Maler/in", "ressourcen": "Kolonne", "kartei": "Kunden & Objekte", "anlagen": True, "wartung": "Renovierungszyklen"},
+                     [_l("L-1200", "Besichtigung und Angebot vor Ort", 60, "0.00"), _l("L-1210", "Wand/Decke streichen je Raum (bis 20 m²)", 240, "349.00"), _l("L-1220", "Fassadenanstrich (Beratung)", 60, "0.00"),
+                      _l("L-1230", "Tapezieren je Raum", 360, "549.00"), _l("L-1240", "Lackierarbeiten Türen/Fenster je Element", 90, "129.00"), _l("L-1250", "Spachteln/Q3-Oberfläche je Raum", 300, "449.00")],
+                     [KarteiFeld("farben", "Verwendete Farbtöne (RAL/NCS) je Raum"), KarteiFeld("untergrund", "Untergründe/Besonderheiten"), KarteiFeld("zugang", "Zugang/Schlüssel")],
+                     1825, False, 30, 30, False,
+                     "Du bist die telefonische Assistenz eines Malerbetriebs. Erfrage Objekt, Räume/Flächen und Wunschtermin und biete einen Besichtigungstermin an; keine Festpreise am Telefon.",
+                     ["Bitte Räume möglichst leergeräumt oder Möbel in die Raummitte gestellt."], ["Angebote mit Aufmaß; Gewährleistung 5 Jahre bei Bauwerksleistungen (§ 634a BGB)."], [], ["geraet"]),
+    "dachdecker": Branche("dachdecker", "Dachdeckerei", {**SHK_BEGRIFFE, "ressource": "Dachdecker/in", "ressourcen": "Kolonnen", "kartei": "Kunden & Dächer", "anlagen": True, "wartung": "Dachinspektionen"},
+                          [_l("L-1300", "Dachinspektion mit Protokoll", 90, "149.00"), _l("L-1310", "Sturmschaden-Notdienst", 120, "189.00"), _l("L-1320", "Dachrinnenreinigung je lfd. m", 10, "6.00"),
+                           _l("L-1330", "Ziegel ersetzen (Kleinreparatur)", 120, "229.00"), _l("L-1340", "Beratung Dachsanierung/PV-Unterkonstruktion", 60, "0.00"), _l("L-1350", "Flachdach-Wartung je Jahr", 120, "249.00")],
+                          [KarteiFeld("zugang", "Zugang/Gerüst/Leiterstellplatz"), KarteiFeld("hinweise", "Besonderheiten (Solar, Gauben, Denkmalschutz)")],
+                          365, False, 30, 30, False,
+                          "Du bist die telefonische Assistenz einer Dachdeckerei. Bei Sturmschaden mit Wassereintritt: Notdienst anbieten; sonst Inspektionstermin.",
+                          ["Bitte Zufahrt für Fahrzeug mit Anhänger freihalten."], ["Absturzsicherung nach DGUV Regel 112-198; jährliche Dachinspektion empfohlen (Flachdachrichtlinie)."], ["dach", "pv"], ["geraet"]),
+    "gartenbau": Branche("gartenbau", "Garten- und Landschaftsbau", {**SHK_BEGRIFFE, "ressource": "Gärtner/in", "ressourcen": "Kolonnen", "kartei": "Kunden & Gärten", "anlagen": True, "wartung": "Pflegeplanung"},
+                         [_l("L-1400", "Gartenpflege je Einsatz", 180, "189.00"), _l("L-1410", "Heckenschnitt je lfd. m", 6, "7.50"), _l("L-1420", "Rasenmähen je 100 m²", 20, "19.00"),
+                          _l("L-1430", "Baumschnitt/Baumfällung (Besichtigung)", 60, "0.00", "motorsaege"), _l("L-1440", "Winterdienst je Einsatz", 60, "89.00"), _l("L-1450", "Bewässerung in Betrieb nehmen/winterfest", 90, "129.00")],
+                         [KarteiFeld("pflegeplan", "Pflegeintervall/Saisonplan"), KarteiFeld("zugang", "Zugang/Gartentor/Schlüssel"), KarteiFeld("hinweise", "Besonderheiten (Hund, Teich, Nachbarn)")],
+                         42, True, 15, 30, False,
+                         "Du bist die telefonische Assistenz eines Garten- und Landschaftsbaubetriebs. Erfrage Grundstück, gewünschte Arbeiten und Saison; biete Pflegeintervalle an.",
+                         ["Bitte Gartentor zugänglich halten."], ["Vogelschutz: Hecken- und Gehölzschnitt vom 1. März bis 30. September nur schonend (§ 39 BNatSchG)."], ["gartenanlage"], ["geraet"]),
+    "gebaeudereinigung": Branche("gebaeudereinigung", "Gebäudereinigung", {**SHK_BEGRIFFE, "ressource": "Reinigungskraft", "ressourcen": "Team", "einsatz": "Einsatz", "kartei": "Kunden & Objekte", "anlagen": False, "wartung": "Turnuspläne"},
+                                 [_l("L-1500", "Unterhaltsreinigung je Stunde", 60, "34.00"), _l("L-1510", "Fensterreinigung je Einsatz", 90, "89.00"), _l("L-1520", "Grundreinigung je Einsatz", 240, "299.00"),
+                                  _l("L-1530", "Treppenhausreinigung je Einsatz", 60, "49.00"), _l("L-1540", "Bauendreinigung (Besichtigung)", 60, "0.00"), _l("L-1550", "Teppich-/Polsterreinigung", 120, "149.00", None, "geraet")],
+                                 [KarteiFeld("turnus", "Reinigungsturnus und Leistungsverzeichnis"), KarteiFeld("schluessel", "Schlüssel/Alarmcode (nur Hinweis, kein Code)"), KarteiFeld("hinweise", "Besonderheiten")],
+                                 14, True, 15, 30, False,
+                                 "Du bist die telefonische Assistenz einer Gebäudereinigung. Erfrage Objekt, Fläche, Turnus und Wunschzeiten; biete Besichtigung für Angebote an.",
+                                 [], ["Mindestlohn Gebäudereinigung (Tarifvertrag, allgemeinverbindlich); Schlüsselverwaltung dokumentieren."], [], ["geraet"]),
+    "tischler": Branche("tischler", "Tischlerei und Schreinerei", {**SHK_BEGRIFFE, "ressource": "Tischler/in", "ressourcen": "Werkstatt", "kartei": "Kunden & Objekte", "anlagen": False, "wartung": "Nachsorge"},
+                       [_l("L-1600", "Aufmaß und Beratung vor Ort", 60, "0.00"), _l("L-1610", "Montage Einbaumöbel je Element", 180, "249.00"), _l("L-1620", "Tür einstellen/reparieren", 60, "89.00"),
+                        _l("L-1630", "Fenster-/Türwartung je Element", 30, "39.00"), _l("L-1640", "Möbelrestaurierung (Besichtigung)", 60, "0.00")],
+                       [KarteiFeld("holz", "Holzarten/Oberflächen bisheriger Arbeiten"), KarteiFeld("zugang", "Zugang/Parken/Aufzug")],
+                       None, False, 30, 30, False,
+                       "Du bist die telefonische Assistenz einer Tischlerei. Erfrage Vorhaben, Maße soweit bekannt und biete einen Aufmaßtermin an.",
+                       [], [], [], ["geraet"]),
+    "schluesseldienst": Branche("schluesseldienst", "Schlüsseldienst und Sicherheitstechnik", {**SHK_BEGRIFFE, "ressource": "Techniker/in", "ressourcen": "Techniker", "kartei": "Kunden & Objekte", "anlagen": False, "wartung": "Wartung Schließanlagen"},
+                               [_l("L-1700", "Türöffnung tagsüber (zerstörungsfrei)", 45, "99.00"), _l("L-1710", "Türöffnung Nacht/Wochenende", 45, "179.00"), _l("L-1720", "Schließzylinder tauschen", 45, "79.00"),
+                                _l("L-1730", "Schließanlage planen (Beratung)", 60, "0.00"), _l("L-1740", "Einbruchschutz nachrüsten (Beratung)", 60, "0.00")],
+                               [KarteiFeld("schliessanlage", "Schließanlage/Sicherungskarte (Nr.)"), KarteiFeld("hinweise", "Besonderheiten")],
+                               None, False, 15, 15, False,
+                               "Du bist die telefonische Assistenz eines Schlüsseldienstes. Bei Aussperrung: Standort, Ausweisbarkeit vor Ort und Festpreis laut Katalog nennen; keine Preise über dem Katalog.",
+                               ["Bitte Ausweis und Nachweis der Berechtigung (Mietvertrag, Schlüssel) bereithalten."], ["Festpreise nennen, Wucherverbot (§ 138 BGB), Verbraucherschutz: Preis vor Beginn bestätigen lassen."], [], []),
 }
 
 
@@ -193,7 +259,44 @@ def profil(m: Mandant) -> dict[str, Any]:
     b = branche(m)
     return {"schluessel": b.schluessel, "bezeichnung": b.bezeichnung, "begriffe": b.begriffe, "wiederkehr_tage": b.wiederkehr_tage,
             "online_buchung": b.online_buchung, "gesundheitsdaten": b.gesundheitsdaten, "hinweise_kunde": b.hinweise_kunde, "rechtliches": b.rechtliches,
-            "kartei": [f.__dict__ for f in b.kartei], "leistungen": len(b.leistungen)}
+            "kartei": [f.__dict__ for f in b.kartei], "leistungen": len(b.leistungen),
+            "anlagentypen": anlagentypen_der_branche(b), "sachmittel": {k: SACHMITTEL[k] for k in b.sachmittel}, "sachmittel_katalog": SACHMITTEL,
+            "anlagenkartei": {typ: [f.__dict__ for f in felder] for typ, felder in ANLAGENKARTEI.items() if typ in anlagentypen_der_branche(b)}}
+
+
+def merkmale_pruefen(anlagentyp: str, merkmale: dict[str, Any] | None) -> dict[str, Any]:
+    """Anlagenkartei validieren: nur Felder des Typs, Zahlen als Zahl, Datum als ISO-Datum."""
+    felder = {f.schluessel: f for f in ANLAGENKARTEI.get(anlagentyp, [])}
+    ergebnis: dict[str, Any] = {}
+    for k, v in (merkmale or {}).items():
+        if k not in felder:
+            raise ValueError(f"Unbekanntes Merkmal {k!r} für {anlagentyp}; erlaubt: {sorted(felder)}")
+        if v in (None, ""):
+            continue
+        f = felder[k]
+        if f.art == "zahl":
+            try:
+                v = float(str(v).replace(",", "."))
+            except ValueError as e:
+                raise ValueError(f"{f.titel}: Zahl erwartet") from e
+            v = int(v) if v == int(v) else v
+        elif f.art == "datum":
+            try:
+                date.fromisoformat(str(v))
+            except ValueError as e:
+                raise ValueError(f"{f.titel}: Datum JJJJ-MM-TT erwartet") from e
+            v = str(v)
+        else:
+            v = str(v).strip()[:300]
+        ergebnis[k] = v
+    return ergebnis
+
+
+def anlagentypen_der_branche(b: Branche) -> list[str]:
+    from core.ontologie import ANLAGENTYPEN
+    if b.anlagentypen:
+        return list(b.anlagentypen)
+    return [k for k in ANLAGENTYPEN if k not in ANLAGENKARTEI]   # klassische SHK-Typen
 
 
 def alle() -> list[dict[str, Any]]:
@@ -222,7 +325,7 @@ def leistungskatalog_anlegen(s: Session, m: Mandant) -> int:
         brutto = Decimal(le.preis_brutto)
         netto = (brutto / (1 + Decimal(le.ust_satz) / 100)).quantize(Decimal("0.01"))
         s.add(Artikel(mandant_id=m.id, nummer=le.nummer, bezeichnung=le.bezeichnung, kategorie="leistung", einheit="Termin", verkauf_netto=f"{netto:.2f}",
-                      ust_satz=le.ust_satz, dauer_minuten=le.dauer_minuten, qualifikation=le.qualifikation))
+                      ust_satz=le.ust_satz, dauer_minuten=le.dauer_minuten, qualifikation=le.qualifikation, sachmittel=le.sachmittel))
         n += 1
     s.flush()
     return n

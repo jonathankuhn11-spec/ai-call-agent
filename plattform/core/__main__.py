@@ -55,6 +55,21 @@ def main() -> None:
     geo.add_argument("--alle", action="store_true", help="auch Datensätze mit vorhandenen Koordinaten neu auflösen")
     migrate = unter.add_parser("migrate")
     migrate.add_argument("--ziel", default="head")
+    einr = unter.add_parser("einrichten", help="Betrieb in einem Befehl anlegen: Branche, Team, Sachmittel, Leistungskatalog, Online-Buchung")
+    einr.add_argument("--name", required=True)
+    einr.add_argument("--branche", default="shk", help="Schlüssel aus core.branchen (shk, kfz, friseur, dachdecker, …)")
+    einr.add_argument("--mitarbeiter", action="append", default=[], metavar="NAME[:QUALI1,QUALI2]")
+    einr.add_argument("--sachmittel", action="append", default=[], metavar="NAME:TYP")
+    einr.add_argument("--basis-url", default=os.environ.get("BASIS_URL"))
+    einr.add_argument("--telefon")
+    einr.add_argument("--email")
+    einr.add_argument("--ohne-buchung", action="store_true")
+    einr.add_argument("--mandant", help="bestehenden Mandanten (ID) einrichten statt neu anlegen")
+    imp = unter.add_parser("import-kunden", help="Kunden aus CSV importieren (Spalten werden erkannt; Kennzeichen legt Fahrzeuge an)")
+    imp.add_argument("datei", type=Path)
+    imp.add_argument("--mandant", required=True)
+    imp.add_argument("--pruefen", action="store_true")
+    imp.add_argument("--trennzeichen")
     args = parser.parse_args()
 
     if args.befehl == "serve":
@@ -78,6 +93,55 @@ def main() -> None:
         print(json.dumps(referenzfluss(), indent=2, ensure_ascii=False, default=str))
     elif args.befehl == "migrate":
         migrieren(ziel=args.ziel)
+    elif args.befehl == "einrichten":
+        from core import einrichtung
+        from core.modelle import Mandant
+        db = system_datenbank()
+        db.schema_anlegen()
+        with db.sitzungen() as s:
+            m = s.get(Mandant, args.mandant) if args.mandant else None
+            if args.mandant and m is None:
+                raise SystemExit(f"Mandant {args.mandant} nicht gefunden")
+            if m is None:
+                m = Mandant(name=args.name, gewerk=args.branche.upper())
+                s.add(m)
+                s.flush()
+            mitarbeiter = []
+            for eintrag in args.mitarbeiter:
+                name, _, quali = eintrag.partition(":")
+                mitarbeiter.append({"name": name.strip(), "qualifikationen": [q.strip() for q in quali.split(",") if q.strip()]})
+            sachmittel = []
+            for eintrag in args.sachmittel:
+                name, _, typ = eintrag.partition(":")
+                sachmittel.append({"name": name.strip(), "typ": typ.strip()})
+            stammdaten = {k: v for k, v in {"basis_url": args.basis_url, "telefon": args.telefon, "email": args.email}.items() if v}
+            ergebnis = einrichtung.einrichten(s, m, {"branche": args.branche.lower(), "name": args.name, "stammdaten": stammdaten, "mitarbeiter": mitarbeiter,
+                                                     "sachmittel": sachmittel, "online_buchung": not args.ohne_buchung}, "cli")
+            s.commit()
+            st = ergebnis["status"]
+            print(json.dumps({"mandant": m.id, "name": m.name, "branche": st["branche"], "mitarbeiter_angelegt": ergebnis["mitarbeiter_angelegt"],
+                              "sachmittel_angelegt": ergebnis["sachmittel_angelegt"], "fortschritt": st["fortschritt"],
+                              "naechste_schritte": [x["titel"] for x in st["naechste"]]}, ensure_ascii=False, indent=2), flush=True)
+    elif args.befehl == "import-kunden":
+        from core import einrichtung
+        from core.modelle import Mandant
+        db = system_datenbank()
+        db.schema_anlegen()
+        roh = args.datei.read_bytes()
+        try:
+            text = roh.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = roh.decode("latin-1")
+        with db.sitzungen() as s:
+            m = s.get(Mandant, args.mandant)
+            if m is None:
+                raise SystemExit(f"Mandant {args.mandant} nicht gefunden")
+            ergebnis = einrichtung.kunden_import(s, m, text, args.trennzeichen, args.pruefen, akteur_name="cli")
+            if args.pruefen:
+                s.rollback()
+            else:
+                s.commit()
+            print(json.dumps(ergebnis, ensure_ascii=False, indent=2, default=str), flush=True)
     elif args.befehl == "loeschlauf":
         from sqlalchemy import select
 
