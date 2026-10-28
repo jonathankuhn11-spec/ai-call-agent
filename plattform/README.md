@@ -71,6 +71,8 @@ Danach `http://localhost:8100/` öffnen (Oberfläche) bzw. `/docs` (OpenAPI). Oh
 
 ## Büro-Oberfläche
 
+Seit Runde 11 mit eigenem Designsystem (`core/ui/app.css`: Tokens, Dunkelmodus, Fokusringe), gruppierter Navigation mit Icons und Mobilansicht (Schublade); als PWA installierbar.
+
 | Ansicht | Inhalt |
 | --- | --- |
 | Cockpit | Kennzahlen, Auslastung je Monteur, dringende Vorgänge, letzte Ereignisse (Betriebs-Zwilling); **Kundenkarte** (wo welche Kunden sind: Punkte je Kunde mit Dringlichkeit, Wartungsstatus, Vertrag, heutige Einsätze; Betriebsstandort; Zoom/Verschieben; Hintergrund vom konfigurierbaren Kachelserver), Kunden je Ort, Kachel „Kundendaten vollständig“ und Liste, welche Angaben fehlen; Tagestouren der Monteure als Linien mit Fahrzeit und Kilometern |

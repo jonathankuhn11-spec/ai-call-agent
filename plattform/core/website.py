@@ -224,7 +224,7 @@ def daten(s: Session, m: Mandant) -> dict[str, Any]:
 # --- Rendering ------------------------------------------------------------------------------------------
 def _css(farbe: str) -> str:
     return f"""
-:root {{ --akzent: {farbe}; --tinte: #1c2733; --leise: #5b6b7a; --rand: #e1e7ee; --flaeche: #f6f8fa; --karte: #fff; }}
+:root {{ --akzent: {farbe}; --tinte: #18212b; --leise: #5f6b78; --rand: #e4e8ee; --flaeche: #f4f6f9; --karte: #fff; --schatten: 0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.04); }}
 @media (prefers-color-scheme: dark) {{ :root {{ --tinte: #e8edf2; --leise: #9aa8b5; --rand: #2c3a48; --flaeche: #0f1620; --karte: #182230; }} }}
 * {{ box-sizing: border-box; }} html {{ scroll-behavior: smooth; }}
 body {{ margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--tinte); background: var(--flaeche); line-height: 1.55; font-size: 17px; }}
@@ -244,7 +244,7 @@ nav.haupt a {{ margin-left: 16px; text-decoration: none; color: var(--tinte); fo
 .hero .bild {{ margin-top: 28px; border-radius: 16px; overflow: hidden; border: 1px solid var(--rand); }}
 section {{ padding: 44px 0; }} section h2 {{ font-size: 1.6rem; margin: 0 0 18px; }}
 .karten {{ display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }}
-.karte {{ background: var(--karte); border: 1px solid var(--rand); border-radius: 14px; padding: 18px; }}
+.karte {{ background: var(--karte); border: 1px solid var(--rand); border-radius: 14px; padding: 20px; box-shadow: var(--schatten); transition: transform .12s, border-color .12s; }} .karte:hover {{ border-color: color-mix(in srgb, var(--akzent) 40%, var(--rand)); }}
 .karte h3 {{ margin: 0 0 6px; font-size: 1.05rem; }} .karte p {{ margin: 0; color: var(--leise); }} .karte .preis {{ margin-top: 10px; font-weight: 600; color: var(--tinte); }}
 .notdienst {{ background: color-mix(in srgb, var(--akzent) 12%, var(--karte)); border: 1px solid var(--akzent); border-radius: 14px; padding: 20px; display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; }}
 .sterne {{ color: #f2b01e; letter-spacing: 2px; }}
@@ -256,7 +256,7 @@ form.kontakt label.breit {{ grid-column: 1 / -1; }} form.kontakt input, form.kon
 footer {{ border-top: 1px solid var(--rand); padding: 24px 0 40px; color: var(--leise); font-size: .9rem; }} footer a {{ color: var(--leise); }}
 .vorschau {{ background: #fff2e5; color: #b4541a; text-align: center; padding: 8px; font-size: .9rem; }}
 .skip {{ position: absolute; left: -9999px; }} .skip:focus {{ left: 12px; top: 12px; background: var(--karte); padding: 8px 12px; z-index: 10; }}
-a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible {{ outline: 3px solid color-mix(in srgb, var(--akzent) 60%, transparent); outline-offset: 2px; }}
+a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible {{ outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--akzent) 30%, transparent); border-color: var(--akzent); }}
 .schritte {{ display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); counter-reset: s; }}
 .schritte .karte {{ position: relative; padding-left: 64px; }} .schritte .karte::before {{ counter-increment: s; content: counter(s); position: absolute; left: 18px; top: 18px; width: 32px; height: 32px; border-radius: 50%; background: var(--akzent); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; }}
 details.faq {{ background: var(--karte); border: 1px solid var(--rand); border-radius: 12px; padding: 4px 16px; margin-bottom: 8px; }} details.faq summary {{ cursor: pointer; font-weight: 600; padding: 10px 0; }} details.faq p {{ margin: 0 0 12px; color: var(--leise); }}

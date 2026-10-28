@@ -146,18 +146,29 @@ const ANSICHTEN = { einrichtung: einrichtungAnsicht, cockpit, anruf, freigaben, 
 async function zeigen() {
   if (!speicher("mandant")) return anmelden();
   $("#mandant-name").textContent = speicher("mandantName") || "";
+  navSchliessen();
   try {
     const wir = await ich();
     if (!BRANCHE) await brancheLaden();
     $("#nav-einstellungen").hidden = !wir.rechte.includes("verwalten");
     document.querySelectorAll(".seitenleiste a[data-recht]").forEach((a) => { a.hidden = !wir.rechte.includes(a.dataset.recht); });
+    document.querySelectorAll(".nav-gruppe").forEach((g) => { g.hidden = ![...g.querySelectorAll("a")].some((a) => !a.hidden); });
   } catch { /* Anmeldung läuft */ }
   const name = (location.hash.slice(1) || "cockpit").split("/")[0];
-  document.querySelectorAll(".seitenleiste a").forEach((a) => a.classList.toggle("aktiv", a.dataset.ansicht === name));
+  let aktiverText = "";
+  document.querySelectorAll(".seitenleiste a").forEach((a) => { const an = a.dataset.ansicht === name; a.classList.toggle("aktiv", an); if (an) { aktiverText = a.querySelector(".nav-text")?.textContent || ""; a.setAttribute("aria-current", "page"); } else a.removeAttribute("aria-current"); });
+  document.title = aktiverText ? `${aktiverText} · ${PRODUKT?.name || "SHK-Backoffice"}` : (PRODUKT?.name || "SHK-Backoffice");
+  const tl = $("#topleiste-titel"); if (tl) tl.textContent = aktiverText || PRODUKT?.name || "SHK-Backoffice";
   const ziel = $("#inhalt");
-  try { await (ANSICHTEN[name] || cockpit)(ziel); } catch (e) { if (e.message !== "Anmeldung erforderlich") ziel.innerHTML = `<p class="fehler">${esc(e.message)}</p>`; }
+  ziel.innerHTML = `<div class="lade" aria-hidden="true"><div class="zeile-lade titel"></div><div class="zeile-lade" style="width:70%"></div><div class="block-lade"></div><div class="block-lade"></div></div>`;
+  window.scrollTo({ top: 0 });
+  try { await (ANSICHTEN[name] || cockpit)(ziel); } catch (e) { if (e.message !== "Anmeldung erforderlich") ziel.innerHTML = `<h1>${esc(aktiverText || "Fehler")}</h1><div class="banner fehler">${esc(e.message)}</div>`; }
   freigabenZaehlen();
 }
+function navSchliessen() { $("#navigation")?.classList.remove("offen"); $("#nav-schleier")?.classList.remove("offen"); $("#nav-auf")?.setAttribute("aria-expanded", "false"); }
+$("#nav-auf")?.addEventListener("click", () => { const offen = !$("#navigation").classList.contains("offen"); $("#navigation").classList.toggle("offen", offen); $("#nav-schleier").classList.toggle("offen", offen); $("#nav-auf").setAttribute("aria-expanded", String(offen)); });
+$("#nav-schleier")?.addEventListener("click", navSchliessen);
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") navSchliessen(); });
 window.addEventListener("hashchange", zeigen);
 
 // --- Globale Suche (Strg+K) ---------------------------------------------------------------------
@@ -209,7 +220,7 @@ let BRANCHE = null;
 async function brancheLaden() {
   try { BRANCHE = await api("/betrieb/branche"); } catch { BRANCHE = null; return; }
   const b = BRANCHE.begriffe;
-  const setzen = (ansicht, text) => { const a = document.querySelector(`.seitenleiste a[data-ansicht="${ansicht}"]`); if (a && a.firstChild?.nodeType === 3) a.firstChild.textContent = text + " "; };
+  const setzen = (ansicht, text) => { const a = document.querySelector(`.seitenleiste a[data-ansicht="${ansicht}"] .nav-text`); if (a) a.innerHTML = text.replace("&", "&amp;"); };
   setzen("einsatz", b.mein_einsatz); setzen("kunden", b.kartei.replace("&", "&")); setzen("vorgaenge", b.vorgaenge); setzen("wartung", b.wartung);
   const w = document.querySelector('.seitenleiste a[data-ansicht="wartung"]'); if (w) w.hidden = !b.anlagen;
   const o = document.querySelector('.seitenleiste a[data-ansicht="ontologie"]'); if (o) o.hidden = !b.anlagen;
@@ -1028,6 +1039,7 @@ async function produktLaden() {
   try { PRODUKT = await api("/produkt", { mitMandant: false }); } catch { return; }
   document.title = PRODUKT.name;
   const marke = $(".marke"); if (marke?.firstChild?.nodeType === 3) marke.firstChild.textContent = PRODUKT.name;
+  const tl = $("#topleiste-titel"); if (tl) tl.textContent = PRODUKT.name;
   if (PRODUKT.logo && marke) { const img = document.createElement("img"); img.src = PRODUKT.logo; img.alt = ""; img.className = "logo"; marke.prepend(img); }
   if (PRODUKT.farbe) document.documentElement.style.setProperty("--akzent", PRODUKT.farbe);
   const v = $("#version"); if (v) v.textContent = `Version ${PRODUKT.version}`;
@@ -1467,7 +1479,7 @@ const MAHNSTUFE_TEXT = { 0: "–", 1: "Zahlungserinnerung", 2: "Mahnung", 3: "Le
 async function forderungenAnsicht(ziel) {
   const [posten, zahlungen, mahnungen, wir] = await Promise.all([api("/offene-posten"), api("/zahlungen?limit=50"), api("/mahnungen"), ich()]);
   const summe = posten.reduce((s, p) => s + Number(p.offen), 0), ueberfaellig = posten.filter((p) => p.tage_ueberfaellig > 0);
-  ziel.innerHTML = `<h1>Offene Posten <button class="leise" id="op-export" style="float:right" title="Offene Posten als Excel-Arbeitsmappe">Excel-Export</button></h1><p class="unterzeile">Zahlungen manuell oder per CSV-Import aus dem Online-Banking (Rechnungsnummer im Verwendungszweck). Der Mahnlauf erzeugt nur Vorschläge: Zahlungserinnerung als Freigabe B, Mahnungen mit Gebühr als Freigabe C.</p>
+  ziel.innerHTML = `<h1>Offene Posten <button class="leise" id="op-export" title="Offene Posten als Excel-Arbeitsmappe">Excel-Export</button></h1><p class="unterzeile">Zahlungen manuell oder per CSV-Import aus dem Online-Banking (Rechnungsnummer im Verwendungszweck). Der Mahnlauf erzeugt nur Vorschläge: Zahlungserinnerung als Freigabe B, Mahnungen mit Gebühr als Freigabe C.</p>
     <div class="kacheln"><div class="kachel"><div class="wert">${esc(EURO.format(summe))}</div><div class="bez">offen (${posten.length} Rechnungen)</div></div>
       <div class="kachel"><div class="wert">${esc(EURO.format(ueberfaellig.reduce((s, p) => s + Number(p.offen), 0)))}</div><div class="bez">überfällig (${ueberfaellig.length})</div></div>
       <div class="kachel"><div class="wert">${posten.filter((p) => p.mahnstufe > 0).length}</div><div class="bez">gemahnt</div></div></div>
@@ -1559,7 +1571,7 @@ async function anfragenAnsicht(ziel) {
 // --- Auswertungen ----------------------------------------------------------------------------
 async function auswertungenAnsicht(ziel) {
   const a = await api("/auswertungen?monate=12");
-  ziel.innerHTML = `<h1>Auswertungen <button class="leise" id="aw-export" style="float:right" title="Monate, Monteure und Kennzahlen als Excel-Arbeitsmappe">Excel-Export</button></h1><p class="unterzeile">Zeitraum ${esc(DATUM.format(new Date(a.von)))} bis ${esc(DATUM.format(new Date(a.bis)))}. Umsatz aus gestellten Rechnungen (netto), Zahlungseingang aus gebuchten Zahlungen, Material aus zugeordneten Belegen. Deckungsbeitrag je Monteur: Umsatz der rapportierten Aufträge abzüglich Material und interner Lohnkosten (Rapportzeiten × Stundensatz intern).</p>
+  ziel.innerHTML = `<h1>Auswertungen <button class="leise" id="aw-export" title="Monate, Monteure und Kennzahlen als Excel-Arbeitsmappe">Excel-Export</button></h1><p class="unterzeile">Zeitraum ${esc(DATUM.format(new Date(a.von)))} bis ${esc(DATUM.format(new Date(a.bis)))}. Umsatz aus gestellten Rechnungen (netto), Zahlungseingang aus gebuchten Zahlungen, Material aus zugeordneten Belegen. Deckungsbeitrag je Monteur: Umsatz der rapportierten Aufträge abzüglich Material und interner Lohnkosten (Rapportzeiten × Stundensatz intern).</p>
     <div class="kacheln"><div class="kachel"><div class="wert">${esc(EURO.format(a.umsatz_netto_gesamt))}</div><div class="bez">Umsatz netto (12 Monate)</div></div>
       <div class="kachel"><div class="wert">${esc(EURO.format(a.offene_posten.summe))}</div><div class="bez">offene Posten (${a.offene_posten.anzahl}, davon ${esc(EURO.format(a.offene_posten.ueberfaellig))} überfällig)</div></div>
       <div class="kachel"><div class="wert">${a.angebote.quote === null ? "–" : `${Math.round(a.angebote.quote * 100)} %`}</div><div class="bez">Angebotsquote (${a.angebote.angenommen} von ${a.angebote.entschieden} entschieden; ${esc(EURO.format(a.angebote.volumen_offen_netto))} offen)</div></div>

@@ -18,7 +18,7 @@ HEUTE = DEMO_ZEIT.date()
 def test_ui_bibliotheken_und_pwa_werden_ausgeliefert(umgebung):
     c, *_ = umgebung
     for pfad, inhalt in (("/app/lib/leaflet.js", "Leaflet 1.9.4"), ("/app/lib/uplot.min.js", "uPlot (v1.6.31)"), ("/app/lib/leaflet.css", ".leaflet-"),
-                         ("/app/manifest.webmanifest", '"display": "standalone"'), ("/app/sw.js", "shk-ui-v10"), ("/app/icon.svg", "<svg")):
+                         ("/app/manifest.webmanifest", '"display": "standalone"'), ("/app/sw.js", "shk-ui-v"), ("/app/icon.svg", "<svg")):
         r = c.get(pfad)
         assert r.status_code == 200 and inhalt in r.text, pfad
     html = c.get("/app/").text

@@ -3,6 +3,12 @@
 Versionsschema: MAJOR.MINOR.PATCH (`VERSION`, `python -m core version`, `/health`). Jede Runde erhöht MINOR; Hotfixes PATCH.
 Datenbankänderungen stehen bei der jeweiligen Version mit Migrationsnummer; `python -m core migrate` vor dem Start der neuen Version.
 
+## 0.11.0 – 2026-10-28 (Runde 11, keine Migration)
+- UX-Überarbeitung der Büro-Oberfläche: Designsystem in `app.css` (Tokens für Farbe, Abstand, Typografie, Radien, Schatten, Fokusringe,
+  Dunkelmodus auch per `data-theme`), Navigation in fünf Gruppen mit Icons, Mobilansicht mit Schublade und Kopfleiste, Ladeskelett,
+  Seitentitel je Ansicht, Dialoge mit Schließen-Knopf, klebrige Tabellenköpfe, einheitliche Knöpfe/Formulare/Tags/Leerzustände, Druckansicht.
+- Portal, Online-Buchung, Registrierungsseite und Betriebswebsite auf dieselben Tokens gebracht (Schatten, Fokus, Kartenradius).
+
 ## 0.10.0 – 2026-10-28 (Runde 10, Migration 0014)
 - Direkt eingebundene Open-Source-Bausteine: Leaflet 1.9.4 (Kundenkarte mit Kacheln, Touren, Tooltips), uPlot 1.6.31 (Umsatz- und Zahlungsdiagramm),
   openpyxl (Excel-Exporte für Auswertungen, Kunden, offene Posten, Termine), Jinja2 (Textvorlagen in der Sandbox je Betrieb mit Vorschau).

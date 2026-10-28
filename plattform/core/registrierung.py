@@ -63,13 +63,14 @@ def seite(p: dict[str, Any], oidc: bool) -> str:
               else "Sie erhalten sofort Ihre Zugangskennung und können loslegen.")
     return f"""<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{e(p["name"])} – kostenlos testen</title><meta name="robots" content="index,follow">
-<style>:root{{--akzent:{e(farbe)};--text:#18212b;--hinter:#f5f7fa;--karte:#fff;--linie:#d9dee5}}
+<style>:root{{--akzent:{e(farbe)};--text:#18212b;--hinter:#f4f6f9;--karte:#fff;--linie:#e4e8ee}}
 @media (prefers-color-scheme: dark){{:root{{--text:#e8ecf1;--hinter:#0f141a;--karte:#18212b;--linie:#2b3540}}}}
 *{{box-sizing:border-box}}body{{margin:0;font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--text);background:var(--hinter)}}
 header{{padding:28px 16px;text-align:center}}header h1{{margin:0;font-size:28px}}header p{{max-width:640px;margin:8px auto 0;color:#6b7785}}
 main{{max-width:1040px;margin:0 auto;padding:0 16px 48px;display:grid;gap:24px;grid-template-columns:1fr}}@media (min-width:860px){{main{{grid-template-columns:3fr 2fr}}}}
-.karte{{background:var(--karte);border:1px solid var(--linie);border-radius:12px;padding:20px}}label{{display:block;margin:10px 0 4px;font-weight:600;font-size:14px}}
+.karte{{background:var(--karte);border:1px solid var(--linie);border-radius:14px;padding:24px;box-shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.04)}}label{{display:block;margin:10px 0 4px;font-weight:600;font-size:14px}}
 input,select{{width:100%;padding:12px;font:inherit;border:1px solid var(--linie);border-radius:8px;background:var(--hinter);color:var(--text)}}
+input:focus-visible,select:focus-visible{{outline:none;border-color:var(--akzent);box-shadow:0 0 0 3px color-mix(in srgb,var(--akzent) 30%,transparent)}}
 button{{margin-top:16px;width:100%;padding:14px;font:inherit;font-weight:700;color:#fff;background:var(--akzent);border:0;border-radius:8px;cursor:pointer}}
 .honig{{position:absolute;left:-9999px}}.ed{{border-top:1px solid var(--linie);padding:12px 0}}.ed h3{{margin:0}}.preis{{font-size:22px;margin:4px 0}}.klein,small{{color:#6b7785;font-size:13px}}
 ul{{margin:6px 0;padding-left:18px;font-size:14px}}.erfolg{{background:#e7f6ec;border-color:#9ad3af}}.fehler{{color:#b42318}}code{{background:var(--hinter);padding:2px 6px;border-radius:4px}}
