@@ -43,6 +43,9 @@ class Mandant(Basis):
     integrationen: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     rechnungsnummer_zaehler: Mapped[int] = mapped_column(Integer, default=0)
     angebotsnummer_zaehler: Mapped[int] = mapped_column(Integer, default=0)
+    # Produktisierung (core.produkt): wirksame Lizenz {"edition", "gueltig_bis", "quelle", "kunde", "schluessel"}; Testphase endet an diesem Tag
+    lizenz: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    testphase_bis: Mapped[date | None] = mapped_column(Date, nullable=True)
     erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
 
 

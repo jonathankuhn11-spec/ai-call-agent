@@ -121,6 +121,29 @@ und `phone_number_id`, Stripe per HMAC-Signatur (`Stripe-Signature`, 5 Minuten T
 
 Die Caddyfile lässt beide Pfade durch (sie liegen nicht unter `/docs`); auf einer eigenen Betriebsdomain sind sie nicht erreichbar.
 
+## Editionen, Lizenzschlüssel, Registrierung, White-Label (Runde 10)
+
+Die Plattform lässt sich als fertiges Produkt verkaufen: jeder Mandant hat eine wirksame Edition (Starter, Pro, Enterprise; Umfang in
+`core/produkt.py`), 30 Tage Testphase mit allem, danach Starter, sofern keine Lizenz vorliegt. Funktionen außerhalb der Edition antworten
+mit HTTP 402 und einem Hinweis auf Einstellungen → Edition und Lizenz.
+
+| Schritt | Wo | Befehl / Variable |
+| --- | --- | --- |
+| Schlüsselpaar einmalig beim Anbieter erzeugen | Anbieter | `python -m core lizenz schluesselpaar` → privaten Schlüssel sicher verwahren |
+| Öffentlichen Schlüssel in jede Kundeninstallation | Kunde (`.env`) | `LIZENZ_OEFFENTLICHER_SCHLUESSEL=…` |
+| Lizenzschlüssel ausstellen | Anbieter | `python -m core lizenz erzeugen --edition pro --kunde "Muster GmbH" --gueltig-bis 2027-12-31 [--mandant ID]` oder Betreiberkonsole mit `LIZENZ_PRIVATER_SCHLUESSEL` |
+| Lizenz eintragen | Kunde | Einstellungen → Edition und Lizenz, oder `PUT /betrieb/lizenz` |
+| Edition ohne Schlüssel zuweisen (SaaS-Betrieb) | Anbieter | Betreiberkonsole (`/app/#betreiber`, Maschinenschlüssel) oder `PUT /betreiber/mandanten/{id}/edition` |
+| Selbstregistrierung freischalten | Anbieter (`.env`) | `REGISTRIERUNG_OFFEN=1`, Seite `https://<SHK_DOMAIN>/registrieren`; mit OIDC legt der Anbieter danach die Benutzer in Keycloak an |
+| White-Label | `.env` | `PRODUKT_NAME`, `PRODUKT_ANBIETER`, `PRODUKT_FARBE` (Hex), `PRODUKT_LOGO_URL` (bei fremder Domain `img-src` in der Caddyfile ergänzen), `PRODUKT_SUPPORT_URL` |
+| Betreiberkonsole netzseitig begrenzen | `.env` | `BETREIBER_NETZ=203.0.113.0/24` (Caddy antwortet sonst mit 403 auf `/betreiber/*`; Standard nur localhost) |
+| Release-Paket | Anbieter | `./release.sh [--ohne-image] [--push REGISTRY]` → `dist/<version>/` mit Quellarchiv, Image, `SHA256SUMS`, `CHANGELOG.md` |
+| Versionsstand | – | `VERSION`, `python -m core version`, `GET /health`, `GET /produkt`; vor dem Update `python -m core migrate` |
+
+Die Caddyfile lässt `/registrieren`, `/registrierung` und `/produkt` durch; `/betreiber/*` ist nur mit Maschinenschlüssel erreichbar und
+sollte zusätzlich auf das Netz des Anbieters beschränkt werden. Die Büro-Oberfläche ist als PWA installierbar („Mein Einsatz“ auf dem
+Smartphone: Hülle offline, Daten immer live); dafür ist HTTPS Voraussetzung.
+
 ## Betriebswebsites unter eigener Domain
 
 Jeder Betrieb erhält unter `https://<SHK_DOMAIN>/web/<slug>` eine eigene Internetseite (Ansicht **Website**). Für eine eigene Domain

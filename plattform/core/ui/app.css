@@ -109,15 +109,8 @@ pre { background: var(--fläche); border: 1px solid var(--linie); border-radius:
 
 /* Abwesenheiten in der Plantafel, Säulendiagramm der Auswertungen */
 .einsatz.abwesend { border-left-color: var(--gedämpft); background: var(--fläche); color: var(--gedämpft); cursor: default; font-style: italic; }
-.diagramm { display: flex; align-items: flex-end; gap: 8px; height: 180px; padding: 8px 4px 0; border-bottom: 1px solid var(--linie); }
-.saeule { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; min-width: 0; }
-.saeule-balken { flex: 1; width: 100%; display: flex; align-items: flex-end; justify-content: center; gap: 2px; }
-.saeule-teil { width: 40%; max-width: 22px; border-radius: 3px 3px 0 0; min-height: 1px; }
-.saeule-teil.umsatz { background: var(--akzent); }
-.saeule-teil.zahlung { background: var(--ok, #2e7d32); }
-.saeule-bez { font-size: 11px; color: var(--gedämpft); margin-top: 4px; }
-.legende { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: middle; margin: 0 4px 0 10px; }
-.legende.umsatz { background: var(--akzent); } .legende.zahlung { background: var(--ok, #2e7d32); }
+.diagramm-rahmen { width: 100%; min-height: 240px; }
+.diagramm-rahmen .u-legend { font-size: 12px; color: var(--gedämpft); }
 
 /* Kamera-Scan: Seitenvorschau */
 .scanseiten { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
@@ -126,20 +119,15 @@ pre { background: var(--fläche); border: 1px solid var(--linie); border-radius:
 /* Kundenkarte (Web-Mercator, eigene Zeichnung) */
 .raster-karte { grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr); }
 @media (max-width: 900px) { .raster-karte { grid-template-columns: 1fr; } }
-.geo { position: relative; overflow: hidden; border-radius: 6px; border: 1px solid var(--linie); background: var(--fläche); cursor: grab; touch-action: none; user-select: none; }
-.geo:active { cursor: grabbing; } .geo:focus-visible { outline: 2px solid var(--akzent); }
-.geo-kacheln img { position: absolute; display: block; pointer-events: none; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .geo-kacheln img { filter: brightness(.75) contrast(1.05); } }
-.geo-marker .m { position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.45); padding: 0; cursor: pointer; background: var(--akzent); }
-.geo-marker .m:hover, .geo-marker .m:focus-visible { transform: scale(1.3); z-index: 2; }
-.m-betrieb { background: #18212b !important; border-radius: 3px !important; width: 18px !important; height: 18px !important; }
-.m-notdienst { background: var(--kritisch) !important; } .m-hoch { background: var(--warn) !important; } .m-ueberfaellig { background: #c2410c !important; }
-.m-vertrag { background: var(--ok) !important; } .m-kunde { background: var(--akzent) !important; }
-.m-heute { box-shadow: 0 0 0 3px #fff, 0 0 0 6px var(--akzent) !important; }
-.geo-marker .m-text { position: absolute; transform: translateY(-50%); font-size: 11px; line-height: 1.2; padding: 1px 5px; border-radius: 3px; background: rgba(255,255,255,.85); color: #18212b; white-space: nowrap; pointer-events: none; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
-.geo-steuer { position: absolute; top: 8px; right: 8px; display: grid; gap: 4px; z-index: 3; }
-.geo-steuer button { width: 32px; height: 32px; padding: 0; background: var(--karte); font-size: 18px; line-height: 1; }
-.geo-hinweis { position: absolute; right: 0; bottom: 0; font-size: 11px; background: rgba(255,255,255,.8); color: #333; padding: 1px 6px; border-top-left-radius: 4px; z-index: 3; }
+.geo { position: relative; overflow: hidden; border-radius: 6px; border: 1px solid var(--linie); background: var(--fläche); }
+.geo:focus-visible { outline: 2px solid var(--akzent); }
+.geo .leaflet-tile-pane { filter: none; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .geo .leaflet-tile-pane { filter: brightness(.75) contrast(1.05); } :root:not([data-theme="light"]) .leaflet-container { background: #1b222b; } }
+.leaflet-container { font: inherit; }
+.leaflet-tooltip { font-size: 12px; }
+.leaflet-control-attribution { font-size: 10px; }
+.geo-legende .m-betrieb { background: #18212b; border-radius: 2px; } .geo-legende .m-notdienst { background: #b42318; } .geo-legende .m-hoch { background: #a86400; }
+.geo-legende .m-ueberfaellig { background: #7c3aed; } .geo-legende .m-vertrag { background: #1d7a46; } .geo-legende .m-kunde { background: #0b5cad; }
 .geo-leer { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; color: var(--gedämpft); }
 .geo-legende { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--gedämpft); margin-top: 8px; }
 .geo-legende i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; border: 1px solid rgba(0,0,0,.2); }
@@ -172,3 +160,11 @@ a.kachel { text-decoration: none; color: inherit; }
 .schritte { list-style: none; margin: 8px 0 0; padding: 0; } .schritte li { display: flex; gap: 12px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--linie); }
 .schritte li > div { flex: 1; } .schritte .punkt { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--linie); display: inline-flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
 .schritte .erledigt .punkt { background: var(--ok, #1f7a4d); border-color: var(--ok, #1f7a4d); color: #fff; } .schritte .erledigt strong { color: var(--gedämpft); font-weight: 500; }
+
+/* Runde 10: Editionen, Vorlagen, Betreiberkonsole, Banner, Version, Logo */
+.editionen .edition { padding: 14px; } .editionen .edition.aktuell { border-color: var(--akzent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--akzent) 30%, transparent); }
+.edition h3 { margin: 0 0 4px; } .edition .preis { font-size: 20px; font-weight: 700; margin: 0 0 6px; } .edition ul { margin: 0 0 8px; padding-left: 18px; font-size: 13px; }
+.banner { padding: 10px 12px; border-radius: 6px; margin: 8px 0 12px; background: var(--info-fläche); } .banner.fehler { background: color-mix(in srgb, var(--kritisch) 12%, transparent); }
+details > summary { cursor: pointer; padding: 8px 0; font-weight: 600; } form.vorlage { padding: 4px 0 12px; } form.vorlage textarea, form.vorlage input { width: 100%; font-family: inherit; }
+.vorschau { white-space: pre-wrap; background: var(--fläche); padding: 10px; border-radius: 6px; font-size: 13px; }
+.version { display: block; color: var(--gedämpft); font-size: 11px; padding: 6px 12px; } .marke .logo { max-height: 28px; vertical-align: middle; margin-right: 6px; }

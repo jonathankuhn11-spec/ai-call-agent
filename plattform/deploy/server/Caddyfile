@@ -33,6 +33,12 @@
 	# OpenAPI-Dokumentation nicht öffentlich ausliefern; /portal/*, /buchung/* und /integrationen/datev/rueckruf sind bewusst öffentlich (Token bzw. OAuth-State)
 	@intern path /docs /redoc /openapi.json /metrics
 	respond @intern 404
+	# Betreiberkonsole nur aus dem Netz des Anbieters (Maschinenschlüssel bleibt zusätzlich Pflicht); BETREIBER_NETZ z. B. 203.0.113.0/24
+	@betreiber {
+		path /betreiber/*
+		not remote_ip {$BETREIBER_NETZ:127.0.0.1/32}
+	}
+	respond @betreiber 403
 	reverse_proxy core:8100 {
 		health_uri /health
 	}

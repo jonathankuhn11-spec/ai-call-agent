@@ -12,6 +12,10 @@
     python -m core posteingang             E-Mail-Postfächer der Mandanten abrufen und Anfragen zu Vorgängen machen
     python -m core scaneingang             Scanner-Postfächer und Eingangsordner abrufen, Scans zu Belegen machen
     python -m core geokodieren [--alle]    Kundenadressen ohne Koordinaten über Nominatim auflösen (Kundenkarte)
+    python -m core lizenz schluesselpaar   Ed25519-Schlüsselpaar für Lizenzschlüssel erzeugen (privat beim Anbieter, öffentlich in der Installation)
+    python -m core lizenz erzeugen …       Lizenzschlüssel ausstellen (--edition pro --kunde "…" --gueltig-bis 2027-12-31 [--mandant ID])
+    python -m core lizenz pruefen SCHL.    Lizenzschlüssel gegen LIZENZ_OEFFENTLICHER_SCHLUESSEL prüfen
+    python -m core version                 Versionsstand ausgeben
 
 Verbindungen in PostgreSQL: DATABASE_URL (shk_app, unterliegt Row-Level Security) für den Core,
 SYSTEM_DATABASE_URL (shk_system) für Worker, Seed und Mandantenverwaltung. Ohne
@@ -65,6 +69,20 @@ def main() -> None:
     einr.add_argument("--email")
     einr.add_argument("--ohne-buchung", action="store_true")
     einr.add_argument("--mandant", help="bestehenden Mandanten (ID) einrichten statt neu anlegen")
+    liz = unter.add_parser("lizenz", help="Lizenzschlüssel: schluesselpaar | erzeugen | pruefen")
+    liz_u = liz.add_subparsers(dest="lizenz_befehl", required=True)
+    liz_u.add_parser("schluesselpaar")
+    liz_e = liz_u.add_parser("erzeugen")
+    liz_e.add_argument("--edition", required=True, choices=["starter", "pro", "enterprise"])
+    liz_e.add_argument("--kunde", required=True)
+    liz_e.add_argument("--gueltig-bis", required=True, help="ISO-Datum, z. B. 2027-12-31")
+    liz_e.add_argument("--mandant", help="Mandanten-ID; ohne Angabe gilt der Schlüssel für jede Installation mit dem öffentlichen Schlüssel")
+    liz_e.add_argument("--sitze", type=int)
+    liz_e.add_argument("--privat", help="privater Schlüssel (sonst LIZENZ_PRIVATER_SCHLUESSEL)")
+    liz_p = liz_u.add_parser("pruefen")
+    liz_p.add_argument("schluessel")
+    liz_p.add_argument("--mandant", default="*")
+    unter.add_parser("version")
     imp = unter.add_parser("import-kunden", help="Kunden aus CSV importieren (Spalten werden erkannt; Kennzeichen legt Fahrzeuge an)")
     imp.add_argument("datei", type=Path)
     imp.add_argument("--mandant", required=True)
@@ -122,6 +140,30 @@ def main() -> None:
             print(json.dumps({"mandant": m.id, "name": m.name, "branche": st["branche"], "mitarbeiter_angelegt": ergebnis["mitarbeiter_angelegt"],
                               "sachmittel_angelegt": ergebnis["sachmittel_angelegt"], "fortschritt": st["fortschritt"],
                               "naechste_schritte": [x["titel"] for x in st["naechste"]]}, ensure_ascii=False, indent=2), flush=True)
+    elif args.befehl == "version":
+        from core.produkt import __version__
+        print(__version__)
+    elif args.befehl == "lizenz":
+        from datetime import date
+
+        from core import produkt
+        if args.lizenz_befehl == "schluesselpaar":
+            paar = produkt.schluesselpaar()
+            print("# privater Schlüssel: nur beim Anbieter aufbewahren, nie in die Installation des Kunden")
+            print(f"LIZENZ_PRIVATER_SCHLUESSEL={paar['privat']}")
+            print("# öffentlicher Schlüssel: in die .env jeder Kundeninstallation")
+            print(f"LIZENZ_OEFFENTLICHER_SCHLUESSEL={paar['oeffentlich']}")
+        elif args.lizenz_befehl == "erzeugen":
+            privat = args.privat or os.environ.get("LIZENZ_PRIVATER_SCHLUESSEL")
+            if not privat:
+                raise SystemExit("Privater Schlüssel fehlt (--privat oder LIZENZ_PRIVATER_SCHLUESSEL)")
+            print(produkt.schluessel_erzeugen(privat, edition=args.edition, kunde=args.kunde, gueltig_bis=date.fromisoformat(args.gueltig_bis), mandant=args.mandant, sitze=args.sitze))
+        else:
+            try:
+                nutz = produkt.schluessel_pruefen(args.schluessel, produkt.oeffentlicher_schluessel(), args.mandant, date.today())
+            except produkt.Lizenzfehler as e:
+                raise SystemExit(f"Ungültig: {e}") from e
+            print(json.dumps(nutz, ensure_ascii=False, indent=2))
     elif args.befehl == "import-kunden":
         from core import einrichtung
         from core.modelle import Mandant

@@ -2,7 +2,7 @@
 
 Die Plattform soll ohne externe Quellen baubar, prüfbar und betreibbar sein. Dieses Verzeichnis führt deshalb alle
 Fremdartefakte mit, die dafür nötig sind, mit Lizenztext, Version, Herkunft und Prüfsumme. Es wird nichts in eigenen
-Code hineinkopiert: Bibliotheken bleiben Pakete, Server bleiben Images, Regelwerke bleiben Dateien. Eine Übersicht
+Code hineinkopiert: Bibliotheken bleiben Pakete oder unveränderte Dateien (Leaflet, uPlot unter `core/ui/lib/`), Server bleiben Images, Regelwerke bleiben Dateien. Eine Übersicht
 der eingesetzten Open-Source-Komponenten mit Bewertung steht in [`../KATALOG.md`](../KATALOG.md).
 
 | Bestandteil | Inhalt | Im Repository | Erzeugt durch |
@@ -49,6 +49,10 @@ bewusst nicht enthalten und werden auch nicht als Dienst betrieben; sie stehen i
 | icalendar | 7.3.0 | BSD-2-Clause | Python-Paket (Kalender-Abo) | `lizenzen/icalendar.txt` |
 | holidays | 0.107 | MIT | Python-Paket (Feiertage) | `lizenzen/holidays.txt` |
 | segno | 1.6.6 | BSD-3-Clause | Python-Paket (GiroCode) | `lizenzen/segno.txt` |
+| openpyxl | 3.1.5 | MIT | Python-Paket (Excel-Export) | `lizenzen/openpyxl.txt` |
+| Jinja2 | 3.1.6 | BSD-3-Clause | Python-Paket (Textvorlagen, Sandbox) | `lizenzen/jinja2.txt` |
+| Leaflet | 1.9.4 | BSD-2-Clause | im Repository mitgeführt: `core/ui/lib/leaflet.js`, `leaflet.css`, `images/` (unverändert aus dem Release-Archiv) | `lizenzen/leaflet.txt` |
+| uPlot | 1.6.31 | MIT | im Repository mitgeführt: `core/ui/lib/uplot.min.js`, `uplot.min.css` (unverändert) | `lizenzen/uplot.txt` |
 | schwifty (+ rstr) | 2026.10.0 | MIT | Python-Paket (IBAN/BIC) | `lizenzen/schwifty.txt`, `lizenzen/rstr.txt` |
 | pycountry | 26.2.16 | LGPL-2.1 (unverändert als Bibliothek genutzt, Abhängigkeit von schwifty) | Python-Paket | `lizenzen/pycountry.txt` |
 | phonenumbers | 9.0.41 | Apache-2.0 | Python-Paket (Rufnummern) | `lizenzen/phonenumbers.txt` |

@@ -16,7 +16,7 @@ RUN if [ "$OFFLINE" = "1" ]; then PIP="--no-index --find-links drittanbieter/whe
 COPY core core
 COPY voice voice
 COPY ontologie ontologie
-COPY alembic.ini ./
+COPY alembic.ini VERSION ./
 COPY migrations migrations
 RUN useradd --create-home app && mkdir -p /app/export /app/daten && chown app /app/export /app/daten
 VOLUME ["/app/daten"]

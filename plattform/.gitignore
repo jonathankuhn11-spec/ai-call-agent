@@ -2,3 +2,4 @@
 plattform-demo.db
 export/
 __pycache__/
+dist/

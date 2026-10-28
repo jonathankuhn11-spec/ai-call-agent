@@ -54,6 +54,7 @@ from core import (
     dubletten,
     einrichtung,
     einsatz,
+    export,
     feiertage,
     foerderung,
     forderungen,
@@ -69,7 +70,9 @@ from core import (
     metriken,
     optimierung,
     portal,
+    produkt,
     prognose,
+    registrierung,
     qualifikationen,
     risiko,
     routing,
@@ -80,6 +83,7 @@ from core import (
     twin,
     upsell,
     vertraege,
+    vorlagen,
     warteliste,
     website,
     zaehler,
@@ -167,6 +171,37 @@ class MandantNeu(_Schema):
 
 class MandantAus(MandantNeu):
     id: str
+
+
+class LizenzEingabe(_Schema):
+    schluessel: str = Field(min_length=20, max_length=2000)
+
+
+class VorlagenEingabe(_Schema):
+    vorlagen: dict[str, dict[str, str | None]]
+
+
+class VorlagenVorschau(_Schema):
+    schluessel: str
+    text: str | None = None
+    betreff: str | None = None
+
+
+class EditionZuweisung(_Schema):
+    edition: str | None = None       # None nimmt die Zuweisung zurück
+    gueltig_bis: date | None = None
+
+
+class TestphaseVerlaengerung(_Schema):
+    tage: int = Field(14, ge=1, le=365)
+
+
+class LizenzAusstellung(_Schema):
+    edition: str
+    kunde: str = Field(min_length=2, max_length=200)
+    gueltig_bis: date
+    mandant: str | None = None
+    sitze: int | None = Field(None, ge=1, le=1000)
 
 
 class KundeNeu(_Schema):
@@ -1071,7 +1106,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     if system_db is None:
         system_db = Datenbank(os.environ["SYSTEM_DATABASE_URL"]) if os.environ.get("SYSTEM_DATABASE_URL") else db
     auth = auth or Authentifizierung.aus_umgebung()
-    app = FastAPI(title="SHK-Backoffice Core-Service", version="0.2.0")
+    app = FastAPI(title=f"{produkt.produkt()['name']} Core-Service", version=produkt.__version__)
     app.state.db, app.state.system_db, app.state.uhr, app.state.auth = db, system_db, uhr, auth
     app.state.geocoder = None   # Tests und Betrieb ohne Netz setzen hier eine eigene Funktion (Adresse → (lat, lon))
     app.state.router = None     # routing.Router; Tests setzen Router(None) (Luftlinie)
@@ -1185,7 +1220,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
 
     @app.get("/health")
     def health() -> dict[str, str]:
-        return {"status": "ok"}
+        return {"status": "ok", "version": produkt.__version__}
 
     @app.get("/metrics", include_in_schema=False, dependencies=[Depends(recht("verwalten"))])
     def metrics() -> Response:
@@ -1227,6 +1262,165 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         s.commit()
         return m
 
+    # --- Produkt: Editionen, Lizenz, White-Label, Registrierung, Betreiberkonsole (Runde 10) ---------
+    def heute() -> date:
+        return app.state.uhr().date()
+
+    def feature(name: str):
+        """Abhängigkeit: Funktion muss in der wirksamen Edition des Mandanten enthalten sein, sonst 402."""
+        def pruefen(m: Mandant = Depends(mandant_kontext)) -> Mandant:
+            st = produkt.status(m, heute())
+            if name not in st["features"]:
+                raise HTTPException(402, f"„{produkt.FEATURES[name]}“ ist in der Edition {st['titel']} nicht enthalten; Lizenz unter Einstellungen → Edition und Lizenz")
+            return m
+        return pruefen
+
+    def limit(s: Session, m: Mandant, art: str) -> None:
+        try:
+            produkt.limit_pruefen(s, m, heute(), art)
+        except produkt.Lizenzfehler as e:
+            raise HTTPException(402, str(e)) from e
+
+    @app.get("/produkt")
+    def produkt_info() -> dict[str, Any]:
+        """Öffentlich: Produktname, Version, Branding, Editionen (für Oberfläche, Registrierung und Monitoring)."""
+        return produkt.produkt()
+
+    @app.get("/betrieb/lizenz")
+    def lizenz_lesen(m: Mandant = Depends(mandant_kontext)) -> dict[str, Any]:
+        st = produkt.status(m, heute())
+        st["oeffentlicher_schluessel_hinterlegt"] = bool(produkt.oeffentlicher_schluessel())
+        return st
+
+    @app.put("/betrieb/lizenz", dependencies=[Depends(recht("verwalten"))])
+    def lizenz_setzen(daten: LizenzEingabe, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        try:
+            st = produkt.lizenz_setzen(m, daten.schluessel, heute())
+        except produkt.Lizenzfehler as e:
+            raise HTTPException(422, str(e)) from e
+        domaene.protokollieren(s, m.id, "lizenz.eingetragen", "mandant", m.id, "mensch", {"edition": st["edition"], "gueltig_bis": st["gueltig_bis"]}, p.name)
+        s.commit()
+        return st
+
+    @app.get("/betrieb/vorlagen", dependencies=[Depends(recht("bearbeiten"))])
+    def vorlagen_lesen(m: Mandant = Depends(mandant_kontext)) -> dict[str, Any]:
+        return {"vorlagen": vorlagen.alle(m), "beispiel": vorlagen.BEISPIEL}
+
+    @app.put("/betrieb/vorlagen", dependencies=[Depends(recht("verwalten"))])
+    def vorlagen_setzen(daten: VorlagenEingabe, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        try:
+            neu = vorlagen.speichern(m, daten.vorlagen)
+        except vorlagen.Vorlagenfehler as e:
+            raise HTTPException(422, str(e)) from e
+        domaene.protokollieren(s, m.id, "vorlagen.geaendert", "mandant", m.id, "mensch", {"angepasst": sorted(neu)}, p.name)
+        s.commit()
+        return {"vorlagen": vorlagen.alle(m)}
+
+    @app.post("/betrieb/vorlagen/vorschau", dependencies=[Depends(recht("bearbeiten"))])
+    def vorlagen_vorschau(daten: VorlagenVorschau, m: Mandant = Depends(mandant_kontext)) -> dict[str, str]:
+        try:
+            return vorlagen.vorschau(m, daten.schluessel, daten.text, daten.betreff)
+        except (vorlagen.Vorlagenfehler, KeyError) as e:
+            raise HTTPException(422, str(e)) from e
+
+    def xlsx(inhalt: bytes, art: str) -> Response:
+        return Response(inhalt, media_type=export.MIME, headers={"Content-Disposition": f'attachment; filename="{export.dateiname(art, heute())}"'})
+
+    @app.get("/auswertungen/export.xlsx", dependencies=[Depends(recht("finanzen")), Depends(feature("auswertungen"))])
+    def auswertungen_xlsx(monate: int = Query(12, ge=1, le=36), m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> Response:
+        return xlsx(export.auswertungen_xlsx(management.auswertungen(s, m, app.state.uhr(), monate), m.name), "auswertungen")
+
+    @app.get("/kunden/export.xlsx", dependencies=[Depends(recht("bearbeiten"))])
+    def kunden_xlsx(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> Response:
+        return xlsx(export.kunden_xlsx(s, m), "kunden")
+
+    @app.get("/offene-posten/export.xlsx", dependencies=[Depends(recht("finanzen"))])
+    def offene_posten_xlsx(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> Response:
+        return xlsx(export.offene_posten_xlsx(forderungen.offene_posten(s, m, heute()), m.name), "offene-posten")
+
+    @app.get("/termine/export.xlsx", dependencies=[Depends(recht("einsatz"))])
+    def termine_xlsx(von: date | None = None, bis: date | None = None, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> Response:
+        von_ = datetime.combine(von or heute(), datetime.min.time(), ZEITZONE)
+        bis_ = datetime.combine(bis or (heute() + timedelta(days=30)), datetime.max.time(), ZEITZONE)
+        return xlsx(export.termine_xlsx(s, m, als_utc(von_), als_utc(bis_)), "termine")
+
+    registrierung_zaehler: dict[str, list[float]] = {}
+
+    @app.get("/registrieren", include_in_schema=False, response_class=HTMLResponse)
+    def registrieren_seite() -> HTMLResponse:
+        if not produkt.registrierung_offen():
+            raise HTTPException(404, "Selbstregistrierung ist nicht freigeschaltet (REGISTRIERUNG_OFFEN)")
+        return HTMLResponse(registrierung.seite(produkt.produkt(), auth.oidc is not None), headers={"Cache-Control": "public, max-age=300"})
+
+    @app.post("/registrierung", status_code=201)
+    async def registrierung_anlegen(request: Request, s: Session = Depends(system_sitzung)) -> dict[str, Any]:
+        """Öffentlich (kein Login): legt Mandant mit Testphase an. Honeypot `website`, 5 Registrierungen je Adresse und Stunde."""
+        if not produkt.registrierung_offen():
+            raise HTTPException(404, "Selbstregistrierung ist nicht freigeschaltet (REGISTRIERUNG_OFFEN)")
+        try:
+            daten = await request.json()
+        except ValueError:
+            raise HTTPException(400, "JSON erwartet") from None
+        if not isinstance(daten, dict):
+            raise HTTPException(400, "JSON-Objekt erwartet")
+        if daten.get("website"):
+            return {"mandant_id": None, "name": daten.get("name"), "testphase_bis": None, "hinweis": "Danke"}  # Bot: still ignorieren
+        adresse = request.headers.get("x-forwarded-for", request.client.host if request.client else "?").split(",")[0].strip()
+        jetzt = time.monotonic()
+        fenster = [x for x in registrierung_zaehler.get(adresse, []) if jetzt - x < 3600]
+        if len(fenster) >= 5:
+            raise HTTPException(429, "Zu viele Registrierungen von dieser Adresse; bitte später erneut versuchen")
+        basis = os.environ.get("BASIS_URL") or f"{request.url.scheme}://{request.headers.get('host', request.url.netloc)}"
+        try:
+            ergebnis = registrierung.anlegen(s, daten, heute(), basis)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        s.commit()
+        registrierung_zaehler[adresse] = fenster + [jetzt]  # nur erfolgreiche Registrierungen zählen
+        return ergebnis
+
+    @app.get("/betreiber/mandanten", dependencies=[Depends(recht("plattform"))])
+    def betreiber_mandanten(s: Session = Depends(system_sitzung)) -> dict[str, Any]:
+        """Betreiberkonsole (nur Maschinenschlüssel): alle Mandanten mit Edition, Testphase, Nutzung."""
+        liste = produkt.mandanten_uebersicht(s, heute())
+        return {"mandanten": liste, "summen": produkt.summen(liste), "editionen": {k: v["titel"] for k, v in produkt.EDITIONEN.items()},
+                "privater_schluessel_hinterlegt": bool(os.environ.get("LIZENZ_PRIVATER_SCHLUESSEL")), "oeffentlicher_schluessel_hinterlegt": bool(produkt.oeffentlicher_schluessel())}
+
+    @app.put("/betreiber/mandanten/{mandant_id}/edition", dependencies=[Depends(recht("plattform"))])
+    def betreiber_edition(mandant_id: str, daten: EditionZuweisung, s: Session = Depends(system_sitzung)) -> dict[str, Any]:
+        m = s.get(Mandant, mandant_id)
+        if m is None:
+            raise HTTPException(404, "Mandant unbekannt")
+        try:
+            st = produkt.edition_zuweisen(m, daten.edition, daten.gueltig_bis, heute())
+        except produkt.Lizenzfehler as e:
+            raise HTTPException(422, str(e)) from e
+        domaene.protokollieren(s, m.id, "lizenz.zugewiesen", "mandant", m.id, "system", {"edition": daten.edition, "gueltig_bis": st["gueltig_bis"]}, "betreiber")
+        s.commit()
+        return st
+
+    @app.post("/betreiber/mandanten/{mandant_id}/testphase", dependencies=[Depends(recht("plattform"))])
+    def betreiber_testphase(mandant_id: str, daten: TestphaseVerlaengerung, s: Session = Depends(system_sitzung)) -> dict[str, Any]:
+        m = s.get(Mandant, mandant_id)
+        if m is None:
+            raise HTTPException(404, "Mandant unbekannt")
+        neu = produkt.testphase_verlaengern(m, daten.tage, heute())
+        domaene.protokollieren(s, m.id, "testphase.verlaengert", "mandant", m.id, "system", {"bis": neu.isoformat(), "tage": daten.tage}, "betreiber")
+        s.commit()
+        return produkt.status(m, heute())
+
+    @app.post("/betreiber/lizenzschluessel", dependencies=[Depends(recht("plattform"))])
+    def betreiber_lizenzschluessel(daten: LizenzAusstellung) -> dict[str, Any]:
+        """Signierten Lizenzschlüssel ausstellen (privater Schlüssel aus LIZENZ_PRIVATER_SCHLUESSEL, nur auf der Anbieterinstallation)."""
+        privat = os.environ.get("LIZENZ_PRIVATER_SCHLUESSEL")
+        if not privat:
+            raise HTTPException(409, "Kein privater Lizenzschlüssel hinterlegt (LIZENZ_PRIVATER_SCHLUESSEL); Schlüsselpaar mit `python -m core lizenz schluesselpaar`")
+        try:
+            schl = produkt.schluessel_erzeugen(privat, edition=daten.edition, kunde=daten.kunde, gueltig_bis=daten.gueltig_bis, mandant=daten.mandant, sitze=daten.sitze)
+        except (produkt.Lizenzfehler, ValueError) as e:
+            raise HTTPException(422, str(e)) from e
+        return {"schluessel": schl, "edition": daten.edition, "gueltig_bis": daten.gueltig_bis.isoformat(), "mandant": daten.mandant or "*"}
+
     # --- CRM ---------------------------------------------------------------------------------
     @app.post("/kunden", response_model=KundeAus, status_code=201, dependencies=[Depends(recht("bearbeiten"))])
     def kunde_anlegen(daten: KundeNeu, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)):
@@ -1236,6 +1430,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
             raise HTTPException(409, "Kunde mit dieser Rufnummer existiert bereits (Dublette)")
         if werte.get("lat") is not None and werte.get("lon") is not None:
             werte["geo_quelle"], werte["geo_stand"] = "manuell", app.state.uhr()
+        limit(s, m, "kunden")
         k = Kunde(mandant_id=m.id, **werte)
         s.add(k)
         s.flush()
@@ -1402,6 +1597,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
             werte["arbeitstage"] = [0, 1, 2, 3, 4, 5, 6]
         else:
             werte["sachmittel_typ"] = None
+            limit(s, m, "mitarbeiter")
         r = Ressource(mandant_id=m.id, **werte)
         s.add(r)
         s.commit()
@@ -1734,6 +1930,9 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
                            s: Session = Depends(sitzung)) -> dict[str, Any]:
         if ziel not in ZIELE:
             raise HTTPException(404, "Unbekanntes Ziel")
+        for typ, f in (("whatsapp", "whatsapp"), ("stripe", "online_zahlung"), ("lexware", "finanzanbindung"), ("sevdesk", "finanzanbindung"), ("datev", "finanzanbindung")):
+            if typ in daten.kanaele and not produkt.hat_feature(m, heute(), f):
+                raise HTTPException(402, f"„{produkt.FEATURES[f]}“ ist in der Edition {produkt.status(m, heute())['titel']} nicht enthalten")
         bisher = m.integrationen.get(ziel) or {}
         neu: dict[str, Any] = {"kanaele": daten.kanaele}
         for typ in ("email", "sms", "webhook", "lexware", "sevdesk", "belegpaket", "belegtransfer", "ntfy", "datev", "whatsapp", "stripe"):
@@ -2969,7 +3168,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     def website_status(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
         return website.status(s, m)
 
-    @app.put("/betrieb/website", dependencies=[Depends(recht("verwalten"))])
+    @app.put("/betrieb/website", dependencies=[Depends(recht("verwalten")), Depends(feature("website"))])
     def website_einstellen(daten: WebsiteEinstellungen, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
         werte = daten.model_dump(exclude_unset=True)
         k = fachlich(lambda: website.speichern(s, m, werte))
@@ -3085,7 +3284,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         s.commit()
         return {"schluessel": schluessel, "unterdrueckt_tage": upsell.UNTERDRUECKUNG_TAGE}
 
-    @app.get("/upsell/uebersicht", dependencies=[Depends(recht("bearbeiten"))])
+    @app.get("/upsell/uebersicht", dependencies=[Depends(recht("bearbeiten")), Depends(feature("upsell"))])
     def upsell_uebersicht(limit: int = Query(30, le=200), m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
         return upsell.uebersicht(s, m, app.state.uhr().date(), limit)
 
@@ -3534,7 +3733,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         typen = [anlagentyp] if anlagentyp else list(lebenszyklus.KATALOG)
         return {t: [vars(e) for e in lebenszyklus.katalog(t)] for t in typen}
 
-    @app.get("/dienstplan", dependencies=[Depends(recht("bearbeiten"))])
+    @app.get("/dienstplan", dependencies=[Depends(recht("bearbeiten")), Depends(feature("dienstplan"))])
     def dienstplan_woche(von: date | None = None, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
         return dienstplan.woche(s, m, von or app.state.uhr().date())
 

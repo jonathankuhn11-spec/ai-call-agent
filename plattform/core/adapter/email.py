@@ -14,9 +14,18 @@ from typing import Any, Callable
 
 from sqlalchemy.orm import Session
 
-from core.adapter.basis import (AdapterFehler, Konfigurationsfehler, beleg_dateiname, beleg_laden, beleg_referenz, beleg_uebergeben,
-                                kunde_laden, rechnung_laden, termin_laden)
-from core import branchen, portal
+from core import vorlagen
+from core.adapter.basis import (
+    AdapterFehler,
+    Konfigurationsfehler,
+    beleg_dateiname,
+    beleg_laden,
+    beleg_referenz,
+    beleg_uebergeben,
+    kunde_laden,
+    rechnung_laden,
+    termin_laden,
+)
 from core.disposition import ZEITZONE
 from core.domaene import als_utc
 from core.modelle import Mandant, OutboxEintrag
@@ -77,27 +86,23 @@ class EmailAdapter:
             if not kunde.email:
                 return None  # kein Kanal: SMS-Adapter oder Büro-Aufgabe greift (Degradierung, kein Fehler)
             beginn = als_utc(t.beginn).astimezone(ZEITZONE)
-            text = (f"Guten Tag {kunde.name},\n\nwir bestätigen Ihren Termin am {beginn.strftime('%A, %d.%m.%Y')} "
-                    f"um {beginn.strftime('%H:%M')} Uhr.\nAnliegen: {fall.anliegen}\nMonteur: {t.ressource.name}\n\n"
-                    + (f"Termin online bestätigen oder absagen: {portal_link}\n" if (portal_link := portal.link(m, fall.id)) else "")
-                    + "".join(f"Hinweis: {h}\n" for h in branchen.branche(m).hinweise_kunde)
-                    + (f"{m.stammdaten['no_show_hinweis']}\n" if m.stammdaten.get("no_show_hinweis") else "")
-                    + f"Sollte der Termin nicht passen, rufen Sie uns bitte an.{gruss}")
-            return self._senden(self._nachricht(kunde.email, f"Terminbestätigung {beginn.strftime('%d.%m.%Y %H:%M')}", text))
+            v = vorlagen.rendern(m, "terminbestaetigung_email", vorlagen.termin_kontext(t, fall, kunde, m, beginn))
+            return self._senden(self._nachricht(kunde.email, v["betreff"], v["text"]))
         if e.aktion == "nachricht":
             kunde = kunde_laden(s, e)
             an = e.payload.get("email") or (kunde.email if kunde else None)
             if not an:
                 return None
-            return self._senden(self._nachricht(an, e.payload.get("betreff", f"Nachricht von {m.name}"), e.payload.get("text", "") + gruss))
+            v = vorlagen.rendern(m, "nachricht_email", {"kunde": {"name": kunde.name if kunde else ""}, "text": e.payload.get("text", "")})
+            return self._senden(self._nachricht(an, e.payload.get("betreff", f"Nachricht von {m.name}"), v["text"]))
         if e.aktion == "rechnung_zustellen":
             r, m = rechnung_laden(s, e)
             an = r.empfaenger.get("email")
             if not an:
                 return None  # Rechnung geht per Post; Büro sieht das in der Outbox-Übersicht
             art = "Stornorechnung" if r.art == "storno" else "Rechnung"
-            n = self._nachricht(an, f"{art} {r.nummer}", f"Guten Tag {r.empfaenger.get('name', '')},\n\nanbei erhalten Sie "
-                                f"die {art} {r.nummer} über {r.brutto.replace('.', ',')} €.{gruss}")
+            v = vorlagen.rendern(m, "rechnung_email", {"kunde": {"name": r.empfaenger.get("name", "")}, "art": art, "nummer": r.nummer, "brutto": r.brutto.replace(".", ",")})
+            n = self._nachricht(an, v["betreff"], v["text"])
             n.add_attachment(pdf(r, m), maintype="application", subtype="pdf", filename=f"{r.nummer}.pdf")
             if e.payload.get("xrechnung") or r.leitweg_id:
                 n.add_attachment(xrechnung(r, m), maintype="application", subtype="xml", filename=f"{r.nummer}.xml")
@@ -111,9 +116,9 @@ class EmailAdapter:
             an = a.empfaenger.get("email")
             if not an:
                 return None  # Angebot geht per Post oder wird im Büro gedruckt
-            n = self._nachricht(an, f"Angebot {a.nummer}: {a.titel}", f"Guten Tag {a.empfaenger.get('name', '')},\n\nanbei erhalten Sie unser "
-                                f"Angebot {a.nummer} über {a.brutto.replace('.', ',')} € (gültig bis {a.gueltig_bis.strftime('%d.%m.%Y')}). "
-                                f"Für Rückfragen stehen wir gern zur Verfügung.{gruss}")
+            v = vorlagen.rendern(m, "angebot_email", {"kunde": {"name": a.empfaenger.get("name", "")}, "nummer": a.nummer, "titel": a.titel,
+                                                      "brutto": a.brutto.replace(".", ","), "gueltig_bis": a.gueltig_bis.strftime("%d.%m.%Y")})
+            n = self._nachricht(an, v["betreff"], v["text"])
             n.add_attachment(angebote.pdf(a, m), maintype="application", subtype="pdf", filename=f"{a.nummer}.pdf")
             return self._senden(n)
         if e.aktion == "mahnung_zustellen":

@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SHK-Backoffice</title>
   <link rel="icon" href="data:,">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0b5cad">
+  <link rel="stylesheet" href="lib/leaflet.css">
+  <link rel="stylesheet" href="lib/uplot.min.css">
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -40,7 +44,9 @@
     <a href="#protokoll" data-ansicht="protokoll">Ereignisprotokoll</a>
     <a href="#integrationen" data-ansicht="integrationen" data-recht="verwalten">Integrationen</a>
     <a href="#einstellungen" data-ansicht="einstellungen" id="nav-einstellungen" hidden>Einstellungen</a>
+    <a href="#betreiber" data-ansicht="betreiber" data-recht="plattform">Betreiberkonsole</a>
     <button id="abmelden" class="leise">Abmelden / wechseln</button>
+    <small id="version" class="version"></small>
   </nav>
   <main id="inhalt" tabindex="-1"></main>
 </div>
@@ -60,6 +66,8 @@
 </dialog>
 
 <dialog id="detail"><div id="detail-inhalt"></div><form method="dialog"><button class="leise">Schließen</button></form></dialog>
+<script src="lib/leaflet.js"></script>
+<script src="lib/uplot.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

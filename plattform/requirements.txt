@@ -27,3 +27,6 @@ schwifty==2026.10.0
 phonenumbers==9.0.41
 prometheus-client==0.26.0
 owlrl==7.6.2
+# Runde 10: Excel-Exporte (core/export.py) und Textvorlagen in der Sandbox (core/vorlagen.py); beide permissiv lizenziert (MIT/BSD)
+openpyxl==3.1.5
+Jinja2==3.1.6

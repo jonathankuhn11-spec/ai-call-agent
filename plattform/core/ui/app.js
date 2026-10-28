@@ -142,7 +142,7 @@ $("#abmelden").addEventListener("click", () => abmelden());
 const ANSICHTEN = { einrichtung: einrichtungAnsicht, cockpit, anruf, freigaben, vorgaenge, plantafel, kunden, wartung, ontologie, rechnungen, protokoll, einstellungen,
   einsatz: einsatzAnsicht, belege: belegeAnsicht, zeiten: zeitenAnsicht, betrieb: betriebAnsicht, angebote: angeboteAnsicht,
   forderungen: forderungenAnsicht, vertraege: vertraegeAnsicht, anfragen: anfragenAnsicht, auswertungen: auswertungenAnsicht, lager: lagerAnsicht, gutscheine: gutscheineAnsicht,
-  warteliste: wartelisteAnsicht, dienstplan: dienstplanAnsicht, website: websiteAnsicht, upsell: upsellAnsicht, integrationen: integrationenAnsicht };
+  warteliste: wartelisteAnsicht, dienstplan: dienstplanAnsicht, website: websiteAnsicht, upsell: upsellAnsicht, integrationen: integrationenAnsicht, betreiber: betreiberAnsicht };
 async function zeigen() {
   if (!speicher("mandant")) return anmelden();
   $("#mandant-name").textContent = speicher("mandantName") || "";
@@ -273,73 +273,65 @@ async function cockpit(ziel) {
       <div class="karte"><h2>Letzte Ereignisse</h2><ul class="verlauf">${z.letzte_ereignisse.slice(0, 8).map((e) => `<li>${tag(e.akteur, "neutral")} <code>${esc(e.typ)}</code> · ${zeit(e.zeit)}</li>`).join("")}</ul></div>
     </div>`;
   karteZeichnen($("#c-karte"), karte, { beimKlick: kundeDetail, linien });
+  lizenzBanner(ziel);
   ziel.querySelectorAll("[data-fall]").forEach((z) => z.addEventListener("click", () => fallDetail(z.dataset.fall)));
   ziel.querySelectorAll("table [data-kunde]").forEach((z) => z.addEventListener("click", () => kundeDetail(z.dataset.kunde)));
 }
 
-// --- Kundenkarte (eigene Zeichnung, Web-Mercator; Hintergrundkacheln vom konfigurierten Kachelserver) ----
-const KACHEL = 256;
+// --- Kundenkarte (Leaflet 1.9.4, BSD-2-Clause, mitgeführt unter lib/; Kacheln vom konfigurierten Kachelserver) ----
 const WARTUNG_TEXT = { ueberfaellig: "Wartung überfällig", bald_faellig: "Wartung bald fällig", aktuell: "Wartung aktuell" };
-function mercator(lat, lon, z) {
-  const n = 2 ** z * KACHEL, phi = (lat * Math.PI) / 180;
-  return { x: ((lon + 180) / 360) * n, y: ((1 - Math.log(Math.tan(phi) + 1 / Math.cos(phi)) / Math.PI) / 2) * n };
-}
 const TOURFARBEN = ["#0b5cad", "#1d7a46", "#a86400", "#7c3aed", "#b42318", "#0e7490"];
+const MARKERFARBE = { betrieb: "#18212b", notdienst: "#b42318", hoch: "#a86400", ueberfaellig: "#7c3aed", vertrag: "#1d7a46", kunde: "#0b5cad" };
 function karteZeichnen(wurzel, daten, { hoehe = 420, beimKlick, linien = [] } = {}) {
   const punkte = [...daten.kunden.filter((p) => p.lat != null), ...(daten.betrieb.lat != null ? [{ ...daten.betrieb, betrieb: true }] : [])];
   const heute = new Set(daten.einsaetze_heute.map((e) => e.kunde_id));
-  wurzel.innerHTML = `<div class="geo" style="height:${hoehe}px" tabindex="0" aria-label="Kundenkarte"><div class="geo-kacheln"></div><svg class="geo-linien" aria-hidden="true"></svg><div class="geo-marker"></div>
-    <div class="geo-steuer"><button type="button" class="leise" data-zoom="1" aria-label="Vergrößern">+</button><button type="button" class="leise" data-zoom="-1" aria-label="Verkleinern">−</button></div>
-    <div class="geo-hinweis">${esc(daten.kacheln.hinweis || "")}</div></div>
+  wurzel.innerHTML = `<div class="geo" style="height:${hoehe}px" aria-label="Kundenkarte"></div>
     <div class="geo-legende"><span><i class="m-betrieb"></i>Betrieb</span><span><i class="m-notdienst"></i>Notdienst offen</span><span><i class="m-hoch"></i>dringend</span><span><i class="m-ueberfaellig"></i>Wartung überfällig</span><span><i class="m-vertrag"></i>Wartungsvertrag</span><span><i class="m-kunde"></i>Kunde</span><span><i class="m-heute"></i>heute Einsatz</span>${linien.map((l, i) => `<span><i style="background:${TOURFARBEN[i % TOURFARBEN.length]};border-radius:0;height:3px;width:14px"></i>Tour ${esc(l.name)}${l.minuten != null ? ` (${l.minuten} min, ${l.km} km)` : ""}</span>`).join("")}</div>`;
-  const geo = $(".geo", wurzel), kacheln = $(".geo-kacheln", wurzel), marker = $(".geo-marker", wurzel), svg = $(".geo-linien", wurzel);
-  if (!punkte.length) { marker.innerHTML = `<p class="geo-leer">Noch keine Koordinaten. Adressen unter „Kunden &amp; Anlagen“ geokodieren.</p>`; return; }
-  const B = geo.clientWidth || 800, H = hoehe;
-  const lats = [...punkte.map((p) => p.lat), ...linien.flatMap((l) => l.punkte.map((q) => q[0]))], lons = [...punkte.map((p) => p.lon), ...linien.flatMap((l) => l.punkte.map((q) => q[1]))];
-  const mitte = { lat: (Math.min(...lats) + Math.max(...lats)) / 2, lon: (Math.min(...lons) + Math.max(...lons)) / 2 };
-  let z = 16;
-  for (; z > 3; z--) { const a = mercator(Math.max(...lats), Math.min(...lons), z), b = mercator(Math.min(...lats), Math.max(...lons), z); if (b.x - a.x < B - 80 && b.y - a.y < H - 80) break; }
-  const lage = { z, ...mercator(mitte.lat, mitte.lon, z) };  // Mittelpunkt in Pixeln der aktuellen Zoomstufe
-  const zeichnen = () => {
-    const links = lage.x - B / 2, oben = lage.y - H / 2, n = 2 ** lage.z;
-    kacheln.innerHTML = "";
-    if (daten.kacheln.url) {
-      for (let tx = Math.floor(links / KACHEL); tx <= Math.floor((links + B) / KACHEL); tx++) {
-        for (let ty = Math.max(0, Math.floor(oben / KACHEL)); ty <= Math.min(n - 1, Math.floor((oben + H) / KACHEL)); ty++) {
-          const img = document.createElement("img");
-          img.src = daten.kacheln.url.replace("{z}", lage.z).replace("{x}", ((tx % n) + n) % n).replace("{y}", ty);
-          img.alt = ""; img.loading = "lazy"; img.draggable = false; img.width = img.height = KACHEL;
-          img.addEventListener("error", () => { img.remove(); $(".geo-hinweis", wurzel).textContent = "Kartenhintergrund nicht erreichbar (Kachelserver, CSP oder Netz); Punkte sind lagerichtig zueinander."; });
-          img.style.left = `${tx * KACHEL - links}px`; img.style.top = `${ty * KACHEL - oben}px`;
-          kacheln.append(img);
-        }
-      }
-    }
-    svg.setAttribute("viewBox", `0 0 ${B} ${H}`); svg.setAttribute("width", B); svg.setAttribute("height", H);
-    svg.innerHTML = linien.map((l, i) => { const d = l.punkte.map((q, k) => { const m = mercator(q[0], q[1], lage.z); return `${k ? "L" : "M"}${(m.x - links).toFixed(1)} ${(m.y - oben).toFixed(1)}`; }).join(" ");
-      return `<path d="${d}" fill="none" stroke="${TOURFARBEN[i % TOURFARBEN.length]}" stroke-width="3" stroke-linejoin="round" stroke-opacity=".85"><title>Tour ${esc(l.name)}</title></path>`; }).join("");
-    marker.innerHTML = punkte.map((p) => {
-      const pos = mercator(p.lat, p.lon, lage.z);
-      const art = p.betrieb ? "betrieb" : p.dringlichkeit === "notdienst" ? "notdienst" : p.dringlichkeit === "hoch" ? "hoch" : p.wartung === "ueberfaellig" ? "ueberfaellig" : p.vertragsstatus === "wartungsvertrag" ? "vertrag" : "kunde";
-      const titel = p.betrieb ? `${p.name} (Betrieb)` : `${p.name} · ${p.strasse || ""}, ${p.plz || ""} ${p.ort || ""} · ${p.offene_vorgaenge} offene Vorgänge · ${WARTUNG_TEXT[p.wartung] || ""}`;
-      const l = pos.x - links, o = pos.y - oben;
-      return `<button type="button" class="m m-${art}${heute.has(p.id) ? " m-heute" : ""}" style="left:${l}px;top:${o}px" title="${esc(titel)}" ${p.betrieb ? "" : `data-kunde="${esc(p.id)}"`} aria-label="${esc(titel)}"></button>${lage.z >= 11 || p.betrieb ? `<span class="m-text" style="left:${l + 11}px;top:${o}px">${esc(p.name)}</span>` : ""}`;
-    }).join("");
-    marker.querySelectorAll("[data-kunde]").forEach((b) => b.addEventListener("click", () => beimKlick?.(b.dataset.kunde)));
+  const geo = $(".geo", wurzel);
+  if (wurzel._karte) { try { wurzel._karte.remove(); } catch { /* bereits entfernt */ } wurzel._karte = null; }
+  if (!punkte.length) { geo.innerHTML = `<p class="geo-leer">Noch keine Koordinaten. Adressen unter „Kunden &amp; Anlagen“ geokodieren.</p>`; return; }
+  if (typeof L === "undefined") { geo.innerHTML = `<p class="geo-leer">Kartenbibliothek (lib/leaflet.js) nicht geladen.</p>`; return; }
+  const karte = L.map(geo, { zoomControl: true, keyboard: true, scrollWheelZoom: true, attributionControl: true });
+  karte.attributionControl.setPrefix("");
+  if (daten.kacheln.url) {
+    let gemeldet = false;
+    L.tileLayer(daten.kacheln.url, { maxZoom: 19, attribution: esc(daten.kacheln.hinweis || "") })
+      .on("tileerror", () => { if (!gemeldet) { gemeldet = true; karte.attributionControl.addAttribution("Kartenhintergrund nicht erreichbar (Kachelserver, CSP oder Netz); Punkte sind lagerichtig zueinander."); } })
+      .addTo(karte);
+  }
+  const gruppe = L.featureGroup().addTo(karte);
+  linien.forEach((l, i) => L.polyline(l.punkte, { color: TOURFARBEN[i % TOURFARBEN.length], weight: 3, opacity: 0.85 }).bindTooltip(`Tour ${esc(l.name)}`, { sticky: true }).addTo(gruppe));
+  punkte.forEach((p) => {
+    const art = p.betrieb ? "betrieb" : p.dringlichkeit === "notdienst" ? "notdienst" : p.dringlichkeit === "hoch" ? "hoch" : p.wartung === "ueberfaellig" ? "ueberfaellig" : p.vertragsstatus === "wartungsvertrag" ? "vertrag" : "kunde";
+    const titel = p.betrieb ? `${p.name} (Betrieb)` : `${p.name} · ${p.strasse || ""}, ${p.plz || ""} ${p.ort || ""} · ${p.offene_vorgaenge} offene Vorgänge · ${WARTUNG_TEXT[p.wartung] || ""}`;
+    const m = L.circleMarker([p.lat, p.lon], { radius: p.betrieb ? 9 : 7, color: heute.has(p.id) ? "#0b5cad" : "#ffffff", weight: heute.has(p.id) ? 3 : 2, fillColor: MARKERFARBE[art], fillOpacity: 0.95, keyboard: true });
+    m.bindTooltip(esc(titel), { direction: "top", offset: [0, -6] });
+    if (!p.betrieb) m.on("click", () => beimKlick?.(p.id));
+    m.addTo(gruppe);
+  });
+  karte.fitBounds(gruppe.getBounds().pad(0.15), { maxZoom: 15 });
+  wurzel._karte = karte;
+}
+
+// --- Diagramme (uPlot 1.6.31, MIT, mitgeführt unter lib/) ------------------------------------------------
+function saeulenDiagramm(wurzel, { labels, serien, hoehe = 240 }) {
+  if (typeof uPlot === "undefined") { wurzel.innerHTML = `<p class="unterzeile">Diagrammbibliothek (lib/uplot.min.js) nicht geladen.</p>`; return null; }
+  const dunkel = matchMedia("(prefers-color-scheme: dark)").matches && document.documentElement.dataset.theme !== "light";
+  const achse = { stroke: dunkel ? "#aab4c0" : "#4a5563", grid: { stroke: dunkel ? "#2b3540" : "#e3e8ee", width: 1 }, ticks: { stroke: dunkel ? "#2b3540" : "#e3e8ee", width: 1 }, font: "12px system-ui, sans-serif" };
+  const x = labels.map((_, i) => i);
+  const kurz = (n) => n >= 1000 ? `${Math.round(n / 1000)} T€` : `${Math.round(n)} €`;
+  const opts = {
+    width: wurzel.clientWidth || 700, height: hoehe, scales: { x: { time: false, range: [-0.6, labels.length - 0.4] }, y: { range: (u, min, max) => [0, Math.max(1, max * 1.1)] } },
+    legend: { show: true, live: true }, cursor: { points: { show: false } },
+    axes: [{ ...achse, splits: () => x, values: () => labels, gap: 6 }, { ...achse, size: 64, values: (u, v) => v.map(kurz) }],
+    series: [{ label: "Monat", value: (u, v) => labels[v] ?? "" },
+      ...serien.map((s, i) => ({ label: s.label, stroke: s.farbe, fill: s.farbe, width: 1, points: { show: false },
+        paths: uPlot.paths.bars({ size: [0.36, 48], align: i === 0 ? 1 : -1, gap: 2 }), value: (u, v) => v == null ? "–" : EURO.format(v) }))],
   };
-  const zoomen = (delta, px = B / 2, py = H / 2) => {
-    const neu = Math.max(3, Math.min(18, lage.z + delta)); if (neu === lage.z) return;
-    const f = 2 ** (neu - lage.z);  // Punkt unter dem Zeiger bleibt stehen
-    lage.x = (lage.x - B / 2 + px) * f - px + B / 2; lage.y = (lage.y - H / 2 + py) * f - py + H / 2; lage.z = neu; zeichnen();
-  };
-  wurzel.querySelectorAll("[data-zoom]").forEach((b) => b.addEventListener("click", () => zoomen(Number(b.dataset.zoom))));
-  geo.addEventListener("wheel", (ev) => { ev.preventDefault(); const r = geo.getBoundingClientRect(); zoomen(ev.deltaY < 0 ? 1 : -1, ev.clientX - r.left, ev.clientY - r.top); }, { passive: false });
-  let zug = null;
-  geo.addEventListener("pointerdown", (ev) => { if (ev.target.closest("button")) return; zug = { x: ev.clientX, y: ev.clientY }; geo.setPointerCapture(ev.pointerId); });
-  geo.addEventListener("pointermove", (ev) => { if (!zug) return; lage.x -= ev.clientX - zug.x; lage.y -= ev.clientY - zug.y; zug = { x: ev.clientX, y: ev.clientY }; zeichnen(); });
-  geo.addEventListener("pointerup", () => { zug = null; });
-  geo.addEventListener("keydown", (ev) => { const s = 60; if (ev.key === "+") zoomen(1); else if (ev.key === "-") zoomen(-1); else if (ev.key === "ArrowLeft") { lage.x -= s; zeichnen(); } else if (ev.key === "ArrowRight") { lage.x += s; zeichnen(); } else if (ev.key === "ArrowUp") { lage.y -= s; zeichnen(); } else if (ev.key === "ArrowDown") { lage.y += s; zeichnen(); } else return; ev.preventDefault(); });
-  zeichnen();
+  wurzel.innerHTML = "";
+  const u = new uPlot(opts, [x, ...serien.map((s) => s.werte)], wurzel);
+  if (window.ResizeObserver) new ResizeObserver(() => { if (wurzel.clientWidth) u.setSize({ width: wurzel.clientWidth, height: hoehe }); }).observe(wurzel);
+  return u;
 }
 
 // --- Anrufsimulator --------------------------------------------------------------------------
@@ -633,8 +625,9 @@ async function kunden(ziel) {
       <label><span><input type="checkbox" id="k-offen" ${nurOffen ? "checked" : ""}> nur unvollständige</span></label>
       ${wir.rechte.includes("bearbeiten") ? `<button class="leise" id="k-geo" title="Adressen ohne Koordinaten über den Geokodierungsdienst auflösen">Adressen geokodieren</button>` : ""}
       ${wir.rechte.includes("verwalten") ? `<button class="leise" id="k-dubletten" title="Phonetischer und adressbasierter Dublettenabgleich">Dubletten prüfen</button>` : ""}
-      ${wir.rechte.includes("bearbeiten") ? `<button id="k-neu">Kunde anlegen</button>` : ""}</div><p id="k-status"></p></div>
+      ${wir.rechte.includes("bearbeiten") ? `<button class="leise" id="k-export" title="Kundenliste als Excel-Arbeitsmappe">Excel-Export</button><button id="k-neu">Kunde anlegen</button>` : ""}</div><p id="k-status"></p></div>
     <div class="karte"><div class="tabelle-rahmen"><table><thead><tr><th>Name</th><th>Ort</th><th>Telefon</th><th>Vertrag</th><th>Vollständig</th></tr></thead><tbody id="k-liste"></tbody></table></div></div>`;
+  $("#k-export")?.addEventListener("click", () => dateiLaden("/kunden/export.xlsx", "kunden.xlsx"));
   const laden = async () => {
     const q = $("#k-suche").value.trim();
     const [liste, voll] = await Promise.all([api(`/kunden?limit=200${q ? `&q=${encodeURIComponent(q)}` : ""}`), api("/kunden/vollstaendigkeit")]);
@@ -912,6 +905,7 @@ async function einstellungen(ziel) {
   }));
   await monteureVerwalten(ziel);
   await einstellungenErgaenzen(ziel);
+  await produktErgaenzen(ziel);
   const brancheKarte = document.createElement("div");
   brancheKarte.className = "karte"; brancheKarte.style.marginBottom = "16px";
   const [branchen, buchung] = await Promise.all([api("/branchen"), api("/betrieb/buchung")]);
@@ -949,7 +943,105 @@ async function protokoll(ziel) {
     ${ereignisse.map((e) => `<tr><td>${zeit(e.zeit)}</td><td>${tag(e.akteur, "neutral")}${e.akteur_name ? ` <small>${esc(e.akteur_name)}</small>` : ""}</td><td><code>${esc(e.typ)}</code></td><td><small>${esc(JSON.stringify(e.payload))}</small></td></tr>`).join("")}</tbody></table></div></div>`;
 }
 
-oidcRueckkehr().then(zeigen, (e) => anmelden(e.message));
+produktLaden().finally(() => oidcRueckkehr().then(zeigen, (e) => anmelden(e.message)));
+
+// --- Produkt: Edition und Lizenz, Textvorlagen (Einstellungen) ---------------------------------------------
+const QUELLE_TEXT = { lizenz: "per Lizenzschlüssel", betreiber: "vom Betreiber zugewiesen", testphase: "Testphase", starter: "ohne Lizenz (Starter)" };
+async function produktErgaenzen(ziel) {
+  const [liz, vorl] = await Promise.all([api("/betrieb/lizenz"), api("/betrieb/vorlagen")]);
+  const teil = document.createElement("div");
+  const edition = ([k, e]) => `<div class="karte edition${k === liz.edition ? " aktuell" : ""}"><h3>${esc(e.titel)} ${k === liz.edition ? tag("aktuell", "ok", "aktuell") : ""}</h3>
+      <p class="preis">${e.preis_monat} € <small>/ Monat zzgl. USt</small></p><ul>${e.features.map((f) => `<li>${esc(liz.feature_texte[f] || f)}</li>`).join("")}</ul>
+      <small>bis ${e.limits.mitarbeiter} Mitarbeitende, ${e.limits.kunden.toLocaleString("de-DE")} Kunden, ${e.limits.sprachminuten_monat.toLocaleString("de-DE")} Sprachminuten/Monat</small></div>`;
+  teil.innerHTML = `<div class="karte" style="margin-bottom:16px"><h2>Edition und Lizenz</h2>
+      <p>Aktuell <strong>${esc(liz.titel)}</strong> (${esc(QUELLE_TEXT[liz.quelle] || liz.quelle)}${liz.gueltig_bis ? `, gültig bis ${esc(DATUM.format(new Date(liz.gueltig_bis)))}` : ""}${liz.lizenz_kunde ? `, lizenziert für ${esc(liz.lizenz_kunde)}` : ""}).</p>
+      ${liz.hinweis ? `<p class="banner ${liz.quelle === "starter" ? "fehler" : "hinweis"}">${esc(liz.hinweis)}</p>` : ""}
+      <div class="raster editionen">${Object.entries(liz.editionen).map(edition).join("")}</div>
+      <form id="liz-form" class="zeile" style="margin-top:12px"><label style="flex:1">Lizenzschlüssel <input name="schluessel" placeholder="eyJ…" autocomplete="off"></label><button type="submit">Lizenz eintragen</button></form><p id="liz-status"></p>
+      ${liz.oeffentlicher_schluessel_hinterlegt ? "" : `<p class="unterzeile">In dieser Installation ist kein öffentlicher Lizenzschlüssel hinterlegt (LIZENZ_OEFFENTLICHER_SCHLUESSEL); Editionen weist der Betreiber direkt zu.</p>`}</div>
+    <div class="karte" style="margin-bottom:16px"><h2>Textvorlagen</h2><p class="unterzeile">Wortlaut der Nachrichten an Kunden je Kanal. Leer gelassene Vorlagen nutzen den Standard; Platzhalter in doppelten geschweiften Klammern werden beim Versand ersetzt. Vorschau zeigt den Text mit Beispieldaten.</p>
+      ${vorl.vorlagen.map((v) => `<details ${v.angepasst ? "open" : ""}><summary>${esc(v.titel)} ${v.angepasst ? tag("angepasst", "ok", "angepasst") : tag("Standard", "neutral", "Standard")}</summary>
+        <form data-vorlage="${esc(v.schluessel)}" class="vorlage">${v.standard_betreff ? `<label>Betreff <input name="betreff" value="${esc(v.betreff)}" placeholder="${esc(v.standard_betreff)}"></label>` : ""}
+          <label>Text <textarea name="text" rows="${Math.min(12, Math.max(4, v.standard_text.split("\\n").length + 1))}" placeholder="${esc(v.standard_text)}">${esc(v.text)}</textarea></label>
+          <p class="unterzeile">Platzhalter: ${v.platzhalter.map((pl) => `<code>{{ ${esc(pl)} }}</code>`).join(" ")}</p>
+          <div class="aktionen"><button type="button" class="leise" data-vorschau>Vorschau</button><button type="button" class="leise" data-standard>Standard wiederherstellen</button><button type="submit">Speichern</button></div>
+          <pre class="vorschau" hidden></pre><p class="fehler" data-fehler hidden></p></form></details>`).join("")}</div>`;
+  ziel.append(teil);
+  $("#liz-form", teil).addEventListener("submit", async (ev) => {
+    ev.preventDefault(); const st = $("#liz-status", teil);
+    try { const r = await api("/betrieb/lizenz", { methode: "PUT", daten: { schluessel: ev.target.schluessel.value.trim() } }); st.innerHTML = `<span class="hinweis">Lizenz ${esc(r.titel)} bis ${esc(r.gueltig_bis || "unbegrenzt")} eingetragen.</span>`; setTimeout(zeigen, 800); }
+    catch (e) { st.innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
+  teil.querySelectorAll("form.vorlage").forEach((f) => {
+    const daten = () => ({ text: f.text.value, betreff: f.betreff ? f.betreff.value : "" });
+    const fehler = f.querySelector("[data-fehler]"), vorschau = f.querySelector(".vorschau");
+    f.querySelector("[data-vorschau]").addEventListener("click", async () => {
+      fehler.hidden = true;
+      try { const d = daten(); const r = await api("/betrieb/vorlagen/vorschau", { methode: "POST", daten: { schluessel: f.dataset.vorlage, text: d.text || null, betreff: d.betreff || null } }); vorschau.textContent = (r.betreff ? `Betreff: ${r.betreff}\n\n` : "") + r.text; vorschau.hidden = false; }
+      catch (e) { fehler.textContent = e.message; fehler.hidden = false; }
+    });
+    f.querySelector("[data-standard]").addEventListener("click", () => { f.text.value = ""; if (f.betreff) f.betreff.value = ""; f.requestSubmit(); });
+    f.addEventListener("submit", async (ev) => {
+      ev.preventDefault(); fehler.hidden = true;
+      try { await api("/betrieb/vorlagen", { methode: "PUT", daten: { vorlagen: { [f.dataset.vorlage]: daten() } } }); melden("Vorlage gespeichert", "ok"); zeigen(); }
+      catch (e) { fehler.textContent = e.message; fehler.hidden = false; }
+    });
+  });
+}
+
+// --- Betreiberkonsole (nur Maschinenschlüssel): Mandanten, Editionen, Testphasen, Lizenzschlüssel ---------------
+async function betreiberAnsicht(ziel) {
+  const b = await api("/betreiber/mandanten", { mitMandant: false });
+  const s = b.summen;
+  ziel.innerHTML = `<h1>Betreiberkonsole</h1><p class="unterzeile">Alle Betriebe dieser Installation mit Edition, Testphase und Nutzung. Editionen zuweisen, Testphasen verlängern, Lizenzschlüssel ausstellen. Sichtbar nur mit Maschinenschlüssel (Recht „plattform“).</p>
+    <div class="kacheln"><div class="kachel"><div class="wert">${s.mandanten}</div><div class="bez">Betriebe</div></div><div class="kachel"><div class="wert">${s.aktiv_30d}</div><div class="bez">aktiv in 30 Tagen</div></div>
+      <div class="kachel"><div class="wert">${s.je_quelle.testphase}</div><div class="bez">in Testphase</div></div><div class="kachel"><div class="wert">${s.je_quelle.lizenz + s.je_quelle.betreiber}</div><div class="bez">lizenziert · ${esc(EURO.format(s.mrr_listenpreis))}/Monat Listenpreis</div></div></div>
+    <div class="karte" style="margin:16px 0"><div class="tabelle-rahmen"><table><thead><tr><th>Betrieb</th><th>Branche</th><th>Angelegt</th><th>Edition</th><th>gültig bis</th><th>Kunden</th><th>Vorgänge 30 T</th><th>Termine 30 T</th><th>Website</th><th>Aktion</th></tr></thead><tbody>
+      ${b.mandanten.map((m) => `<tr><td><strong>${esc(m.name)}</strong><br><small><code>${esc(m.id)}</code></small></td><td>${esc(m.gewerk)}</td><td>${m.erstellt ? esc(DATUM.format(new Date(m.erstellt))) : "–"}</td>
+        <td>${tag(m.edition, m.quelle === "testphase" ? "offen" : m.quelle === "starter" ? "neutral" : "ok", `${b.editionen[m.edition] || m.edition} · ${QUELLE_TEXT[m.quelle] || m.quelle}`)}</td>
+        <td>${m.gueltig_bis ? `${esc(DATUM.format(new Date(m.gueltig_bis)))}${m.tage_rest != null && m.tage_rest <= 14 ? ` <span class="fehler">(${m.tage_rest} T)</span>` : ""}` : "–"}</td>
+        <td>${m.kunden}</td><td>${m.vorgaenge_30d}</td><td>${m.termine_30d}</td><td>${m.website ? "aktiv" : "–"}</td>
+        <td><div class="zeile" style="gap:4px"><select data-edition="${esc(m.id)}" aria-label="Edition"><option value="">Zuweisung aufheben</option>${Object.entries(b.editionen).map(([k, v]) => `<option value="${k}" ${m.edition === k && m.quelle !== "testphase" ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>
+          <input type="date" data-bis="${esc(m.id)}" value="${m.quelle === "betreiber" && m.gueltig_bis ? m.gueltig_bis : ""}" aria-label="gültig bis"><button class="leise" data-zuweisen="${esc(m.id)}">Zuweisen</button><button class="leise" data-testphase="${esc(m.id)}" title="Testphase um 14 Tage verlängern">+14 T</button></div></td></tr>`).join("") || `<tr><td colspan="10">Noch keine Betriebe.</td></tr>`}</tbody></table></div></div>
+    <div class="karte"><h2>Lizenzschlüssel ausstellen</h2><p class="unterzeile">Signiert mit dem privaten Schlüssel dieser Anbieterinstallation (LIZENZ_PRIVATER_SCHLUESSEL). Der Kunde trägt den Schlüssel unter Einstellungen → Edition und Lizenz ein; seine Installation prüft ihn mit dem öffentlichen Schlüssel.</p>
+      ${b.privater_schluessel_hinterlegt ? `<form id="bt-lizenz" class="zeile"><label>Edition <select name="edition">${Object.entries(b.editionen).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select></label>
+        <label>Kunde (Firmierung) <input name="kunde" required></label><label>gültig bis <input name="gueltig_bis" type="date" required></label><label>Mandanten-ID (optional) <input name="mandant" placeholder="leer = jede Installation"></label><label>Sitze <input name="sitze" type="number" min="1" style="width:5em"></label>
+        <button type="submit">Ausstellen</button></form><textarea id="bt-schluessel" readonly rows="4" style="width:100%;margin-top:8px;font-family:monospace;font-size:12px" hidden></textarea><p id="bt-status"></p>`
+        : `<p>Kein privater Schlüssel hinterlegt. Schlüsselpaar erzeugen: <code>python -m core lizenz schluesselpaar</code>, privaten Schlüssel nur hier als LIZENZ_PRIVATER_SCHLUESSEL setzen, öffentlichen in die Kundeninstallationen.</p>`}</div>`;
+  ziel.querySelectorAll("[data-zuweisen]").forEach((bt) => bt.addEventListener("click", async () => {
+    const id = bt.dataset.zuweisen; const ed = ziel.querySelector(`[data-edition="${id}"]`).value, bis = ziel.querySelector(`[data-bis="${id}"]`).value;
+    try { await api(`/betreiber/mandanten/${id}/edition`, { methode: "PUT", daten: { edition: ed || null, gueltig_bis: bis || null }, mitMandant: false }); melden("Edition gespeichert", "ok"); zeigen(); } catch (e) { melden(e.message); }
+  }));
+  ziel.querySelectorAll("[data-testphase]").forEach((bt) => bt.addEventListener("click", async () => {
+    try { await api(`/betreiber/mandanten/${bt.dataset.testphase}/testphase`, { methode: "POST", daten: { tage: 14 }, mitMandant: false }); melden("Testphase verlängert", "ok"); zeigen(); } catch (e) { melden(e.message); }
+  }));
+  $("#bt-lizenz", ziel)?.addEventListener("submit", async (ev) => {
+    ev.preventDefault(); const fd = Object.fromEntries(new FormData(ev.target).entries()); if (!fd.mandant) delete fd.mandant; if (fd.sitze) fd.sitze = Number(fd.sitze); else delete fd.sitze;
+    try { const r = await api("/betreiber/lizenzschluessel", { methode: "POST", daten: fd, mitMandant: false }); const ta = $("#bt-schluessel", ziel); ta.value = r.schluessel; ta.hidden = false; ta.select(); $("#bt-status", ziel).innerHTML = `<span class="hinweis">Schlüssel ${esc(r.edition)} bis ${esc(r.gueltig_bis)} ausgestellt; kopieren und dem Kunden übergeben.</span>`; }
+    catch (e) { $("#bt-status", ziel).innerHTML = `<span class="fehler">${esc(e.message)}</span>`; }
+  });
+}
+
+// --- White-Label (GET /produkt) und PWA ---------------------------------------------------------------------
+let PRODUKT = null;
+async function produktLaden() {
+  try { PRODUKT = await api("/produkt", { mitMandant: false }); } catch { return; }
+  document.title = PRODUKT.name;
+  const marke = $(".marke"); if (marke?.firstChild?.nodeType === 3) marke.firstChild.textContent = PRODUKT.name;
+  if (PRODUKT.logo && marke) { const img = document.createElement("img"); img.src = PRODUKT.logo; img.alt = ""; img.className = "logo"; marke.prepend(img); }
+  if (PRODUKT.farbe) document.documentElement.style.setProperty("--akzent", PRODUKT.farbe);
+  const v = $("#version"); if (v) v.textContent = `Version ${PRODUKT.version}`;
+}
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => { /* ohne PWA weiter */ }));
+}
+async function lizenzBanner(ziel) {
+  try {
+    const liz = await api("/betrieb/lizenz");
+    if (liz.hinweis) ziel.querySelector("h1")?.insertAdjacentHTML("afterend", `<p class="banner ${liz.quelle === "starter" ? "fehler" : "hinweis"}">${esc(liz.hinweis)} <a href="#einstellungen">Zur Lizenz</a></p>`);
+  } catch { /* kein Hinweis */ }
+}
+
 
 // --- Mein Einsatz (Monteur, mobil): Tagesliste, Zeitstempel, Rapport mit Foto und Unterschrift ---
 const ZEITART_TEXT = { arbeit: "Arbeit", fahrt: "Fahrt", pause: "Pause", bereitschaft: "Bereitschaft" };
@@ -1375,7 +1467,7 @@ const MAHNSTUFE_TEXT = { 0: "–", 1: "Zahlungserinnerung", 2: "Mahnung", 3: "Le
 async function forderungenAnsicht(ziel) {
   const [posten, zahlungen, mahnungen, wir] = await Promise.all([api("/offene-posten"), api("/zahlungen?limit=50"), api("/mahnungen"), ich()]);
   const summe = posten.reduce((s, p) => s + Number(p.offen), 0), ueberfaellig = posten.filter((p) => p.tage_ueberfaellig > 0);
-  ziel.innerHTML = `<h1>Offene Posten</h1><p class="unterzeile">Zahlungen manuell oder per CSV-Import aus dem Online-Banking (Rechnungsnummer im Verwendungszweck). Der Mahnlauf erzeugt nur Vorschläge: Zahlungserinnerung als Freigabe B, Mahnungen mit Gebühr als Freigabe C.</p>
+  ziel.innerHTML = `<h1>Offene Posten <button class="leise" id="op-export" style="float:right" title="Offene Posten als Excel-Arbeitsmappe">Excel-Export</button></h1><p class="unterzeile">Zahlungen manuell oder per CSV-Import aus dem Online-Banking (Rechnungsnummer im Verwendungszweck). Der Mahnlauf erzeugt nur Vorschläge: Zahlungserinnerung als Freigabe B, Mahnungen mit Gebühr als Freigabe C.</p>
     <div class="kacheln"><div class="kachel"><div class="wert">${esc(EURO.format(summe))}</div><div class="bez">offen (${posten.length} Rechnungen)</div></div>
       <div class="kachel"><div class="wert">${esc(EURO.format(ueberfaellig.reduce((s, p) => s + Number(p.offen), 0)))}</div><div class="bez">überfällig (${ueberfaellig.length})</div></div>
       <div class="kachel"><div class="wert">${posten.filter((p) => p.mahnstufe > 0).length}</div><div class="bez">gemahnt</div></div></div>
@@ -1392,6 +1484,7 @@ async function forderungenAnsicht(ziel) {
       ${zahlungen.map((z) => `<tr><td>${esc(DATUM.format(new Date(z.datum)))}</td><td><strong>${esc(z.rechnung_nummer || "")}</strong>${z.referenz ? `<br><small>${esc(z.referenz)}</small>` : ""}</td><td style="text-align:right">${esc(EURO.format(z.betrag))}</td><td>${esc(ZAHLART_TEXT[z.art])}</td><td>${esc(z.quelle)}</td></tr>`).join("") || `<tr><td colspan="5">Keine Zahlungen.</td></tr>`}</tbody></table></div>
     <div class="karte"><h2>Mahnungen</h2><table><thead><tr><th>Datum</th><th>Stufe</th><th style="text-align:right">Offen</th><th>Frist</th><th></th></tr></thead><tbody>
       ${mahnungen.map((m) => `<tr><td>${esc(DATUM.format(new Date(m.datum)))}</td><td>${esc(MAHNSTUFE_TEXT[m.stufe])}${Number(m.gebuehr) ? `<br><small>Gebühr ${esc(EURO.format(m.gebuehr))}</small>` : ""}</td><td style="text-align:right">${esc(EURO.format(m.offen))}</td><td>${esc(DATUM.format(new Date(m.frist)))}</td><td><button class="leise" data-mpdf="${esc(m.id)}">PDF</button></td></tr>`).join("") || `<tr><td colspan="5">Keine Mahnungen.</td></tr>`}</tbody></table></div></div>`;
+  $("#op-export").addEventListener("click", () => dateiLaden("/offene-posten/export.xlsx", "offene-posten.xlsx"));
   const status = (html) => { $("#op-status").innerHTML = html; };
   $("#op-import").addEventListener("click", async () => {
     const datei = $("#op-csv").files[0]; if (!datei) return status(`<span class="fehler">CSV-Datei wählen</span>`);
@@ -1466,21 +1559,22 @@ async function anfragenAnsicht(ziel) {
 // --- Auswertungen ----------------------------------------------------------------------------
 async function auswertungenAnsicht(ziel) {
   const a = await api("/auswertungen?monate=12");
-  const max = Math.max(1, ...a.monate.map((m) => Math.max(Number(m.umsatz_netto), Number(m.zahlungen))));
-  const balken = (w, klasse) => `<div class="saeule-teil ${klasse}" style="height:${Math.round(Number(w) / max * 100)}%" title="${esc(EURO.format(w))}"></div>`;
-  ziel.innerHTML = `<h1>Auswertungen</h1><p class="unterzeile">Zeitraum ${esc(DATUM.format(new Date(a.von)))} bis ${esc(DATUM.format(new Date(a.bis)))}. Umsatz aus gestellten Rechnungen (netto), Zahlungseingang aus gebuchten Zahlungen, Material aus zugeordneten Belegen. Deckungsbeitrag je Monteur: Umsatz der rapportierten Aufträge abzüglich Material und interner Lohnkosten (Rapportzeiten × Stundensatz intern).</p>
+  ziel.innerHTML = `<h1>Auswertungen <button class="leise" id="aw-export" style="float:right" title="Monate, Monteure und Kennzahlen als Excel-Arbeitsmappe">Excel-Export</button></h1><p class="unterzeile">Zeitraum ${esc(DATUM.format(new Date(a.von)))} bis ${esc(DATUM.format(new Date(a.bis)))}. Umsatz aus gestellten Rechnungen (netto), Zahlungseingang aus gebuchten Zahlungen, Material aus zugeordneten Belegen. Deckungsbeitrag je Monteur: Umsatz der rapportierten Aufträge abzüglich Material und interner Lohnkosten (Rapportzeiten × Stundensatz intern).</p>
     <div class="kacheln"><div class="kachel"><div class="wert">${esc(EURO.format(a.umsatz_netto_gesamt))}</div><div class="bez">Umsatz netto (12 Monate)</div></div>
       <div class="kachel"><div class="wert">${esc(EURO.format(a.offene_posten.summe))}</div><div class="bez">offene Posten (${a.offene_posten.anzahl}, davon ${esc(EURO.format(a.offene_posten.ueberfaellig))} überfällig)</div></div>
       <div class="kachel"><div class="wert">${a.angebote.quote === null ? "–" : `${Math.round(a.angebote.quote * 100)} %`}</div><div class="bez">Angebotsquote (${a.angebote.angenommen} von ${a.angebote.entschieden} entschieden; ${esc(EURO.format(a.angebote.volumen_offen_netto))} offen)</div></div>
       <div class="kachel"><div class="wert">${a.vertraege.aktive}</div><div class="bez">Wartungsverträge · ${esc(EURO.format(a.vertraege.jahresvolumen_netto))}/Jahr</div></div></div>
-    <div class="karte" style="margin:16px 0"><h2>Umsatz und Zahlungseingang je Monat</h2><div class="diagramm">${a.monate.map((m) => `<div class="saeule"><div class="saeule-balken">${balken(m.umsatz_netto, "umsatz")}${balken(m.zahlungen, "zahlung")}</div><div class="saeule-bez">${esc(m.monat.slice(5))}/${esc(m.monat.slice(2, 4))}</div></div>`).join("")}</div>
-      <p class="unterzeile"><span class="legende umsatz"></span> Umsatz netto <span class="legende zahlung"></span> Zahlungseingang</p>
+    <div class="karte" style="margin:16px 0"><h2>Umsatz und Zahlungseingang je Monat</h2><div id="aw-diagramm" class="diagramm-rahmen"></div>
       <div class="tabelle-rahmen"><table><thead><tr><th>Monat</th><th style="text-align:right">Umsatz netto</th><th style="text-align:right">Zahlungen</th><th style="text-align:right">Material (Belege)</th></tr></thead><tbody>
       ${a.monate.map((m) => `<tr><td>${esc(m.monat)}</td><td style="text-align:right">${esc(EURO.format(m.umsatz_netto))}</td><td style="text-align:right">${esc(EURO.format(m.zahlungen))}</td><td style="text-align:right">${esc(EURO.format(m.material_netto))}</td></tr>`).join("")}</tbody></table></div></div>
     <div class="raster"><div class="karte"><h2>Deckungsbeitrag je Monteur</h2><table><thead><tr><th>Monteur</th><th>Rapporte</th><th>Stunden</th><th style="text-align:right">Umsatz</th><th style="text-align:right">Material</th><th style="text-align:right">Lohn</th><th style="text-align:right">DB</th></tr></thead><tbody>
       ${a.monteure.map((m) => `<tr><td>${esc(m.name)}</td><td>${m.rapporte}</td><td>${esc(m.stunden)}</td><td style="text-align:right">${esc(EURO.format(m.umsatz_netto))}</td><td style="text-align:right">${esc(EURO.format(m.material_netto))}</td><td style="text-align:right">${esc(EURO.format(m.lohnkosten))}</td><td style="text-align:right"><strong>${esc(EURO.format(m.deckungsbeitrag))}</strong></td></tr>`).join("") || `<tr><td colspan="7">Keine Rapporte im Zeitraum.</td></tr>`}</tbody></table></div>
     <div class="karte"><h2>Anfragen je Kanal</h2><table><tbody>${Object.entries(a.anfragen_je_kanal || {}).map(([k, n]) => `<tr><td>${esc(k)}</td><td style="text-align:right">${n}</td></tr>`).join("") || "<tr><td>Keine Anfragen.</td></tr>"}</tbody></table>
       ${a.zeiteintraege ? `<h2 style="margin-top:16px">Erfasste Zeiten</h2><table><tbody>${Object.entries(a.zeiteintraege).map(([k, v]) => `<tr><td>${esc(ZEITART_TEXT[k] || k)}</td><td style="text-align:right">${esc(String(v))} h</td></tr>`).join("")}</tbody></table>` : ""}</div></div>`;
+  $("#aw-export").addEventListener("click", () => dateiLaden("/auswertungen/export.xlsx", "auswertungen.xlsx"));
+  saeulenDiagramm($("#aw-diagramm"), { labels: a.monate.map((m) => `${m.monat.slice(5)}/${m.monat.slice(2, 4)}`),
+    serien: [{ label: "Umsatz netto", farbe: getComputedStyle(document.documentElement).getPropertyValue("--akzent").trim() || "#0b5cad", werte: a.monate.map((m) => Number(m.umsatz_netto)) },
+             { label: "Zahlungseingang", farbe: getComputedStyle(document.documentElement).getPropertyValue("--ok").trim() || "#1d7a46", werte: a.monate.map((m) => Number(m.zahlungen)) }] });
 }
 
 // --- Abwesenheiten in der Plantafel ----------------------------------------------------------

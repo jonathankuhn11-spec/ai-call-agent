@@ -12,7 +12,14 @@ from typing import Any
 import httpx
 from sqlalchemy.orm import Session
 
-from core.adapter.basis import Konfigurationsfehler, antwort_pruefen, client, kunde_laden, termin_laden
+from core import vorlagen
+from core.adapter.basis import (
+    Konfigurationsfehler,
+    antwort_pruefen,
+    client,
+    kunde_laden,
+    termin_laden,
+)
 from core.disposition import ZEITZONE
 from core.domaene import als_utc
 from core.modelle import Mandant, OutboxEintrag
@@ -43,8 +50,8 @@ class SmsAdapter:
             if not kunde.telefon or not kunde.einwilligungen.get("sms"):
                 return None
             beginn = als_utc(t.beginn).astimezone(ZEITZONE)
-            return self._senden(kunde.telefon, f"{m.name}: Ihr Termin am {beginn.strftime('%d.%m.')} um {beginn.strftime('%H:%M')} Uhr "
-                                f"({fall.anliegen[:60]}) ist bestätigt. Fragen: {m.stammdaten.get('telefon', '')}", e.idempotenz_schluessel)
+            text = vorlagen.rendern(m, "terminbestaetigung_sms", vorlagen.termin_kontext(t, fall, kunde, m, beginn))["text"]
+            return self._senden(kunde.telefon, text, e.idempotenz_schluessel)
         if e.aktion == "nachricht":
             kunde = kunde_laden(s, e)
             if kunde is None or not kunde.telefon or not kunde.einwilligungen.get("sms"):

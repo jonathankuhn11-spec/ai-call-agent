@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 from sqlalchemy.orm import Session
 
+from core import vorlagen
 from core.adapter.basis import (
     Konfigurationsfehler,
     antwort_pruefen,
@@ -77,8 +78,7 @@ class WhatsAppAdapter:
             if not an or not kunde.einwilligungen.get("whatsapp"):
                 return None
             beginn = als_utc(t.beginn).astimezone(ZEITZONE)
-            text = (f"{m.name}: Ihr Termin am {beginn.strftime('%d.%m.%Y')} um {beginn.strftime('%H:%M')} Uhr ({fall.anliegen[:80]}) ist bestätigt. "
-                    f"Antworten Sie einfach auf diese Nachricht, wenn Sie Fragen haben.")
+            text = vorlagen.rendern(m, "terminbestaetigung_whatsapp", vorlagen.termin_kontext(t, fall, kunde, m, beginn))["text"]
             return self._senden(an, text, self.k.get("vorlage_termin"))
         if e.aktion == "nachricht":
             kunde = kunde_laden(s, e)
