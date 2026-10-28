@@ -10,7 +10,20 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from core import angebote, branchen, domaene, forderungen, hinweise, lebenszyklus, portal, qualifikationen, vertraege, warteliste, zaehler
+from core import (
+    angebote,
+    branchen,
+    domaene,
+    forderungen,
+    hinweise,
+    lebenszyklus,
+    portal,
+    qualifikationen,
+    upsell,
+    vertraege,
+    warteliste,
+    zaehler,
+)
 from core.modelle import Mandant
 
 
@@ -33,7 +46,8 @@ def tagesaufgaben(s: Session, m: Mandant, jetzt: datetime) -> dict[str, Any]:
                 "warteliste_verfallen": len(warteliste.ablauf_pruefen(s, m, jetzt)),
                 "erneuerungen": lebenszyklus.erinnerungen(s, m, heute),
                 "qualifikationen_ablaufend": _qualifikationen_melden(s, m, heute),
-                "verbrauch_auffaellig": len(zaehler.auffaellige(s, m))}
+                "verbrauch_auffaellig": len(zaehler.auffaellige(s, m)),
+                "upsell_kampagne": upsell.kampagne(s, m, jetzt)}
     domaene.protokollieren(s, m.id, "tageslauf", "mandant", m.id, "system",
                            {k: (len(v) if isinstance(v, list) else v) for k, v in ergebnis.items()})
     return ergebnis

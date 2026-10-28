@@ -73,8 +73,10 @@ from core import (
     suche,
     tagesaufgaben,
     twin,
+    upsell,
     vertraege,
     warteliste,
+    website,
     zaehler,
 )
 from core.adapter import ERLAUBT, ZIELE, konfiguration_pruefen
@@ -492,6 +494,7 @@ class Stammdaten(_Schema):
     # Angebote, Mahnwesen, Bewertungen, Website (core/angebote.py, core/forderungen.py, core/einsatz.py)
     angebotsnummer_praefix: str = Field("AN", max_length=10)
     angebot_gueltig_tage: int = Field(30, ge=1, le=365)
+    wartungsvertrag_preis_jahr: float | None = Field(None, ge=0)   # Jahrespreis netto für den Upsell-Vorschlag „Wartungsvertrag“
     mahn_karenz_tage: int = Field(7, ge=0, le=90)
     mahn_frist_tage: int = Field(10, ge=1, le=60)
     mahngebuehr_stufe2: float = Field(5.00, ge=0, le=100)
@@ -635,6 +638,38 @@ class Zusammenfuehren(_Schema):
 
 class PortalAktion(_Schema):
     aktion: Literal["bestaetigen", "absagen"]
+    grund: str | None = Field(None, max_length=300)
+
+
+class WebsiteEinstellungen(_Schema):
+    aktiv: bool | None = None
+    slug: str | None = Field(None, max_length=80)
+    domain: str | None = Field(None, max_length=253)
+    claim: str | None = Field(None, max_length=160)
+    ueber_uns: str | None = Field(None, max_length=3000)
+    farbe: str | None = Field(None, max_length=7)
+    logo_url: str | None = Field(None, max_length=500)
+    bild_url: str | None = Field(None, max_length=500)
+    oeffnungszeiten: str | None = Field(None, max_length=200)
+    einzugsgebiet: str | None = Field(None, max_length=200)
+    notdienst_telefon: str | None = Field(None, max_length=40)
+    notdienst_text: str | None = Field(None, max_length=300)
+    impressum_zusatz: str | None = Field(None, max_length=2000)
+    bereiche: dict[str, bool] | None = None
+    bewertungen_min_sterne: int | None = Field(None, ge=1, le=5)
+    leistungen_text: dict[str, str] | None = None
+
+
+class BewertungVeroeffentlichen(_Schema):
+    veroeffentlicht: bool = True
+
+
+class UpsellAngebot(_Schema):
+    servicefall_id: str | None = None
+    versenden: bool = False
+
+
+class UpsellAblehnung(_Schema):
     grund: str | None = Field(None, max_length=300)
 
 
@@ -1027,6 +1062,34 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     app.state.router = None     # routing.Router; Tests setzen Router(None) (Luftlinie)
     app.state.metriken = metriken.Metriken(system_db.sitzungen, uhr)
     app.state.datev_transport = None  # Tests: httpx.MockTransport für den DATEV-Login
+
+    domain_cache: dict[str, tuple[float, str | None]] = {}
+
+    def website_slug_fuer_host(host: str) -> str | None:
+        """Eigene Domain eines Betriebs → Slug (60 s zwischengespeichert); localhost und die Plattformdomain liefern None."""
+        host = host.lower().split(":")[0]
+        if not host or host in ("localhost", "127.0.0.1") or host.replace(".", "").isdigit():
+            return None
+        jetzt = time.monotonic()
+        treffer = domain_cache.get(host)
+        if treffer and jetzt - treffer[0] < 60:
+            return treffer[1]
+        slug = None
+        with system_db.sitzungen() as s:
+            m = website.mandant_nach_domain(s, host)
+            slug = website.konfig(m)["slug"] if m is not None else None
+        domain_cache[host] = (jetzt, slug)
+        return slug
+
+    @app.middleware("http")
+    async def eigene_domain(request: Request, call_next):
+        pfad = request.scope.get("path", "")
+        if pfad in ("/", "/impressum", "/datenschutz", "/sitemap.xml", "/robots.txt", "/anfrage") and request.headers.get("host"):
+            slug = website_slug_fuer_host(request.headers["host"])
+            if slug:
+                neu = f"/web/{slug}" + ("" if pfad == "/" else pfad)
+                request.scope["path"], request.scope["raw_path"] = neu, neu.encode()
+        return await call_next(request)
 
     @app.middleware("http")
     async def messen(request: Request, call_next):
@@ -2136,8 +2199,10 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
                     "ort": o.ort} for o in k.objekte for a in o.anlagen]
         offen = s.scalars(select(Servicefall).where(Servicefall.kunde_id == k.id,
                                                     Servicefall.status.in_(twin.OFFENE_STATUS))).all()
+        empf = [e for e in upsell.empfehlungen(s, m, k, app.state.uhr().date()) if e["prioritaet"] >= 2][:2]
         return {"gefunden": True, "kunde_id": k.id, "name": k.name, "ort": k.ort, "wartungsvertrag": k.vertragsstatus == "wartungsvertrag",
-                "anlagen": anlagen, "offene_vorgaenge": [{"id": f.id, "anliegen": f.anliegen, "status": f.status} for f in offen]}
+                "anlagen": anlagen, "offene_vorgaenge": [{"id": f.id, "anliegen": f.anliegen, "status": f.status} for f in offen],
+                "empfehlungen": [{"titel": e["titel"], "preis_brutto": e["preis_brutto"], "schluessel": e["schluessel"]} for e in empf]}
 
     @app.post("/voice/zeitfenster", dependencies=[Depends(recht("bearbeiten"))])
     def voice_zeitfenster(daten: VoiceZeitfenster, m: Mandant = Depends(mandant_kontext),
@@ -2772,6 +2837,155 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         if r is None or r.servicefall_id != f.id:
             raise HTTPException(404, "Rechnung nicht gefunden")
         return Response(rechnung_pdf(r, m), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{r.nummer}.pdf"'})
+
+    # --- Betriebswebsite (öffentlich, serverseitig gerendert) -------------------------------------
+    @app.get("/betrieb/website", dependencies=[Depends(recht("bearbeiten"))])
+    def website_status(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        return website.status(s, m)
+
+    @app.put("/betrieb/website", dependencies=[Depends(recht("verwalten"))])
+    def website_einstellen(daten: WebsiteEinstellungen, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        werte = daten.model_dump(exclude_unset=True)
+        k = fachlich(lambda: website.speichern(s, m, werte))
+        domaene.protokollieren(s, m.id, "website.geaendert", "mandant", m.id, "mensch", {n: k.get(n) for n in ("aktiv", "slug", "domain") if n in werte}, p.name)
+        s.commit()
+        domain_cache.clear()
+        return website.status(s, m)
+
+    @app.post("/bewertungen/{ereignis_id}/veroeffentlichen", dependencies=[Depends(recht("verwalten"))])
+    def bewertung_veroeffentlichen(ereignis_id: int, daten: BewertungVeroeffentlichen, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        ergebnis = fachlich(lambda: website.veroeffentlichen(s, m, ereignis_id, daten.veroeffentlicht))
+        s.commit()
+        return ergebnis
+
+    def website_mandant(s: Session, slug: str, vorschau: bool = False) -> Mandant:
+        m = website.mandant_nach_slug(s, slug)
+        if m is None or (not website.konfig(m)["aktiv"] and not vorschau):
+            raise HTTPException(404, "Website nicht gefunden")
+        mandant_binden(s, m.id)
+        return m
+
+    @app.get("/web/domain-pruefen", include_in_schema=False)
+    def website_domain_pruefen(domain: str, s: Session = Depends(system_sitzung)) -> Response:
+        """Für Caddy on-demand TLS: 200, wenn ein Betrieb die Domain eingetragen und die Website aktiviert hat."""
+        m = website.mandant_nach_domain(s, domain)
+        if m is None or not website.konfig(m)["aktiv"]:
+            raise HTTPException(404, "unbekannt")
+        return Response(status_code=200)
+
+    @app.get("/web/{slug}", include_in_schema=False, response_class=HTMLResponse)
+    def website_start(slug: str, gesendet: int = 0, vorschau: int = 0, s: Session = Depends(system_sitzung)) -> HTMLResponse:
+        m = website_mandant(s, slug, bool(vorschau))
+        return HTMLResponse(website.startseite(s, m, bool(gesendet), bool(vorschau)), headers={"Cache-Control": "public, max-age=300"} if not vorschau else {})
+
+    @app.get("/web/{slug}/impressum", include_in_schema=False, response_class=HTMLResponse)
+    def website_impressum(slug: str, s: Session = Depends(system_sitzung)) -> HTMLResponse:
+        return HTMLResponse(website.impressum(s, website_mandant(s, slug, True)))
+
+    @app.get("/web/{slug}/datenschutz", include_in_schema=False, response_class=HTMLResponse)
+    def website_datenschutz(slug: str, s: Session = Depends(system_sitzung)) -> HTMLResponse:
+        return HTMLResponse(website.datenschutz(s, website_mandant(s, slug, True)))
+
+    @app.get("/web/{slug}/sitemap.xml", include_in_schema=False)
+    def website_sitemap(slug: str, s: Session = Depends(system_sitzung)) -> Response:
+        return Response(website.sitemap(website_mandant(s, slug)), media_type="application/xml")
+
+    @app.get("/web/{slug}/robots.txt", include_in_schema=False)
+    def website_robots(slug: str, s: Session = Depends(system_sitzung)) -> Response:
+        return Response(website.robots(website_mandant(s, slug, True)), media_type="text/plain")
+
+    website_zaehler: dict[str, list[float]] = {}
+
+    @app.post("/web/{slug}/anfrage", include_in_schema=False)
+    async def website_anfrage(slug: str, request: Request, s: Session = Depends(system_sitzung)):
+        """Kontaktformular ohne JavaScript: Honeypot, 30 Anfragen je Stunde und Betrieb, danach Umleitung mit Bestätigung."""
+        m = website_mandant(s, slug)
+        form = {k: str(v) for k, v in (await request.form()).items()}
+        jetzt = time.monotonic()
+        fenster = [x for x in website_zaehler.get(slug, []) if jetzt - x < 3600]
+        if len(fenster) >= 30:
+            raise HTTPException(429, "Zu viele Anfragen, bitte rufen Sie uns an")
+        website_zaehler[slug] = fenster + [jetzt]
+        ziel = "/" if website.konfig(m).get("domain") and request.headers.get("host", "").split(":")[0] != "localhost" and "/web/" not in str(request.headers.get("referer", "/web/")) else f"/web/{slug}"
+        try:
+            website.anfrage(s, m, form, app.state.uhr())
+        except ValueError as e:
+            if "json" in (request.headers.get("accept") or ""):
+                raise HTTPException(422, str(e)) from e
+            s.rollback()
+            return HTMLResponse(website.startseite(s, m, False, False, str(e)), status_code=422)
+        s.commit()
+        if "json" in (request.headers.get("accept") or ""):
+            return {"status": "angenommen"}
+        return RedirectResponse(f"{ziel}?gesendet=1#kontakt", status_code=303)
+
+    # --- Upsell -----------------------------------------------------------------------------------
+    @app.get("/kunden/{kunde_id}/empfehlungen", dependencies=[Depends(recht("bearbeiten"))])
+    def kunde_empfehlungen(kunde_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        k = holen(s, Kunde, kunde_id, m)
+        empf = upsell.empfehlungen(s, m, k, app.state.uhr().date())
+        return {"kunde_id": k.id, "empfehlungen": empf, "potenzial": f"{upsell.potenzial(empf):.2f}"}
+
+    @app.get("/servicefaelle/{fall_id}/empfehlungen")
+    def fall_empfehlungen(fall_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        """Für den Monteur im Rapport: Empfehlungen zum Kunden des Vorgangs, passend zum Anliegen."""
+        f = holen(s, Servicefall, fall_id, m)
+        eigener_fall(p, s, m, f)
+        empf = upsell.empfehlungen(s, m, f.kunde, app.state.uhr().date(), f)
+        return {"kunde_id": f.kunde_id, "empfehlungen": empf, "potenzial": f"{upsell.potenzial(empf):.2f}"}
+
+    @app.post("/kunden/{kunde_id}/empfehlungen/{schluessel}/angebot", status_code=201, dependencies=[Depends(recht("einsatz"))])
+    def empfehlung_angebot(kunde_id: str, schluessel: str, daten: UpsellAngebot, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                           p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        k = holen(s, Kunde, kunde_id, m)
+        if daten.servicefall_id:
+            eigener_fall(p, s, m, holen(s, Servicefall, daten.servicefall_id, m))
+        a = fachlich(lambda: upsell.angebot_erstellen(s, m, k, schluessel, app.state.uhr().date(), "mensch", p.name, daten.servicefall_id, daten.versenden and "bearbeiten" in p.rechte))
+        s.commit()
+        return {"angebot_id": a.id, "nummer": a.nummer, "brutto": a.brutto, "status": a.status, "versand_beantragt": bool(daten.versenden and "bearbeiten" in p.rechte)}
+
+    @app.post("/kunden/{kunde_id}/empfehlungen/wartungsvertrag/vertrag", status_code=201, dependencies=[Depends(recht("bearbeiten"))])
+    def empfehlung_vertrag(kunde_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        k = holen(s, Kunde, kunde_id, m)
+        v = fachlich(lambda: upsell.vertrag_erstellen(s, m, k, app.state.uhr().date(), p.name))
+        s.commit()
+        return {"vertrag_id": v.id, "preis_jahr_netto": v.preis_jahr_netto, "beginn": v.beginn.isoformat()}
+
+    @app.post("/kunden/{kunde_id}/empfehlungen/{schluessel}/ablehnen", dependencies=[Depends(recht("einsatz"))])
+    def empfehlung_ablehnen(kunde_id: str, schluessel: str, daten: UpsellAblehnung, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                            p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        k = holen(s, Kunde, kunde_id, m)
+        upsell.ablehnen(s, m, k, schluessel, daten.grund, "mensch", p.name)
+        s.commit()
+        return {"schluessel": schluessel, "unterdrueckt_tage": upsell.UNTERDRUECKUNG_TAGE}
+
+    @app.get("/upsell/uebersicht", dependencies=[Depends(recht("bearbeiten"))])
+    def upsell_uebersicht(limit: int = Query(30, le=200), m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        return upsell.uebersicht(s, m, app.state.uhr().date(), limit)
+
+    @app.get("/upsell/pakete")
+    def upsell_pakete(m: Mandant = Depends(mandant_kontext)) -> list[dict[str, Any]]:
+        return [vars(p) for p in upsell.pakete(branchen.branche(m))]
+
+    @app.post("/portal/faelle/{fall_id}/empfehlungen/{schluessel}/anfordern")
+    def portal_empfehlung_anfordern(fall_id: str, schluessel: str, token: str | None = None, s: Session = Depends(sitzung)) -> dict[str, Any]:
+        f, m = portal_fall(s, fall_id, token)
+        ergebnis = fachlich(lambda: upsell.anfordern(s, m, f, schluessel, app.state.uhr()))
+        s.commit()
+        return ergebnis
+
+    @app.post("/portal/faelle/{fall_id}/angebote/{angebot_id}/annehmen")
+    def portal_angebot_annehmen(fall_id: str, angebot_id: str, token: str | None = None, s: Session = Depends(sitzung)) -> dict[str, Any]:
+        """Kunde nimmt ein versendetes Angebot im Portal an: Auftrag entsteht, Auftragsbestätigung geht als Freigabe B raus."""
+        f, m = portal_fall(s, fall_id, token)
+        a = s.get(Angebot, angebot_id)
+        if a is None or a.kunde_id != f.kunde_id or a.status != "versendet":
+            raise HTTPException(404, "Angebot nicht gefunden oder nicht mehr offen")
+        fall = fachlich(lambda: angebote.annehmen(s, m, a, app.state.uhr().date(), f.kunde.name))
+        portal._kommunikation(s, f, f"Kunde hat Angebot {a.nummer} ({a.brutto.replace('.', ',')} €) im Portal angenommen", app.state.uhr())
+        hinweises = hinweise.senden(s, m, "info", "Angebot im Portal angenommen", f"{f.kunde.name}: {a.nummer} über {a.brutto.replace('.', ',')} €", f"angenommen:{a.id}", "angebote")
+        s.commit()
+        return {"angebot": {"id": a.id, "nummer": a.nummer, "status": a.status}, "servicefall_id": fall.id, "hinweis": "Vielen Dank für Ihren Auftrag! Wir melden uns zur Terminabstimmung.", "benachrichtigt": hinweises}
 
     @app.get("/servicefaelle/{fall_id}/portal")
     def portal_link(fall_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:

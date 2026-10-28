@@ -109,6 +109,21 @@ Was nur Sie erledigen können, ist mit **(Sie)** markiert: Verträge, Konten, DN
 - Wiederherstellung mindestens quartalsweise auf einem Testserver üben und protokollieren (TOM).
 - Zusätzlich Snapshots des Anbieters aktivieren; sie ersetzen die Datenbanksicherung nicht.
 
+## Betriebswebsites unter eigener Domain
+
+Jeder Betrieb erhält unter `https://<SHK_DOMAIN>/web/<slug>` eine eigene Internetseite (Ansicht **Website**). Für eine eigene Domain
+des Betriebs (z. B. `mueller-haustechnik.de`):
+
+1. Der Betrieb trägt die Domain in der Ansicht Website ein; der Core kennt sie dann unter `GET /web/domain-pruefen?domain=…`.
+2. Der Betrieb (oder sein Domain-Anbieter) setzt einen `CNAME` von `www.mueller-haustechnik.de` auf `<SHK_DOMAIN>`; für die
+   nackte Domain einen `A`/`AAAA`-Eintrag auf die Server-IP (oder ALIAS/ANAME, falls der Anbieter das kann).
+3. Caddy stellt beim ersten Aufruf das Zertifikat aus (`on_demand_tls` mit `ask` gegen den Core, siehe `deploy/server/Caddyfile`);
+   nur eingetragene Domains bekommen ein Zertifikat. Der Core erkennt die Domain am `Host`-Kopf und liefert Startseite, Impressum,
+   Datenschutz, Sitemap, robots.txt und das Kontaktformular aus; alle anderen Pfade antworten mit 404.
+
+Impressum und Datenschutzerklärung entstehen aus den Stammdaten (Inhaber/in, Anschrift, USt-IdNr., Kammer-Zusatz) und sind
+**Entwürfe**, die vor Veröffentlichung juristisch geprüft gehören (§ 5 DDG, Art. 13 DSGVO, § 36 VSBG).
+
 ## Sicherheit im Überblick
 
 | Ebene | Maßnahme |

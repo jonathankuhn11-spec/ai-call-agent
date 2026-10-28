@@ -34,6 +34,13 @@
     return `<div class="karte"><h2>Wie zufrieden waren Sie?</h2><div class="sterne" id="sterne">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-stern="${n}" aria-label="${n} von 5 Sternen">★</button>`).join("")}</div>
       <textarea id="bewertung-text" rows="2" placeholder="Was lief gut, was können wir besser machen? (optional)"></textarea><div class="aktionen"><button id="bewertung-senden" disabled>Bewertung senden</button></div><div id="bewertung-meldung"></div></div>`;
   }
+  function empfehlungen(d) {
+    if (!d.empfehlungen || !d.empfehlungen.length) return "";
+    return `<div class="karte"><h2>Für Sie empfohlen</h2><p><small>Passend zu Ihren Anlagen und zur Jahreszeit. Unverbindlich: Sie erhalten erst ein Angebot, das Sie in Ruhe prüfen.</small></p>
+      ${d.empfehlungen.map((e) => `<div class="termin" data-empfehlung="${esc(e.schluessel)}"><div><strong>${esc(e.titel)}</strong><br><small>${esc(e.text)}</small></div>
+        <div class="aktionen">${e.preis_brutto ? `<span class="status">${esc(EURO.format(Number(e.preis_brutto)))}</span>` : ""}<button class="leise" data-anfordern="${esc(e.schluessel)}">${e.aktion === "angebot" ? "Angebot anfordern" : "Beratung anfragen"}</button></div></div>`).join("")}
+      <div id="empfehlung-meldung"></div></div>`;
+  }
   function haus(d) {
     if (!d.haus || !d.haus.anlagen.length) return "";
     const nurFahrzeuge = d.haus.anlagen.every((a) => a.typ === "Fahrzeug");
@@ -53,7 +60,8 @@
     const b = d.betrieb;
     main.innerHTML = `<header><h1>${esc(b.name)}</h1><p>Guten Tag ${esc(d.kunde.name)}, hier sehen Sie Ihren Vorgang „${esc(d.vorgang.anliegen)}“.</p></header>
       ${verlauf(d)}${termine(d)}
-      ${d.angebote.length ? `<div class="karte"><h2>Angebote</h2><table>${d.angebote.map((a) => `<tr><td>${esc(a.nummer)} · ${esc(a.titel)}<br><small>gültig bis ${esc(DATUM.format(new Date(a.gueltig_bis)))}${a.status === "angenommen" ? " · angenommen" : ""}</small></td><td>${esc(EURO.format(a.brutto))}<br><a class="knopf leise" href="${basis}/angebote/${esc(a.id)}.pdf${q}" target="_blank" rel="noopener">PDF</a></td></tr>`).join("")}</table></div>` : ""}
+      ${d.angebote.length ? `<div class="karte"><h2>Angebote</h2><table>${d.angebote.map((a) => `<tr><td>${esc(a.nummer)} · ${esc(a.titel)}<br><small>gültig bis ${esc(DATUM.format(new Date(a.gueltig_bis)))}${a.status === "angenommen" ? " · angenommen, vielen Dank" : a.status === "versendet" ? " · wartet auf Ihre Entscheidung" : ""}</small></td><td>${esc(EURO.format(a.brutto))}<br><div class="aktionen"><a class="knopf leise" href="${basis}/angebote/${esc(a.id)}.pdf${q}" target="_blank" rel="noopener">PDF</a>${a.status === "versendet" ? `<button data-annehmen="${esc(a.id)}">Angebot annehmen</button>` : ""}</div></td></tr>`).join("")}</table><div id="angebot-meldung"></div></div>` : ""}
+      ${empfehlungen(d)}
       ${rechnungen(d)}${bewertung(d)}${haus(d)}
       <div class="karte"><h2>Kontakt</h2><p>${esc(b.name)}${b.strasse ? `, ${esc(b.strasse)}, ${esc(b.plz || "")} ${esc(b.ort || "")}` : ""}</p><div class="aktionen">${b.telefon ? `<a class="knopf" href="tel:${esc(b.telefon)}">Anrufen</a>` : ""}${b.email ? `<a class="knopf leise" href="mailto:${esc(b.email)}">E-Mail schreiben</a>` : ""}</div></div>
       <footer>${b.impressum_url ? `<a href="${esc(b.impressum_url)}">Impressum</a> · ` : ""}${b.datenschutz_url ? `<a href="${esc(b.datenschutz_url)}">Datenschutz</a> · ` : ""}Diese Seite zeigt nur diesen Vorgang. Geben Sie den Link nicht weiter.</footer>`;
@@ -79,6 +87,22 @@
         await laden(); document.getElementById("meldung").innerHTML = `<div class="hinweis">${esc(d2.hinweis)}</div>`;
       }));
     });
+    main.querySelectorAll("[data-anfordern]").forEach((k) => k.addEventListener("click", async () => {
+      const m = document.getElementById("empfehlung-meldung"); k.disabled = true;
+      const r2 = await fetch(`${basis}/empfehlungen/${encodeURIComponent(k.dataset.anfordern)}/anfordern${q}`, { method: "POST" });
+      const d2 = await r2.json().catch(() => ({}));
+      if (!r2.ok) { m.innerHTML = `<div class="fehler">${esc(d2.detail || "Das hat nicht geklappt. Bitte rufen Sie uns an.")}</div>`; k.disabled = false; return; }
+      await laden(); document.getElementById("empfehlung-meldung")?.insertAdjacentHTML("beforeend", `<div class="hinweis">${esc(d2.hinweis)}</div>`);
+      if (!document.getElementById("empfehlung-meldung")) document.getElementById("angebot-meldung")?.insertAdjacentHTML("beforeend", `<div class="hinweis">${esc(d2.hinweis)}</div>`);
+    }));
+    main.querySelectorAll("[data-annehmen]").forEach((k) => k.addEventListener("click", async () => {
+      if (!confirm("Angebot verbindlich annehmen? Damit erteilen Sie den Auftrag.")) return;
+      const m = document.getElementById("angebot-meldung"); k.disabled = true;
+      const r2 = await fetch(`${basis}/angebote/${encodeURIComponent(k.dataset.annehmen)}/annehmen${q}`, { method: "POST" });
+      const d2 = await r2.json().catch(() => ({}));
+      if (!r2.ok) { m.innerHTML = `<div class="fehler">${esc(d2.detail || "Das hat nicht geklappt. Bitte rufen Sie uns an.")}</div>`; k.disabled = false; return; }
+      await laden(); document.getElementById("angebot-meldung")?.insertAdjacentHTML("beforeend", `<div class="hinweis">${esc(d2.hinweis)}</div>`);
+    }));
     document.querySelectorAll("#sterne button").forEach((k) => k.addEventListener("click", () => {
       sterneWahl = Number(k.dataset.stern);
       document.querySelectorAll("#sterne button").forEach((x) => x.classList.toggle("an", Number(x.dataset.stern) <= sterneWahl));

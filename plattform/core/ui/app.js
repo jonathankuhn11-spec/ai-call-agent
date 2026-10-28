@@ -142,7 +142,7 @@ $("#abmelden").addEventListener("click", () => abmelden());
 const ANSICHTEN = { einrichtung: einrichtungAnsicht, cockpit, anruf, freigaben, vorgaenge, plantafel, kunden, wartung, ontologie, rechnungen, protokoll, einstellungen,
   einsatz: einsatzAnsicht, belege: belegeAnsicht, zeiten: zeitenAnsicht, betrieb: betriebAnsicht, angebote: angeboteAnsicht,
   forderungen: forderungenAnsicht, vertraege: vertraegeAnsicht, anfragen: anfragenAnsicht, auswertungen: auswertungenAnsicht, lager: lagerAnsicht, gutscheine: gutscheineAnsicht,
-  warteliste: wartelisteAnsicht, dienstplan: dienstplanAnsicht };
+  warteliste: wartelisteAnsicht, dienstplan: dienstplanAnsicht, website: websiteAnsicht, upsell: upsellAnsicht };
 async function zeigen() {
   if (!speicher("mandant")) return anmelden();
   $("#mandant-name").textContent = speicher("mandantName") || "";
@@ -227,6 +227,7 @@ async function cockpit(ziel) {
   const dringend = [...notfaelle, ...hoch].filter((f) => ["eingegangen", "qualifiziert"].includes(f.status));
   const kachel = (wert, bez) => `<div class="karte kachel"><div class="wert">${esc(wert ?? "–")}</div><div class="bez">${esc(bez)}</div></div>`;
   const einr = ICH?.rechte?.includes("verwalten") ? await api("/betrieb/einrichtung").catch(() => null) : null;
+  const ups = ICH?.rechte?.includes("bearbeiten") ? await api("/upsell/uebersicht?limit=1").catch(() => null) : null;
   ziel.innerHTML = `
     <h1>Cockpit</h1><p class="unterzeile">Digital Twin des Betriebs · letzte ${k.zeitraum_tage} Tage</p>
     ${einr && !einr.fertig ? `<a class="karte banner klickbar" href="#einrichtung"><div><strong>Einrichtung: ${einr.erledigt} von ${einr.pflicht} Schritten erledigt</strong><div class="balken"><span style="width:${Math.round(einr.fortschritt * 100)}%"></span></div>
@@ -241,6 +242,7 @@ async function cockpit(ziel) {
       ${kachel(z.wartungspotenzial.length, "Wartungen fällig")}
       ${kachel(k.outbox_tot, "Zustellfehler (Dead Letter)")}
       <a class="karte kachel klickbar" href="#kunden/unvollstaendig"><div class="wert">${esc(voll.vollstaendig)} / ${esc(voll.kunden)}</div><div class="bez">Kundendaten vollständig</div></a>
+      ${ups ? `<a class="karte kachel klickbar" href="#upsell"><div class="wert">${esc(EURO.format(Number(ups.potenzial)))}</div><div class="bez">Zusatzpotenzial bei ${esc(ups.kunden_mit_empfehlung)} Kunden</div></a>` : ""}
     </div>
     <div class="raster raster-karte">
       <div class="karte"><h2>Wo sind die Kunden</h2><p class="unterzeile" style="margin-bottom:10px">${karte.kunden.length} Kunden mit Koordinaten${karte.ohne_koordinaten.length ? `, ${karte.ohne_koordinaten.length} ohne (<a href="#kunden/unvollstaendig">geokodieren</a>)` : ""} · Klick auf einen Punkt öffnet den Kunden</p><div id="c-karte"></div></div>
@@ -760,6 +762,7 @@ async function kundeDetail(id) {
   }
   kundeDokumente(wurzel, id);
   if (BRANCHE?.begriffe?.anlagen !== false) kundeLebenszyklus(wurzel, id, anlagen);
+  kundeEmpfehlungen(wurzel, id);
 }
 
 // --- Wartungsplanung -------------------------------------------------------------------------
@@ -1084,6 +1087,7 @@ async function fallErgaenzungen(wurzel, id) {
   teil.querySelectorAll("[data-rpdf]").forEach((b) => b.addEventListener("click", () => dateiLaden(`/rapporte/${b.dataset.rpdf}/pdf`, `${b.dataset.nr}.pdf`)));
   teil.querySelectorAll("[data-bild]").forEach(async (img) => { img.src = await bildUrl(img.dataset.bild); });
   teil.querySelector("[data-rapport-neu]")?.addEventListener("click", () => rapportFormular(id, null, null));
+  fallEmpfehlungen(wurzel, id);
   if (wir.rechte.includes("finanzen")) {
     try {
       const k = await api(`/servicefaelle/${id}/kalkulation`);
@@ -1824,4 +1828,117 @@ async function einrichtungAnsicht(ziel) {
   };
   $("#ei-pruefen").addEventListener("click", () => importieren(true));
   $("#ei").addEventListener("submit", (ev) => { ev.preventDefault(); importieren(false); });
+}
+
+// --- Runde 8: Betriebswebsite -----------------------------------------------------------------
+const WEBSITE_BEREICHE = [["leistungen", "Leistungen"], ["preise", "Preise (Leistungskatalog mit Preisen)"], ["buchung", "Online-Terminbuchung"], ["bewertungen", "Kundenstimmen"], ["team", "Team"], ["notdienst", "Notdienst-Leiste"], ["anfahrt", "Anfahrt und Einzugsgebiet"], ["kontakt", "Kontaktformular"]];
+async function websiteAnsicht(ziel) {
+  const st = await api("/betrieb/website");
+  const k = st.konfig, darf = ICH?.rechte?.includes("verwalten");
+  const feld = (name, bez, typ = "text", extra = "") => `<label>${esc(bez)} <input name="${name}" type="${typ}" value="${esc(k[name] ?? "")}" ${darf ? "" : "disabled"} ${extra}></label>`;
+  ziel.innerHTML = `<h1>Website</h1><p class="unterzeile">Eigene Internetseite des Betriebs aus den Stammdaten: Leistungen, Online-Buchung, Kundenstimmen, Notdienst, Kontaktformular mit Übernahme in die Anfragen. Serverseitig gerendert, ohne Cookies und ohne Fremdskripte.</p>
+    <div class="kacheln">
+      <div class="karte kachel"><div class="wert">${k.aktiv ? tag("online", "aktuell") : tag("nicht veröffentlicht", "offen")}</div><div class="bez">${esc(st.url)}</div></div>
+      <div class="karte kachel"><div class="wert">${esc(st.leistungen)}</div><div class="bez">Leistungen auf der Seite</div></div>
+      <div class="karte kachel"><div class="wert">${st.bewertungen.durchschnitt ?? "–"}</div><div class="bez">Ø aus ${esc(st.bewertungen.anzahl)} Bewertungen</div></div>
+      <div class="karte kachel"><div class="wert">${st.buchung ? "ja" : "nein"}</div><div class="bez">Online-Buchung aktiv</div></div>
+    </div>
+    ${st.fehlend.length ? `<div class="karte banner"><div><strong>Noch unvollständig:</strong> ${st.fehlend.map(esc).join(", ")}. Anschrift, Telefon, E-Mail und Inhaber/in pflegen Sie unter <a href="#einstellungen">Einstellungen</a>; Claim und „Über uns“ hier.</div></div>` : ""}
+    <div class="raster">
+      <form id="ws" class="karte"><h2>Inhalte und Gestaltung</h2>
+        <label>Adresse der Seite (Slug) <input name="slug" value="${esc(k.slug ?? "")}" pattern="[a-z0-9-]{3,60}" ${darf ? "" : "disabled"}><small>${esc(st.url)}</small></label>
+        ${feld("domain", "Eigene Domain (optional, z. B. mueller-haustechnik.de)")}
+        <small class="unterzeile">${esc(st.domain_hinweis)}</small>
+        ${feld("claim", "Claim (eine Zeile unter dem Namen)")}
+        <label>Über uns <textarea name="ueber_uns" rows="4" ${darf ? "" : "disabled"}>${esc(k.ueber_uns ?? "")}</textarea></label>
+        ${feld("einzugsgebiet", "Einzugsgebiet (z. B. Köln, Pulheim, Frechen)")}${feld("oeffnungszeiten", "Öffnungszeiten")}
+        ${feld("notdienst_telefon", "Notdienst-Rufnummer", "tel")}${feld("notdienst_text", "Notdienst-Text")}
+        <div class="raster"><label>Akzentfarbe <input name="farbe" type="color" value="${esc(k.farbe)}" ${darf ? "" : "disabled"}></label>
+          <label>Kundenstimmen ab Sternen <input name="bewertungen_min_sterne" type="number" min="1" max="5" value="${esc(k.bewertungen_min_sterne)}" ${darf ? "" : "disabled"}></label></div>
+        ${feld("logo_url", "Logo (https://…)", "url")}${feld("bild_url", "Titelbild (https://…)", "url")}
+        <label>Zusatz im Impressum (Kammer, Aufsicht, Berufsbezeichnung) <textarea name="impressum_zusatz" rows="2" ${darf ? "" : "disabled"}>${esc(k.impressum_zusatz ?? "")}</textarea></label>
+        <h3>Bereiche</h3><div class="raster">${WEBSITE_BEREICHE.map(([s, b]) => `<label><span><input type="checkbox" name="bereiche.${s}" ${k.bereiche?.[s] ? "checked" : ""} ${darf ? "" : "disabled"}> ${esc(b)}</span></label>`).join("")}</div>
+        <label style="margin-top:10px"><span><input type="checkbox" name="aktiv" ${k.aktiv ? "checked" : ""} ${darf ? "" : "disabled"}> <strong>Website veröffentlichen</strong> (vorher Impressum und Datenschutzerklärung in der Vorschau prüfen; die Texte sind Entwürfe)</span></label>
+        ${darf ? `<div class="aktionen" style="margin-top:12px"><button type="submit">Speichern</button><a class="knopf leise" href="${esc(st.vorschau)}" target="_blank" rel="noopener">Vorschau öffnen</a>${k.aktiv ? `<a class="knopf leise" href="${esc(st.url)}" target="_blank" rel="noopener">Live-Seite</a>` : ""}</div>` : ""}
+      </form>
+      <div>
+        <div class="karte" style="margin-bottom:16px"><h2>Vorschau</h2><iframe id="ws-vorschau" src="${esc(st.vorschau)}" title="Vorschau der Website" style="width:100%;height:520px;border:1px solid var(--linie);border-radius:8px;background:#fff"></iframe></div>
+        <div class="karte"><h2>Kundenstimmen freigeben</h2><p class="unterzeile">Texte erscheinen erst nach Freigabe und nur ab ${esc(k.bewertungen_min_sterne)} Sternen; der Durchschnitt zählt alle Bewertungen. Namen werden gekürzt (Datenminimierung).</p>
+          ${st.bewertungen.texte.length ? `<table><tbody>${st.bewertungen.texte.map((b) => `<tr><td>${"★".repeat(b.sterne || 0)}${"☆".repeat(5 - (b.sterne || 0))}<br><small>${esc(b.name)} · ${esc(b.zeit)}</small></td><td>${esc(b.text)}</td><td style="text-align:right">${darf ? `<button class="leise" data-bewertung="${esc(b.id)}" data-wert="${b.veroeffentlicht ? "0" : "1"}">${b.veroeffentlicht ? "Zurückziehen" : "Veröffentlichen"}</button>` : (b.veroeffentlicht ? tag("öffentlich", "aktuell") : tag("intern", "neutral"))}</td></tr>`).join("")}</tbody></table>` : "<p>Noch keine Bewertungstexte. Kunden bewerten nach dem Einsatz im Kundenportal.</p>"}</div>
+      </div>
+    </div>`;
+  $("#ws", ziel).addEventListener("submit", async (ev) => {
+    ev.preventDefault(); const daten = { bereiche: {} };
+    for (const [key, v] of new FormData(ev.target).entries()) { if (key.startsWith("bereiche.")) daten.bereiche[key.slice(9)] = true; else daten[key] = v === "" ? null : v; }
+    for (const [s] of WEBSITE_BEREICHE) if (!(s in daten.bereiche)) daten.bereiche[s] = false;
+    daten.aktiv = ev.target.aktiv.checked; daten.bewertungen_min_sterne = Number(daten.bewertungen_min_sterne || 4);
+    try { await api("/betrieb/website", { methode: "PUT", daten }); melden("Website gespeichert", "ok"); websiteAnsicht(ziel); } catch (e) { melden(e.message); }
+  });
+  ziel.querySelectorAll("[data-bewertung]").forEach((b) => b.addEventListener("click", async () => {
+    try { await api(`/bewertungen/${b.dataset.bewertung}/veroeffentlichen`, { methode: "POST", daten: { veroeffentlicht: b.dataset.wert === "1" } }); websiteAnsicht(ziel); } catch (e) { melden(e.message); }
+  }));
+}
+
+// --- Runde 8: Upsell / Empfehlungen ----------------------------------------------------------
+const EMPFEHLUNG_ART = { erneuerung: "Erneuerung", risiko: "Ausfallrisiko", foerderung: "Förderung", vertrag: "Wartungsvertrag", paket: "Paket", wiederkehr: "Wiederkehr" };
+function empfehlungZeile(e, kundeId, fallId) {
+  const preis = e.preis_brutto ? EURO.format(Number(e.preis_brutto)) : "nach Beratung";
+  const knoepfe = [];
+  if (e.aktion === "vertrag") knoepfe.push(`<button class="leise" data-emp="vertrag" data-kunde="${esc(kundeId)}" data-schluessel="${esc(e.schluessel)}">Vertrag anlegen</button>`);
+  if (e.positionen?.length) knoepfe.push(`<button data-emp="angebot" data-kunde="${esc(kundeId)}" data-schluessel="${esc(e.schluessel)}" data-fall="${esc(fallId || "")}">Angebot erstellen</button>`);
+  knoepfe.push(`<button class="leise" data-emp="ablehnen" data-kunde="${esc(kundeId)}" data-schluessel="${esc(e.schluessel)}" title="180 Tage nicht mehr vorschlagen">Kein Bedarf</button>`);
+  return `<tr><td>${tag(EMPFEHLUNG_ART[e.art] || e.art, e.prioritaet >= 3 ? "ueberfaellig" : e.prioritaet === 2 ? "offen" : "neutral")}</td><td><strong>${esc(e.titel)}</strong><br><small>${esc(e.begruendung)}</small></td><td style="text-align:right;white-space:nowrap">${esc(preis)}${e.dauer_minuten ? `<br><small>${e.dauer_minuten} min</small>` : ""}</td><td><div class="aktionen">${knoepfe.join("")}</div></td></tr>`;
+}
+function empfehlungenBinden(wurzel, neuLaden) {
+  wurzel.querySelectorAll("[data-emp]").forEach((b) => b.addEventListener("click", async () => {
+    const { emp, kunde, schluessel, fall } = b.dataset; b.disabled = true;
+    try {
+      if (emp === "angebot") {
+        const senden = ICH?.rechte?.includes("bearbeiten") && confirm("Angebot gleich zum Versand freigeben lassen? (Abbrechen = nur Entwurf)");
+        const a = await api(`/kunden/${kunde}/empfehlungen/${encodeURIComponent(schluessel)}/angebot`, { methode: "POST", daten: { servicefall_id: fall || null, versenden: !!senden } });
+        melden(`Angebot ${a.nummer} über ${EURO.format(Number(a.brutto))} erstellt${senden ? ", Versand in der Freigabe-Inbox" : " (Entwurf unter Angebote)"}`, "ok");
+      } else if (emp === "vertrag") {
+        const v = await api(`/kunden/${kunde}/empfehlungen/wartungsvertrag/vertrag`, { methode: "POST", daten: {} });
+        melden(`Wartungsvertrag ${v.nummer || ""} angelegt`, "ok");
+      } else {
+        await api(`/kunden/${kunde}/empfehlungen/${encodeURIComponent(schluessel)}/ablehnen`, { methode: "POST", daten: { grund: null } });
+        melden("Für 180 Tage ausgeblendet", "ok");
+      }
+      neuLaden();
+    } catch (e) { melden(e.message); b.disabled = false; }
+  }));
+}
+async function kundeEmpfehlungen(wurzel, id) {
+  const wir = await ich(); if (!wir.rechte.includes("bearbeiten")) return;
+  const d = await api(`/kunden/${id}/empfehlungen`).catch(() => null); if (!d) return;
+  const teil = document.createElement("div");
+  teil.innerHTML = `<h3 style="margin-top:16px">Empfehlungen <small>· Potenzial ${esc(EURO.format(Number(d.potenzial)))}</small></h3>
+    ${d.empfehlungen.length ? `<table><tbody>${d.empfehlungen.map((e) => empfehlungZeile(e, id)).join("")}</tbody></table>` : "<p>Derzeit keine Empfehlung: Anlagen aktuell, Wartungsvertrag vorhanden oder Vorschläge in den letzten 180 Tagen abgelehnt.</p>"}`;
+  $("#kd-formular", wurzel).before(teil);
+  empfehlungenBinden(teil, () => kundeDetail(id));
+}
+async function fallEmpfehlungen(wurzel, fallId) {
+  const wir = await ich(); if (!wir.rechte.includes("einsatz")) return;
+  const d = await api(`/servicefaelle/${fallId}/empfehlungen`).catch(() => null); if (!d || !d.empfehlungen.length) return;
+  const teil = document.createElement("div");
+  teil.innerHTML = `<h3 style="margin-top:16px">Vor Ort anbieten</h3><p class="unterzeile">Aus Anlagenalter, Erneuerungskalender, Anliegen und Saison; ein Klick erzeugt das Angebot.</p><table><tbody>${d.empfehlungen.slice(0, 4).map((e) => empfehlungZeile(e, d.kunde_id, fallId)).join("")}</tbody></table>`;
+  wurzel.append(teil);
+  empfehlungenBinden(teil, () => fallDetail(fallId));
+}
+async function upsellAnsicht(ziel) {
+  const [u, pakete] = await Promise.all([api("/upsell/uebersicht?limit=40"), api("/upsell/pakete")]);
+  const l = u.letzte_90_tage;
+  ziel.innerHTML = `<h1>Empfehlungen und Zusatzgeschäft</h1><p class="unterzeile">Was dem Betrieb je Kunde fachlich sinnvoll zu bieten hat: Erneuerungen aus dem Lebenszyklus, Ausfallrisiko, Heizungstausch mit Förderung, Wartungsvertrag, Saisonpakete, Folgetermine. Vorschläge erscheinen im Kundendetail, im Rapport, im Kundenportal und beim Anruf; die Tagesaufgabe erinnert Kunden mit Einwilligung höchstens alle 180 Tage.</p>
+    <div class="kacheln">
+      ${[[EURO.format(Number(u.potenzial)), "Potenzial brutto (offene Empfehlungen)"], [u.kunden_mit_empfehlung, "Kunden mit Empfehlung"], [l.angeboten, "angeboten (90 Tage)"], [l.angenommen, "angenommen (90 Tage)"], [l.quote == null ? "–" : `${Math.round(l.quote * 100)} %`, "Annahmequote"], [EURO.format(Number(l.umsatz_angenommen)), "Umsatz aus Empfehlungen"]].map(([w, b]) => `<div class="karte kachel"><div class="wert">${esc(w)}</div><div class="bez">${esc(b)}</div></div>`).join("")}
+    </div>
+    <div class="raster">
+      <div class="karte"><h2>Kunden mit dem größten Potenzial</h2>${u.kunden.length ? `<table><thead><tr><th></th><th>Kunde</th><th>Vorschläge</th><th style="text-align:right">Potenzial</th></tr></thead><tbody>${u.kunden.map((k) => `<tr class="klickbar" data-kunde="${esc(k.kunde_id)}"><td>${tag(k.prioritaet >= 3 ? "dringend" : k.prioritaet === 2 ? "sinnvoll" : "optional", k.prioritaet >= 3 ? "ueberfaellig" : k.prioritaet === 2 ? "offen" : "neutral")}</td><td>${esc(k.name)}<br><small>${esc(k.ort || "")}</small></td><td><small>${k.top.map((t) => esc(t.titel || t)).join(" · ")}${k.anzahl > 3 ? ` · +${k.anzahl - 3}` : ""}</small></td><td style="text-align:right">${esc(EURO.format(Number(k.potenzial)))}</td></tr>`).join("")}</tbody></table>` : "<p>Keine offenen Empfehlungen.</p>"}</div>
+      <div>
+        <div class="karte" style="margin-bottom:16px"><h2>Letzte 90 Tage je Art</h2><table><tbody>${Object.entries(l.je_art || {}).map(([a, n]) => `<tr><td>${esc(EMPFEHLUNG_ART[a] || a)}</td><td style="text-align:right">${esc(n)}</td></tr>`).join("") || "<tr><td>Noch nichts angeboten.</td></tr>"}</tbody></table></div>
+        <div class="karte"><h2>Pakete der Branche ${esc(BRANCHE?.bezeichnung || "")}</h2><p class="unterzeile">Festpreise brutto; Saisonpakete erscheinen nur in ihren Monaten oder bei passendem Anliegen. Preise lassen sich im Artikelstamm überschreiben.</p>
+          <table><tbody>${pakete.map((p) => `<tr><td><strong>${esc(p.bezeichnung)}</strong><br><small>${esc(p.beschreibung)}</small></td><td style="text-align:right;white-space:nowrap">${p.preis_brutto === "0.00" ? "Beratung" : esc(EURO.format(Number(p.preis_brutto)))}${p.monate?.length ? `<br><small>Monate ${p.monate.join(", ")}</small>` : ""}</td></tr>`).join("")}</tbody></table></div>
+      </div>
+    </div>`;
+  ziel.querySelectorAll("[data-kunde]").forEach((z) => z.addEventListener("click", () => kundeDetail(z.dataset.kunde)));
 }

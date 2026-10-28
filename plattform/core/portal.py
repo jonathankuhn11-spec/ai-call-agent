@@ -67,9 +67,25 @@ def daten(s: Session, m: Mandant, f: Servicefall, jetzt: datetime | None = None)
             "zahlung": {"iban": st.get("iban"), "bic": st.get("bic"), "kontoinhaber": st.get("kontoinhaber") or m.name} if st.get("iban") else None,
             "verlauf": verlauf(s, m, f, jetzt or datetime.now(ZEITZONE)),
             "alternativen_moeglich": f.status in ("eingegangen", "qualifiziert", "eingeplant") and not any(t.status == "bestaetigt" for t in f.termine),
+            "empfehlungen": _empfehlungen(s, m, f, jetzt),
             "bewertung": bewertung_lesen(s, f),
             "bewertung_moeglich": f.status in ("durchgefuehrt", "abgerechnet", "uebergeben"),
             "haus": _haus(s, m, f)}
+
+
+def _empfehlungen(s: Session, m: Mandant, f: Servicefall, jetzt: datetime | None) -> list[dict[str, Any]]:
+    """„Für Sie empfohlen“: höchstens drei Empfehlungen mit Preis, die der Kunde per Klick als Angebot anfordern kann."""
+    from core import upsell  # späte Einbindung (upsell nutzt portal._kommunikation)
+    heute = als_utc(jetzt or datetime.now(ZEITZONE)).date()
+    aus = []
+    for e in upsell.empfehlungen(s, m, f.kunde, heute, f):
+        if e["art"] in ("risiko",):   # Ausfallrisiko bespricht der Betrieb persönlich
+            continue
+        aus.append({"schluessel": e["schluessel"], "titel": e["titel"], "text": e["begruendung"], "preis_brutto": e["preis_brutto"], "art": e["art"],
+                    "aktion": "angebot" if e["positionen"] else "beratung"})
+        if len(aus) == 3:
+            break
+    return aus
 
 
 SCHRITTE = (("eingegangen", "Anfrage eingegangen"), ("geplant", "Termin geplant"), ("unterwegs", "Wir sind unterwegs"),
