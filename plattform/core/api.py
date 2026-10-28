@@ -29,7 +29,12 @@ from fastapi import (
     Response,
     UploadFile,
 )
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    PlainTextResponse,
+    RedirectResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from schwifty import IBAN
@@ -79,8 +84,12 @@ from core import (
     website,
     zaehler,
 )
+from core import integrationen as hub
 from core.adapter import ERLAUBT, ZIELE, konfiguration_pruefen
 from core.adapter import datev as datev_api
+from core.adapter import stripe as stripe_api
+from core.adapter import whatsapp as whatsapp_api
+from core.adapter.basis import AdapterFehler
 from core.auth import Abgewiesen, Authentifizierung, Prinzipal
 from core.db import Datenbank, mandant_binden
 from core.disposition import (
@@ -109,6 +118,7 @@ from core.modelle import (
     Bereitschaft,
     Dienst,
     Ereignis,
+    ExternalRef,
     Freigabe,
     Frist,
     Kommunikation,
@@ -201,6 +211,7 @@ class Einwilligungen(_Schema):
     sms: bool | None = None
     kontakt: bool | None = None
     bewertung: bool | None = None
+    whatsapp: bool | None = None
     gesundheitsdaten: bool | None = None   # Art. 9 Abs. 2 lit. a DSGVO: Kartei mit Allergien, Kontraindikationen, Befunden
 
 
@@ -473,6 +484,7 @@ class Stammdaten(_Schema):
     kontoinhaber: str | None = None    # Name auf dem GiroCode, Standard Betriebsname
     basis_url: str | None = None       # öffentliche Adresse der Plattform (Portal-Links, Push-Links, DATEV-Rückruf)
     ids_shop_url: str | None = None    # IDS-Connect-Einstiegsadresse des Großhändlers (Warenkorbübergabe)
+    whatsapp_nummer: str | None = None # Rufnummer des WhatsApp-Business-Kontos (Klick-zum-Chat auf Website und Portal)
     absage_frist_stunden: int = Field(24, ge=0, le=168)  # Portal: kürzere Absagen nur telefonisch
     impressum_url: str | None = None
     datenschutz_url: str | None = None
@@ -515,6 +527,8 @@ class Integration(_Schema):
     belegtransfer: dict[str, Any] = {}
     ntfy: dict[str, Any] = {}
     datev: dict[str, Any] = {}
+    whatsapp: dict[str, Any] = {}
+    stripe: dict[str, Any] = {}
 
 
 class LagerBuchung(_Schema):
@@ -658,6 +672,7 @@ class WebsiteEinstellungen(_Schema):
     bereiche: dict[str, bool] | None = None
     bewertungen_min_sterne: int | None = Field(None, ge=1, le=5)
     leistungen_text: dict[str, str] | None = None
+    faq: list[dict[str, str]] | None = None
 
 
 class BewertungVeroeffentlichen(_Schema):
@@ -1062,6 +1077,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     app.state.router = None     # routing.Router; Tests setzen Router(None) (Luftlinie)
     app.state.metriken = metriken.Metriken(system_db.sitzungen, uhr)
     app.state.datev_transport = None  # Tests: httpx.MockTransport für den DATEV-Login
+    app.state.adapter_zusatz = {}     # Tests: {"transport": httpx.MockTransport(...)} für Verbindungstests und Webhooks
 
     domain_cache: dict[str, tuple[float, str | None]] = {}
 
@@ -1720,7 +1736,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
             raise HTTPException(404, "Unbekanntes Ziel")
         bisher = m.integrationen.get(ziel) or {}
         neu: dict[str, Any] = {"kanaele": daten.kanaele}
-        for typ in ("email", "sms", "webhook", "lexware", "sevdesk", "belegpaket", "belegtransfer", "ntfy", "datev"):
+        for typ in ("email", "sms", "webhook", "lexware", "sevdesk", "belegpaket", "belegtransfer", "ntfy", "datev", "whatsapp", "stripe"):
             konfig = dict(getattr(daten, typ))
             for feld in GEHEIME_FELDER:  # maskierte oder leere Geheimnisse behalten den gespeicherten Wert
                 if konfig.get(feld) in ("", "••••", None) and (bisher.get(typ) or {}).get(feld):
@@ -1733,6 +1749,88 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         m.integrationen = {**m.integrationen, ziel: neu}
         s.commit()
         return {"ziel": ziel, "kanaele": neu["kanaele"]}
+
+
+    # --- Integrations-Hub: Zustand, Verbindungstests, eingehende Webhooks (Runde 9) ----------------------
+    @app.get("/integrationen/status", dependencies=[Depends(recht("verwalten"))])
+    def integrationen_status(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        dienste = {"voice": bool(os.environ.get("LIVEKIT_URL")), "routing": bool(m.stammdaten.get("routing_url") or os.environ.get("ROUTING_URL")) or None,
+                   "geocoder": app.state.geocoder is not None or bool(os.environ.get("GEOCODER_URL")) or None, "oidc": app.state.auth.oidc is not None,
+                   "scanner": bool(os.environ.get("SCAN_IMAP_HOST") or os.environ.get("SCAN_EINGANGSORDNER")) or None, "grosshandel": bool(m.stammdaten.get("ids_shop_url"))}
+        return hub.status(s, m, app.state.uhr(), dienste)
+
+    @app.post("/integrationen/{ziel}/{typ}/pruefen", dependencies=[Depends(recht("verwalten"))])
+    def integration_pruefen(ziel: str, typ: str, m: Mandant = Depends(mandant_kontext)) -> dict[str, Any]:
+        if ziel not in ZIELE:
+            raise HTTPException(404, "Unbekanntes Ziel")
+        return fachlich(lambda: hub.verbindung_pruefen(m, ziel, typ, app.state.adapter_zusatz))
+
+    @app.get("/integrationen/whatsapp/webhook", include_in_schema=False)
+    def whatsapp_webhook_pruefung(request: Request, s: Session = Depends(system_sitzung)) -> Response:
+        """Meta prüft den Webhook einmalig mit hub.verify_token; gültig ist das verify_token irgendeines Betriebs."""
+        q = request.query_params
+        if q.get("hub.mode") != "subscribe" or not q.get("hub.challenge"):
+            raise HTTPException(400, "Ungültige Prüfanfrage")
+        if hub.mandant_nach_feld(s, "endkunde", "whatsapp", "verify_token", q.get("hub.verify_token", "")) is None:
+            raise HTTPException(403, "verify_token unbekannt")
+        return PlainTextResponse(q["hub.challenge"])
+
+    @app.post("/integrationen/whatsapp/webhook", include_in_schema=False)
+    async def whatsapp_webhook(request: Request, s: Session = Depends(system_sitzung)) -> dict[str, Any]:
+        """Eingehende Kundennachrichten: offener Vorgang → Kommunikation und Hinweis; sonst neue Anfrage (Kanal whatsapp).
+        Idempotent je Nachrichten-ID; der Betrieb ergibt sich aus der phone_number_id."""
+        try:
+            daten = await request.json()
+        except ValueError:
+            raise HTTPException(400, "Kein JSON")
+        verarbeitet = 0
+        jetzt = app.state.uhr()
+        for n in whatsapp_api.eingang_lesen(daten if isinstance(daten, dict) else {}):
+            m = hub.mandant_nach_feld(s, "endkunde", "whatsapp", "phone_number_id", n.get("phone_number_id") or "")
+            if m is None or not n.get("id"):
+                continue
+            mandant_binden(s, m.id)
+            externe_id = f"wa:{n['id']}"
+            if s.scalar(select(Anfrage).where(Anfrage.mandant_id == m.id, Anfrage.externe_id == externe_id)) or \
+               s.scalar(select(Kommunikation).where(Kommunikation.mandant_id == m.id, Kommunikation.extraktion["externe_id"].as_string() == externe_id)):
+                continue
+            telefon = "+" + n["von"] if n.get("von") else None
+            kunde = anfragen._kunde_finden(s, m, anfragen.telefon_normalisieren(telefon), None) if telefon else None
+            offen = s.scalar(select(Servicefall).where(Servicefall.kunde_id == kunde.id, Servicefall.status.notin_(("durchgefuehrt", "abgerechnet", "uebergeben", "storniert")))
+                             .order_by(Servicefall.erstellt.desc())) if kunde else None
+            if offen is not None:
+                s.add(Kommunikation(mandant_id=m.id, kunde_id=kunde.id, servicefall_id=offen.id, kanal="whatsapp", richtung="eingehend", zusammenfassung=n["text"][:2000],
+                                    extraktion={"externe_id": externe_id, "von": n.get("von")}, zeit=jetzt))
+                hinweise.senden(s, m, "info", "WhatsApp-Nachricht", f"{kunde.name}: {n['text'][:160]}", externe_id, f"vorgaenge/{offen.id}")
+            else:
+                anfragen.anfrage_verarbeiten(s, m, "whatsapp", externe_id, n.get("name"), telefon, None, "WhatsApp", n["text"], jetzt)
+            verarbeitet += 1
+        s.commit()
+        return {"verarbeitet": verarbeitet}
+
+    @app.post("/integrationen/stripe/webhook", include_in_schema=False)
+    async def stripe_webhook(request: Request, s: Session = Depends(system_sitzung)) -> dict[str, Any]:
+        """checkout.session.completed → Zahlung auf die Rechnung; Signatur mit dem webhook_secret des Betriebs, idempotent je Session."""
+        body = await request.body()
+        ev = stripe_api.ereignis_lesen(body)
+        if ev is None:
+            return {"ok": True, "ignoriert": True}
+        treffer = hub.mandant_nach_referenz(s, "stripe", ev["session_id"] or "")
+        if treffer is None:
+            raise HTTPException(404, "Session unbekannt")
+        m, ref = treffer
+        geheim = hub.konfig_lesen(m, "zahlung", "stripe").get("webhook_secret") or ""
+        if not stripe_api.signatur_pruefen(body, request.headers.get("stripe-signature"), geheim, app.state.uhr().timestamp()):
+            raise HTTPException(400, "Signatur ungültig")
+        mandant_binden(s, m.id)
+        r = s.get(Rechnung, ref.entitaet_id)
+        if r is None:
+            raise HTTPException(404, "Rechnung unbekannt")
+        if s.scalar(select(Zahlung).where(Zahlung.rechnung_id == r.id, Zahlung.referenz == ev["session_id"])) is None and r.status != "bezahlt":
+            forderungen.zahlung_buchen(s, m, r, ev["betrag"], app.state.uhr().date(), "online", ev["session_id"], "stripe", "Stripe")
+            hinweise.senden(s, m, "info", "Online bezahlt", f"Rechnung {r.nummer} über {r.brutto.replace('.', ',')} € wurde im Portal bezahlt.", f"stripe:{ev['session_id']}", "rechnungen")
+        s.commit()
+        return {"ok": True, "rechnung": r.nummer, "status": r.status}
 
     @app.get("/rechnungen", response_model=list[RechnungAus], dependencies=[Depends(recht("finanzen"))])
     def rechnungen(status: str | None = None, limit: int = Query(200, le=2000), m: Mandant = Depends(mandant_kontext),
@@ -2829,6 +2927,34 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         if a is None or a.servicefall_id != f.id or a.status not in ("versendet", "angenommen"):
             raise HTTPException(404, "Angebot nicht gefunden")
         return Response(angebote.pdf(a, m), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{a.nummer}.pdf"'})
+
+    @app.post("/portal/faelle/{fall_id}/rechnungen/{rechnung_id}/zahlung")
+    def portal_zahlung(fall_id: str, rechnung_id: str, request: Request, token: str | None = None, s: Session = Depends(sitzung)) -> dict[str, Any]:
+        """Stripe-Checkout für eine offene Rechnung; Erfolg führt zurück ins Portal (?bezahlt=1), der Webhook bucht die Zahlung."""
+        f, m = portal_fall(s, fall_id, token)
+        r = s.get(Rechnung, rechnung_id)
+        if r is None or r.servicefall_id != f.id or r.art != "rechnung":
+            raise HTTPException(404, "Rechnung nicht gefunden")
+        if r.status in ("bezahlt", "storniert"):
+            raise HTTPException(409, "Diese Rechnung ist bereits bezahlt oder storniert")
+        adapter = hub.adapter_fuer(m, "zahlung", "stripe", app.state.adapter_zusatz)
+        if adapter is None:
+            raise HTTPException(409, "Online-Zahlung ist für diesen Betrieb nicht eingerichtet")
+        zurueck = portal.link(m, f.id) or f"{str(request.base_url).rstrip('/')}/portal/#{f.id}/{token}"
+        def erzeugen():
+            try:
+                return adapter.checkout(r, m, zurueck.replace("/portal/#", "/portal/?bezahlt=1#"), zurueck, f.kunde.email)
+            except (AdapterFehler, KeyError) as e:
+                raise domaene.Domaenenfehler(f"Zahlungsdienst nicht erreichbar: {e}")
+        sess = fachlich(erzeugen)
+        ref = s.scalar(select(ExternalRef).where(ExternalRef.mandant_id == m.id, ExternalRef.entitaet == "rechnung", ExternalRef.entitaet_id == r.id, ExternalRef.zielsystem == "stripe"))
+        if ref is None:
+            s.add(ExternalRef(mandant_id=m.id, entitaet="rechnung", entitaet_id=r.id, zielsystem="stripe", externe_id=sess["id"]))
+        else:
+            ref.externe_id, ref.letzter_sync = sess["id"], app.state.uhr()
+        domaene.protokollieren(s, m.id, "rechnung.zahlung_gestartet", "rechnung", r.id, "system", {"nummer": r.nummer, "session": sess["id"]}, f.kunde.name)
+        s.commit()
+        return {"url": sess["url"]}
 
     @app.get("/portal/faelle/{fall_id}/rechnungen/{rechnung_id}.pdf")
     def portal_rechnung_pdf(fall_id: str, rechnung_id: str, token: str | None = None, s: Session = Depends(sitzung)) -> Response:

@@ -109,6 +109,18 @@ Was nur Sie erledigen können, ist mit **(Sie)** markiert: Verträge, Konten, DN
 - Wiederherstellung mindestens quartalsweise auf einem Testserver üben und protokollieren (TOM).
 - Zusätzlich Snapshots des Anbieters aktivieren; sie ersetzen die Datenbanksicherung nicht.
 
+## Eingehende Webhooks (WhatsApp, Stripe)
+
+Beide Adressen sind öffentlich erreichbar (keine Anmeldung), prüfen aber jede Anfrage: WhatsApp per Verify-Token des Betriebs
+und `phone_number_id`, Stripe per HMAC-Signatur (`Stripe-Signature`, 5 Minuten Toleranz) und bekannter Checkout-Session.
+
+| Dienst | Adresse | Einrichtung |
+| --- | --- | --- |
+| WhatsApp Business (Meta Cloud API) | `https://<SHK_DOMAIN>/integrationen/whatsapp/webhook` | Meta App → WhatsApp → Konfiguration → Webhook-URL und Verify-Token (wie in der Ansicht Integrationen gespeichert), Feld `messages` abonnieren; Vorlagen für Terminbestätigung bei Meta freigeben lassen |
+| Stripe Checkout | `https://<SHK_DOMAIN>/integrationen/stripe/webhook` | Stripe Dashboard → Entwickler → Webhooks → Ereignis `checkout.session.completed`; Signaturschlüssel `whsec_…` in der Ansicht Integrationen eintragen |
+
+Die Caddyfile lässt beide Pfade durch (sie liegen nicht unter `/docs`); auf einer eigenen Betriebsdomain sind sie nicht erreichbar.
+
 ## Betriebswebsites unter eigener Domain
 
 Jeder Betrieb erhält unter `https://<SHK_DOMAIN>/web/<slug>` eine eigene Internetseite (Ansicht **Website**). Für eine eigene Domain

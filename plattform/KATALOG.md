@@ -24,6 +24,8 @@ vorbereitet · `Referenz` = geprüfte Alternative für eine spätere Entscheidun
 | schwifty | MIT | IBAN/BIC-Prüfung, Bankname | aktiv (Stammdaten, GiroCode) | Abhängigkeit pycountry (LGPL, unverändert) |
 | phonenumbers | Apache-2.0 | Rufnummern parsen und prüfen (libphonenumber) | aktiv (`core/regeln.py`) | internationale Nummern, Gültigkeit für die Vollständigkeitsprüfung |
 | ntfy | Apache-2.0 | Push-Hinweise auf das Telefon (selbst gehostet oder ntfy.sh) | aktiv (`core/adapter/ntfy.py`, Profil `push`) | Notdienst, Klasse C, Dead-Letter; Gotify (MIT) als Alternative |
+| WhatsApp Business Cloud API (Meta) | proprietärer Dienst, Nutzungsbedingungen Meta; kein Fremdcode | Terminbestätigung, Nachrichten, Rückkanal der Kunden | aktiv (`core/adapter/whatsapp.py`, Webhook) | nur mit Einwilligung; Vorlagen müssen von Meta freigegeben sein; Gesprächsgebühren je 24-h-Fenster; Klick-zum-Chat (`wa.me`) auf Website und Portal ohne Skripte von Meta |
+| Stripe Checkout | proprietärer Zahlungsdienst (PCI-DSS beim Anbieter); kein SDK, zwei HTTP-Aufrufe | Online-Zahlung von Rechnungen im Kundenportal | aktiv (`core/adapter/stripe.py`, Webhook) | Gebühren je Zahlung; Zahlungsdaten erreichen die Plattform nie; Alternativen mit gleichem Aufbau: Mollie (NL), Adyen, PayPal Checkout |
 | prometheus-client, Prometheus, Alertmanager | Apache-2.0 | Metriken und Alarmierung | aktiv (`core/metriken.py`, Profil `monitoring`) | Grafana (AGPL) bewusst außen vor; Prometheus-Oberfläche reicht für den Pilot |
 | owlrl | W3C | RDFS/OWL-RL-Inferenz auf rdflib-Graphen | aktiv (SPARQL mit `inferenz`) | materialisiert Unterklassen vor der Abfrage |
 | Pipecat | BSD-2-Clause | alternatives Voice-Framework | Referenz | gleichwertig, stärker auf Daily/Twilio-Transport ausgerichtet |

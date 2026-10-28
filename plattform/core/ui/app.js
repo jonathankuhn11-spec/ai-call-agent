@@ -142,7 +142,7 @@ $("#abmelden").addEventListener("click", () => abmelden());
 const ANSICHTEN = { einrichtung: einrichtungAnsicht, cockpit, anruf, freigaben, vorgaenge, plantafel, kunden, wartung, ontologie, rechnungen, protokoll, einstellungen,
   einsatz: einsatzAnsicht, belege: belegeAnsicht, zeiten: zeitenAnsicht, betrieb: betriebAnsicht, angebote: angeboteAnsicht,
   forderungen: forderungenAnsicht, vertraege: vertraegeAnsicht, anfragen: anfragenAnsicht, auswertungen: auswertungenAnsicht, lager: lagerAnsicht, gutscheine: gutscheineAnsicht,
-  warteliste: wartelisteAnsicht, dienstplan: dienstplanAnsicht, website: websiteAnsicht, upsell: upsellAnsicht };
+  warteliste: wartelisteAnsicht, dienstplan: dienstplanAnsicht, website: websiteAnsicht, upsell: upsellAnsicht, integrationen: integrationenAnsicht };
 async function zeigen() {
   if (!speicher("mandant")) return anmelden();
   $("#mandant-name").textContent = speicher("mandantName") || "";
@@ -669,7 +669,7 @@ async function kunden(ziel) {
   await laden();
 }
 const KUNDE_FELDER = [["name", "Name"], ["telefon", "Rufnummer"], ["email", "E-Mail"], ["strasse", "Straße und Hausnummer"], ["plz", "PLZ"], ["ort", "Ort"], ["lat", "Breitengrad (optional, sonst Geokodierung)"], ["lon", "Längengrad"]];
-const EINWILLIGUNGEN = [["email", "E-Mail (Terminbestätigung, Angebote, Rechnungen)"], ["sms", "SMS (Terminerinnerung)"], ["kontakt", "telefonische Kontaktaufnahme durch den Betrieb"], ["aufzeichnung", "Gesprächsaufzeichnung durch den Sprachagenten"], ["bewertung", "Bewertungsanfrage nach dem Einsatz"], ["gesundheitsdaten", "Gesundheitsdaten in der Kartei (Allergien, Kontraindikationen, Befunde; Art. 9 DSGVO)"]];
+const EINWILLIGUNGEN = [["email", "E-Mail (Terminbestätigung, Angebote, Rechnungen)"], ["sms", "SMS (Terminerinnerung)"], ["whatsapp", "WhatsApp (Terminbestätigung, Nachrichten)"], ["kontakt", "telefonische Kontaktaufnahme durch den Betrieb"], ["aufzeichnung", "Gesprächsaufzeichnung durch den Sprachagenten"], ["bewertung", "Bewertungsanfrage nach dem Einsatz"], ["gesundheitsdaten", "Gesundheitsdaten in der Kartei (Allergien, Kontraindikationen, Befunde; Art. 9 DSGVO)"]];
 function kundeFormular(kunde, danach) {
   const k = kunde || {};
   const wurzel = detail(`<h2>${kunde ? "Kunde bearbeiten" : "Kunde anlegen"}</h2><form id="kf"><div class="raster">
@@ -855,7 +855,7 @@ async function rechnungen(ziel) {
 const FELDER_STAMM = [["inhaber", "Inhaber/in"], ["strasse", "Straße"], ["plz", "PLZ"], ["ort", "Ort"], ["telefon", "Telefon"], ["email", "E-Mail"],
   ["ust_id", "USt-IdNr."], ["steuernummer", "Steuernummer"], ["handwerksrolle", "Handwerksrolle"], ["iban", "IBAN"], ["bic", "BIC"], ["bank", "Bank"],
   ["zahlungsziel_tage", "Zahlungsziel (Tage)"], ["rechnungsnummer_praefix", "Rechnungsnummer-Präfix"], ["rechnungshinweis", "Hinweis auf der Rechnung"],
-  ["kontenrahmen", "Kontenrahmen (SKR03/SKR04)"], ["datev_beraternummer", "DATEV Beraternummer"], ["datev_mandantennummer", "DATEV Mandantennummer"], ["kanzlei_email", "E-Mail der Kanzlei"],
+  ["kontenrahmen", "Kontenrahmen (SKR03/SKR04)"], ["datev_beraternummer", "DATEV Beraternummer"], ["datev_mandantennummer", "DATEV Mandantennummer"], ["kanzlei_email", "E-Mail der Kanzlei"], ["whatsapp_nummer", "WhatsApp-Nummer (Klick-zum-Chat auf Website und Portal)"],
   ["stundensatz_kosten", "Stundensatz intern (€/h, Nachkalkulation)"], ["stundensatz_verrechnung", "Stundensatz Verrechnung (€/h)"], ["materialaufschlag_prozent", "Materialaufschlag (%)"],
   ["angebotsnummer_praefix", "Angebotsnummer-Präfix"], ["angebot_gueltig_tage", "Angebote gültig (Tage)"], ["mahn_karenz_tage", "Karenz nach Fälligkeit (Tage)"], ["mahn_frist_tage", "Zahlungsfrist je Mahnstufe (Tage)"],
   ["mahngebuehr_stufe2", "Mahngebühr Stufe 2 (€)"], ["mahngebuehr_stufe3", "Mahngebühr Stufe 3 (€)"], ["bewertungslink", "Bewertungslink (Google/ProvenExpert, Anfrage nach erledigtem Rapport)"], ["basis_url", "Öffentliche Adresse der Plattform (Formular, Kundenportal, Push-Links, DATEV-Rückruf)"],
@@ -869,7 +869,10 @@ const ANBINDUNGEN = {
     typen: { webhook: [["url", "Webhook-URL"], ["signatur_schluessel", "Signaturschlüssel (HMAC)", true], ["api_key", "Bearer-Token (optional)", true]], csv: [] } },
   endkunde: { titel: "Kundenkommunikation", hinweis: "Terminbestätigung, Nachrichten, Rechnungen. Reihenfolge: E-Mail, dann SMS (nur mit Einwilligung).",
     typen: { email: [["absender", "Absenderadresse"], ["host", "SMTP-Server"], ["port", "Port (587 STARTTLS / 465 SMTPS)"], ["benutzer", "SMTP-Benutzer"], ["passwort", "SMTP-Passwort", true], ["antwort_an", "Antwort an (optional)"]],
-      sms: [["api_key", "seven.io API-Key", true], ["absender", "Absenderkennung (max. 11 Zeichen)"]], csv: [] } },
+      sms: [["api_key", "seven.io API-Key", true], ["absender", "Absenderkennung (max. 11 Zeichen)"]],
+      whatsapp: [["phone_number_id", "Phone-Number-ID (Meta Business)"], ["token", "Zugriffstoken (System-User)", true], ["verify_token", "Verify-Token für den Webhook", true], ["vorlage_termin", "Vorlage Terminbestätigung (Template-Name, optional)"], ["vorlage_nachricht", "Vorlage Nachricht (optional)"], ["sprache", "Sprache der Vorlagen (de)"]], csv: [] } },
+  zahlung: { titel: "Online-Zahlung im Kundenportal", hinweis: "Stripe Checkout: Kunden bezahlen Rechnungen per Karte, Apple/Google Pay oder SEPA-Lastschrift; der Zahlungseingang wird über den Webhook automatisch gebucht. Stripe-Konto des Betriebs nötig; Webhook-Ereignis checkout.session.completed auf /integrationen/stripe/webhook.",
+    typen: { stripe: [["secret_key", "Secret Key (sk_live_… / sk_test_…)", true], ["webhook_secret", "Webhook-Signaturschlüssel (whsec_…)", true], ["zahlungsarten", "Zahlungsarten (optional, z. B. card,sepa_debit)"]] } },
   finanz: { titel: "Buchhaltung", hinweis: "Rechnungen und Stornos als Entwurf in die Buchhaltungssoftware; geprüfte Eingangsbelege landen dort im Belegeingang (Lexware Office: Files-API, sevDesk: Beleg-Entwurf, DATEV: Belegbilderservice nach Unternehmen online), kontiert wird im Zielsystem. DATEV: nach dem Speichern unten „DATEV verbinden“ (Anmeldung mit DATEV-Login).",
     typen: { lexware: [["api_key", "Lexware Office API-Key", true]], sevdesk: [["api_token", "sevDesk API-Token", true]], datev: [["client_id", "DATEV Client-ID (Developer Portal)"], ["client_secret", "DATEV Client-Secret", true], ["berater_nr", "Beraternummer"], ["mandant_nr", "Mandantennummer"], ["umgebung", "Umgebung (sandbox | produktion)"], ["rechnungsdaten", "XRechnung zusätzlich an den Rechnungsdatenservice (true/false)"]], csv: [] } },
   kanzlei: { titel: "Steuerkanzlei", hinweis: "Monatliches Belegpaket (PDF, XRechnung, Debitorenliste, DATEV-Buchungsstapel) per E-Mail oder als Datei. Einzelne geprüfte Eingangsbelege zusätzlich sofort: in den DATEV-Belegtransfer-Ordner, per Upload-Mail oder direkt über die DATEV-Datenservices (datev: Belegbilder sofort, Buchungsstapel monatlich).",
@@ -1831,7 +1834,7 @@ async function einrichtungAnsicht(ziel) {
 }
 
 // --- Runde 8: Betriebswebsite -----------------------------------------------------------------
-const WEBSITE_BEREICHE = [["leistungen", "Leistungen"], ["preise", "Preise (Leistungskatalog mit Preisen)"], ["buchung", "Online-Terminbuchung"], ["bewertungen", "Kundenstimmen"], ["team", "Team"], ["notdienst", "Notdienst-Leiste"], ["anfahrt", "Anfahrt und Einzugsgebiet"], ["kontakt", "Kontaktformular"]];
+const WEBSITE_BEREICHE = [["leistungen", "Leistungen"], ["preise", "Preise (Leistungskatalog mit Preisen)"], ["buchung", "Online-Terminbuchung"], ["bewertungen", "Kundenstimmen"], ["team", "Team"], ["notdienst", "Notdienst-Leiste"], ["anfahrt", "Anfahrt und Einzugsgebiet"], ["ablauf", "So läuft es ab (3 Schritte)"], ["faq", "Häufige Fragen"], ["kontakt", "Kontaktformular und Kontaktwege"]];
 async function websiteAnsicht(ziel) {
   const st = await api("/betrieb/website");
   const k = st.konfig, darf = ICH?.rechte?.includes("verwalten");
@@ -1857,6 +1860,8 @@ async function websiteAnsicht(ziel) {
           <label>Kundenstimmen ab Sternen <input name="bewertungen_min_sterne" type="number" min="1" max="5" value="${esc(k.bewertungen_min_sterne)}" ${darf ? "" : "disabled"}></label></div>
         ${feld("logo_url", "Logo (https://…)", "url")}${feld("bild_url", "Titelbild (https://…)", "url")}
         <label>Zusatz im Impressum (Kammer, Aufsicht, Berufsbezeichnung) <textarea name="impressum_zusatz" rows="2" ${darf ? "" : "disabled"}>${esc(k.impressum_zusatz ?? "")}</textarea></label>
+        <label>Häufige Fragen (je Zeile <code>Frage? | Antwort</code>; leer = Standardfragen der Plattform) <textarea name="faq" rows="4" ${darf ? "" : "disabled"} placeholder="Arbeiten Sie auch samstags? | Ja, nach Vereinbarung.">${esc((k.faq || []).map((f) => `${f.frage} | ${f.antwort}`).join("\n"))}</textarea></label>
+        <small class="unterzeile">WhatsApp-Knopf und Kontaktwege erscheinen automatisch, sobald unter Einstellungen eine WhatsApp-Nummer, Telefon und E-Mail hinterlegt sind.</small>
         <h3>Bereiche</h3><div class="raster">${WEBSITE_BEREICHE.map(([s, b]) => `<label><span><input type="checkbox" name="bereiche.${s}" ${k.bereiche?.[s] ? "checked" : ""} ${darf ? "" : "disabled"}> ${esc(b)}</span></label>`).join("")}</div>
         <label style="margin-top:10px"><span><input type="checkbox" name="aktiv" ${k.aktiv ? "checked" : ""} ${darf ? "" : "disabled"}> <strong>Website veröffentlichen</strong> (vorher Impressum und Datenschutzerklärung in der Vorschau prüfen; die Texte sind Entwürfe)</span></label>
         ${darf ? `<div class="aktionen" style="margin-top:12px"><button type="submit">Speichern</button><a class="knopf leise" href="${esc(st.vorschau)}" target="_blank" rel="noopener">Vorschau öffnen</a>${k.aktiv ? `<a class="knopf leise" href="${esc(st.url)}" target="_blank" rel="noopener">Live-Seite</a>` : ""}</div>` : ""}
@@ -1872,6 +1877,7 @@ async function websiteAnsicht(ziel) {
     for (const [key, v] of new FormData(ev.target).entries()) { if (key.startsWith("bereiche.")) daten.bereiche[key.slice(9)] = true; else daten[key] = v === "" ? null : v; }
     for (const [s] of WEBSITE_BEREICHE) if (!(s in daten.bereiche)) daten.bereiche[s] = false;
     daten.aktiv = ev.target.aktiv.checked; daten.bewertungen_min_sterne = Number(daten.bewertungen_min_sterne || 4);
+    daten.faq = (ev.target.faq.value || "").split("\n").map((z) => z.split("|")).filter((p) => p.length >= 2).map(([frage, ...rest]) => ({ frage: frage.trim(), antwort: rest.join("|").trim() }));
     try { await api("/betrieb/website", { methode: "PUT", daten }); melden("Website gespeichert", "ok"); websiteAnsicht(ziel); } catch (e) { melden(e.message); }
   });
   ziel.querySelectorAll("[data-bewertung]").forEach((b) => b.addEventListener("click", async () => {
@@ -1941,4 +1947,56 @@ async function upsellAnsicht(ziel) {
       </div>
     </div>`;
   ziel.querySelectorAll("[data-kunde]").forEach((z) => z.addEventListener("click", () => kundeDetail(z.dataset.kunde)));
+}
+
+
+// --- Runde 9: Integrations-Hub -----------------------------------------------------------------
+const ZUSTAND_TEXT = { aktiv: ["aktiv", "aktuell"], gestoert: ["gestört", "ueberfaellig"], vorbereitet: ["eingerichtet, nicht aktiv", "offen"], aus: ["aus", "neutral"], unbekannt: ["nicht konfiguriert", "neutral"] };
+function anbindungFormular(ziel, a, e) {
+  const kanaele = e.kanaele || [];
+  return `<form data-ziel="${ziel}" class="anbindung">
+    ${Object.entries(a.typen).map(([typ, felder]) => `<div style="margin-bottom:10px"><label><span><input type="checkbox" name="kanal" value="${typ}" ${kanaele.includes(typ) ? "checked" : ""}> <strong>${esc(typ)}</strong></span></label>
+      ${felder.length ? `<div class="raster">${felder.map(([k, b, geheim]) => `<label>${esc(b)} <input name="${typ}.${k}" ${geheim ? 'type="password" autocomplete="new-password"' : ""} value="${esc((e[typ] || {})[k] ?? "")}"></label>`).join("")}</div>` : ""}</div>`).join("")}
+    <div class="aktionen"><span class="fehler" data-meldung hidden></span><button type="submit">Speichern</button></div></form>`;
+}
+function anbindungBinden(wurzel, danach) {
+  wurzel.querySelectorAll("form[data-ziel]").forEach((f) => f.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(f); const daten = { kanaele: fd.getAll("kanal") };
+    for (const [k, v] of fd.entries()) { if (!k.includes(".")) continue; const [typ, feld] = k.split("."); if (v !== "") (daten[typ] ||= {})[feld] = v; }
+    const meldung = f.querySelector("[data-meldung]"); meldung.hidden = true;
+    try { await api(`/integrationen/${f.dataset.ziel}`, { methode: "PUT", daten }); melden("Gespeichert", "ok"); danach?.(); }
+    catch (e) { meldung.className = "fehler"; meldung.textContent = e.message; meldung.hidden = false; }
+  }));
+}
+async function integrationenAnsicht(ziel) {
+  const [st, integ, betrieb] = await Promise.all([api("/integrationen/status"), api("/integrationen"), api("/betrieb")]);
+  const basis = (betrieb.stammdaten || {}).basis_url || location.origin;
+  const kategorien = [["kunde", "Kundenkommunikation und Zahlung"], ["finanzen", "Buchhaltung und Steuerkanzlei"], ["betrieb", "Fachsoftware und Hinweise"]];
+  const karte = (i) => {
+    const [text, klasse] = ZUSTAND_TEXT[i.zustand] || ZUSTAND_TEXT.unbekannt; const o = i.outbox;
+    return `<div class="karte integration" data-ziel="${esc(i.ziel)}" data-typ="${esc(i.typ)}"><div class="zeile" style="justify-content:space-between;align-items:flex-start"><h3 style="margin:0">${esc(i.bezeichnung)}</h3>${tag(text, klasse)}</div>
+      <p class="unterzeile">${esc(i.text)}</p>
+      ${o ? `<p><small>Outbox: ${o.zugestellt} zugestellt · ${o.ausstehend} ausstehend · ${o.tot} Dead Letter${o.letzter_fehler ? `<br><span class="fehler">Letzter Fehler: ${esc(o.letzter_fehler)}</span>` : ""}</small></p>` : ""}
+      ${i.reihenfolge ? `<p><small>Reihenfolge im Ziel „${esc(i.ziel)}“: ${i.reihenfolge}.</small></p>` : ""}
+      <div class="aktionen"><button class="leise" data-pruefen="${esc(i.ziel)}:${esc(i.typ)}" ${i.konfiguriert ? "" : "disabled"}>Verbindung prüfen</button><button class="leise" data-bearbeiten="${esc(i.ziel)}">Einrichten</button>${i.doku.startsWith("http") ? `<a href="${esc(i.doku)}" target="_blank" rel="noopener"><small>Anleitung ↗</small></a>` : `<small>${esc(i.doku)}</small>`}</div>
+      <div class="pruefung" hidden></div></div>`;
+  };
+  ziel.innerHTML = `<h1>Integrationen</h1><p class="unterzeile">${st.aktiv} Anbindungen aktiv${st.gestoert ? `, <strong class="fehler">${st.gestoert} gestört</strong>` : ""}. Zugangsdaten werden verschlüsselt gespeichert; „Verbindung prüfen“ ruft den Dienst mit den gespeicherten Daten auf. Kundenkanäle: ${st.kunde_kanaele.length ? esc(st.kunde_kanaele.join(" → ")) : "nur CSV (keine Kundenkommunikation!)"}.</p>
+    <div class="karte banner"><div><strong>Webhook-Adressen für eingehende Ereignisse</strong><br><small>WhatsApp (Meta App → Webhooks, Feld messages): <code>${esc(basis)}${esc(st.webhooks.whatsapp)}</code> · Stripe (Ereignis checkout.session.completed): <code>${esc(basis)}${esc(st.webhooks.stripe)}</code></small></div></div>
+    ${kategorien.map(([k, titel]) => `<h2 style="margin:18px 0 10px">${esc(titel)}</h2><div class="raster">${st.integrationen.filter((i) => i.kategorie === k).map(karte).join("")}</div>`).join("")}
+    <h2 style="margin:18px 0 10px">Systemdienste</h2><div class="raster">${st.dienste.map((d) => { const [text, klasse] = ZUSTAND_TEXT[d.zustand] || ZUSTAND_TEXT.unbekannt; return `<div class="karte"><div class="zeile" style="justify-content:space-between"><h3 style="margin:0">${esc(d.bezeichnung)}</h3>${tag(text, klasse)}</div><p class="unterzeile">${esc(d.text)} <small>(${esc(d.doku)})</small></p></div>`; }).join("")}</div>
+    <div id="int-formular"></div>`;
+  ziel.querySelectorAll("[data-pruefen]").forEach((b) => b.addEventListener("click", async () => {
+    const [z, typ] = b.dataset.pruefen.split(":"); const box = b.closest(".karte").querySelector(".pruefung"); b.disabled = true; box.hidden = false; box.innerHTML = "<small>Wird geprüft …</small>";
+    try { const r = await api(`/integrationen/${z}/${typ}/pruefen`, { methode: "POST", daten: {} }); box.innerHTML = `<div class="${r.ok ? "hinweis" : "fehler"}">${esc(r.meldung)}</div>`; }
+    catch (e) { box.innerHTML = `<div class="fehler">${esc(e.message)}</div>`; }
+    b.disabled = false;
+  }));
+  ziel.querySelectorAll("[data-bearbeiten]").forEach((b) => b.addEventListener("click", () => {
+    const z = b.dataset.bearbeiten; const a = ANBINDUNGEN[z]; if (!a) return;
+    const box = $("#int-formular", ziel);
+    box.innerHTML = `<div class="karte" style="margin-top:16px"><h2>${esc(a.titel)}</h2><p class="unterzeile">${esc(a.hinweis)}</p>${anbindungFormular(z, a, integ.ziele[z] || {})}</div>`;
+    anbindungBinden(box, () => integrationenAnsicht(ziel)); box.scrollIntoView({ behavior: "smooth" });
+  }));
 }

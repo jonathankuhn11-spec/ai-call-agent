@@ -43,8 +43,10 @@ def angebot(s: Session, m: Mandant) -> dict[str, Any]:
     b = branchen.branche(m)
     st = m.stammdaten or {}
     ressourcen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv, Ressource.art == "person").order_by(Ressource.name)).all()
+    from core.portal import whatsapp_link
     return {"betrieb": {"name": m.name, "telefon": st.get("telefon"), "strasse": st.get("strasse"), "plz": st.get("plz"), "ort": st.get("ort"),
-                        "impressum_url": st.get("impressum_url"), "datenschutz_url": st.get("datenschutz_url")},
+                        "impressum_url": st.get("impressum_url"), "datenschutz_url": st.get("datenschutz_url"), "farbe": (st.get("website") or {}).get("farbe"),
+                        "whatsapp": whatsapp_link(st.get("whatsapp_nummer"), f"Guten Tag, ich möchte einen Termin bei {m.name} vereinbaren.")},
             "branche": {"schluessel": b.schluessel, "bezeichnung": b.bezeichnung, "ressource": b.begriffe["ressource"], "hinweise": b.hinweise_kunde,
                         "adresse_noetig": bool(b.begriffe.get("anlagen"))},  # Handwerk: Einsatz beim Kunden, Adresse nötig
             "leistungen": [{"id": a.id, "nummer": a.nummer, "bezeichnung": a.bezeichnung, "dauer_minuten": a.dauer_minuten or 60, "qualifikation": a.qualifikation,

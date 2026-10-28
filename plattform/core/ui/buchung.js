@@ -18,7 +18,10 @@
 
   function zeichnen() {
     const a = zustand.angebot, b = a.betrieb;
-    main.innerHTML = `<header><h1>${esc(b.name)}</h1><p>Termin online buchen${b.telefon ? ` · oder telefonisch <a href="tel:${esc(b.telefon)}">${esc(b.telefon)}</a>` : ""}</p></header>
+    if (b.farbe) document.documentElement.style.setProperty("--akzent", b.farbe);
+    const stufe = zustand.zeit ? 3 : zustand.leistung ? 2 : 1;
+    const fortschritt = `<ol class="fortschritt" aria-label="Schritte">${[["Leistung", 1], ["Zeit", 2], ["Ihre Daten", 3]].map(([n, i]) => `<li class="${i < stufe ? "fertig" : i === stufe ? "aktiv" : ""}"><span>${i}</span>${n}</li>`).join("")}</ol>`;
+    main.innerHTML = `<header><h1>${esc(b.name)}</h1><p>Termin online buchen – in drei Schritten, ohne Konto.${b.telefon ? ` Lieber anrufen? <a href="tel:${esc(b.telefon)}">${esc(b.telefon)}</a>` : ""}${b.whatsapp ? ` · <a href="${esc(b.whatsapp)}" rel="noopener">WhatsApp</a>` : ""}</p></header>${fortschritt}
       <div class="karte"><div class="schritt">1. Leistung</div>
         ${a.leistungen.length ? a.leistungen.map((l) => `<button class="leistung${zustand.leistung && zustand.leistung.id === l.id ? " aktiv" : ""}" data-leistung="${esc(l.id)}">
           <span>${esc(l.bezeichnung)}<br><small>ca. ${esc(l.dauer_minuten)} Min.</small></span><strong>${esc(EURO.format(Number(l.preis_brutto)))}</strong></button>`).join("")
@@ -37,7 +40,9 @@
           <div class="honig" aria-hidden="true"><label for="website">Website</label><input id="website" name="website" tabindex="-1" autocomplete="off"></div>
           <div class="kreuz"><input type="checkbox" id="einwilligung_email"><label for="einwilligung_email">Ich möchte Terminbestätigung und Erinnerungen per E-Mail erhalten (jederzeit widerrufbar).</label></div>
           ${a.branche.hinweise.length ? `<div class="info" style="margin-top:10px">${a.branche.hinweise.map(esc).join("<br>")}</div>` : ""}
-          <button class="haupt" type="submit" id="senden">Termin buchen</button>
+          <div class="zusammenfassung" id="zusammenfassung">${zustand.leistung && zustand.zeit ? `<strong>Ihre Auswahl:</strong> ${esc(zustand.leistung.bezeichnung)} · ${esc(new Intl.DateTimeFormat("de-DE", { dateStyle: "full", timeStyle: "short" }).format(new Date(zustand.zeit.beginn)))} Uhr · ${esc(EURO.format(Number(zustand.leistung.preis_brutto)))}` : ""}</div>
+          <button class="haupt" type="submit" id="senden">Termin verbindlich buchen</button>
+          <p class="info" style="margin-top:8px">Kostenlos absagen bis zum Vortag über Ihre Terminseite. Keine Vorkasse.</p>
           <div id="meldung"></div>
         </form>
       </div>
@@ -64,7 +69,10 @@
       zustand.zeit = { beginn: k.dataset.beginn, ressource_id: k.dataset.ressource };
       ziel.querySelectorAll(".zeit").forEach((x) => x.classList.toggle("aktiv", x === k));
       document.getElementById("daten-karte").hidden = false;
-      document.getElementById("name").focus();
+      document.getElementById("zusammenfassung").innerHTML = `<strong>Ihre Auswahl:</strong> ${esc(zustand.leistung.bezeichnung)} · ${esc(new Intl.DateTimeFormat("de-DE", { dateStyle: "full", timeStyle: "short" }).format(new Date(zustand.zeit.beginn)))} Uhr · ${esc(EURO.format(Number(zustand.leistung.preis_brutto)))}`;
+      main.querySelectorAll(".fortschritt li").forEach((li, i) => { li.classList.toggle("fertig", i < 2); li.classList.toggle("aktiv", i === 2); });
+      document.getElementById("daten-karte").scrollIntoView({ behavior: "smooth", block: "start" });
+      document.getElementById("name").focus({ preventScroll: true });
     }));
   }
 
@@ -82,8 +90,9 @@
     const d = await r.json().catch(() => ({}));
     if (!r.ok) { knopf.disabled = false; m.innerHTML = `<div class="fehler">${esc(typeof d.detail === "string" ? d.detail : "Die Buchung hat nicht geklappt. Bitte rufen Sie uns an.")}</div>`; return; }
     const wann = new Intl.DateTimeFormat("de-DE", { dateStyle: "full", timeStyle: "short" }).format(new Date(d.beginn));
-    main.innerHTML = `<header><h1>${esc(zustand.angebot.betrieb.name)}</h1></header><div class="karte"><h2>Vielen Dank!</h2><p>${esc(zustand.leistung.bezeichnung)} am ${esc(wann)} Uhr.</p>
-      <div class="hinweis">${esc(d.hinweis)}</div><p style="margin-top:12px">Über <a href="${esc(d.portal)}">Ihre Terminseite</a> können Sie den Termin einsehen oder absagen.</p></div>`;
+    main.innerHTML = `<header><h1>${esc(zustand.angebot.betrieb.name)}</h1></header><div class="karte erfolg"><div class="haken" aria-hidden="true">✓</div><h2>Vielen Dank, Ihr Termin ist eingetragen!</h2><p><strong>${esc(zustand.leistung.bezeichnung)}</strong><br>${esc(wann)} Uhr</p>
+      <div class="hinweis">${esc(d.hinweis)}</div><p style="margin-top:12px">Auf <a href="${esc(d.portal)}">Ihrer Terminseite</a> sehen Sie jederzeit, wo Ihr Auftrag steht, können den Termin in den Kalender übernehmen oder absagen.</p>
+      <div class="aktionen" style="margin-top:12px"><a class="haupt" href="${esc(d.portal)}">Terminseite öffnen</a></div></div>`;
   }
   laden();
 })();

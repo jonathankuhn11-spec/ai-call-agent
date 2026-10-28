@@ -2,7 +2,8 @@
 
 Ziele der Outbox und ihre Standardbelegung:
   fachsoftware  webhook | csv (Standard)            Termine, Aufträge an openHandwerk, pds, n8n …
-  endkunde      email | sms | csv (Standard)        Terminbestätigung, Nachricht, Rechnung an den Kunden
+  endkunde      email | sms | whatsapp | csv (Standard)  Terminbestätigung, Nachricht, Rechnung an den Kunden
+  zahlung       stripe                             Online-Zahlung im Kundenportal (Checkout), kein Outbox-Ziel
   finanz        lexware | sevdesk | datev | csv (Standard)  Rechnung und Storno in die Buchhaltungssoftware bzw. als
                                                    Rechnungsausgang an DATEV Unternehmen online (Belegbilderservice)
   inhaber       ntfy | webhook                       Push-Hinweise (Notdienst, Klasse C, Dead Letter) an den Inhaber
@@ -29,7 +30,9 @@ from core.adapter.lexware import LexwareAdapter
 from core.adapter.ntfy import NtfyAdapter
 from core.adapter.sevdesk import SevdeskAdapter
 from core.adapter.sms import SmsAdapter
+from core.adapter.stripe import StripeAdapter
 from core.adapter.webhook import WebhookAdapter
+from core.adapter.whatsapp import WhatsAppAdapter
 from core.geheimnisse import konfiguration_entschluesseln
 from core.modelle import Mandant, OutboxEintrag
 from core.zustellung import Adapter, CsvAdapter
@@ -37,11 +40,13 @@ from core.zustellung import Adapter, CsvAdapter
 TYPEN: dict[str, Callable[[dict[str, Any]], Adapter]] = {
     "webhook": WebhookAdapter, "email": EmailAdapter, "sms": SmsAdapter, "lexware": LexwareAdapter,
     "sevdesk": SevdeskAdapter, "belegpaket": BelegpaketAdapter, "belegtransfer": BelegtransferAdapter, "ntfy": NtfyAdapter, "datev": DatevAdapter,
+    "whatsapp": WhatsAppAdapter, "stripe": StripeAdapter,
 }
-ZIELE = ("fachsoftware", "endkunde", "finanz", "kanzlei", "inhaber")
-STANDARD = {"fachsoftware": ["csv"], "endkunde": ["csv"], "finanz": ["csv"], "kanzlei": ["belegpaket"], "inhaber": ["csv"]}
-ERLAUBT = {"fachsoftware": {"webhook", "csv"}, "endkunde": {"email", "sms", "csv"}, "finanz": {"lexware", "sevdesk", "datev", "csv"},
-           "kanzlei": {"email", "belegpaket", "belegtransfer", "datev"}, "inhaber": {"ntfy", "webhook", "csv"}}
+MIT_TRANSPORT = ("webhook", "sms", "lexware", "sevdesk", "ntfy", "datev", "whatsapp", "stripe")
+ZIELE = ("fachsoftware", "endkunde", "finanz", "kanzlei", "inhaber", "zahlung")
+STANDARD = {"fachsoftware": ["csv"], "endkunde": ["csv"], "finanz": ["csv"], "kanzlei": ["belegpaket"], "inhaber": ["csv"], "zahlung": []}
+ERLAUBT = {"fachsoftware": {"webhook", "csv"}, "endkunde": {"email", "sms", "whatsapp", "csv"}, "finanz": {"lexware", "sevdesk", "datev", "csv"},
+           "kanzlei": {"email", "belegpaket", "belegtransfer", "datev"}, "inhaber": {"ntfy", "webhook", "csv"}, "zahlung": {"stripe"}}
 
 
 class Mehrkanal:
@@ -73,7 +78,7 @@ class Register:
             raise Konfigurationsfehler(f"Unbekannter Adaptertyp {typ!r}")
         konfig = konfiguration_entschluesseln(konfig)
         try:
-            return TYPEN[typ](konfig, **self.zusatz) if typ in ("webhook", "sms", "lexware", "sevdesk", "ntfy", "datev") else TYPEN[typ](konfig)
+            return TYPEN[typ](konfig, **self.zusatz) if typ in MIT_TRANSPORT else TYPEN[typ](konfig)
         except TypeError:
             return TYPEN[typ](konfig)
 
@@ -84,7 +89,7 @@ class Register:
         schluessel = (mandant_id, ziel, repr(sorted(einstellung.items())))
         if schluessel not in self.cache:
             adapter = [self.bauen(typ, einstellung.get(typ, einstellung if typ == einstellung.get("typ") else {})) for typ in kanaele]
-            self.cache[schluessel] = adapter[0] if len(adapter) == 1 else Mehrkanal(adapter)
+            self.cache[schluessel] = adapter[0] if len(adapter) == 1 else Mehrkanal(adapter)   # leere Liste: nichts zuständig
         return self.cache[schluessel]
 
     def __call__(self, s: Session, e: OutboxEintrag) -> Adapter:

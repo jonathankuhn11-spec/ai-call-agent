@@ -27,11 +27,22 @@ from core import anfragen, branchen, buchung, hinweise, portal
 from core.domaene import als_utc
 from core.modelle import Artikel, Ereignis, Mandant, Ressource
 
-BEREICHE = ("leistungen", "preise", "buchung", "bewertungen", "team", "notdienst", "anfahrt", "kontakt")
+BEREICHE = ("leistungen", "preise", "buchung", "bewertungen", "team", "notdienst", "anfahrt", "kontakt", "ablauf", "faq")
 STANDARD = {"aktiv": False, "slug": None, "domain": None, "claim": None, "ueber_uns": None, "farbe": "#1b6ec2", "logo_url": None, "bild_url": None,
             "oeffnungszeiten": "Mo–Fr 7:30–17:00 Uhr", "einzugsgebiet": None, "notdienst_telefon": None, "notdienst_text": "24 Stunden erreichbar, auch am Wochenende.",
-            "bereiche": {"leistungen": True, "preise": False, "buchung": True, "bewertungen": True, "team": False, "notdienst": True, "anfahrt": True, "kontakt": True},
-            "impressum_zusatz": None, "bewertungen_min_sterne": 4, "leistungen_text": {}}
+            "bereiche": {"leistungen": True, "preise": False, "buchung": True, "bewertungen": True, "team": False, "notdienst": True, "anfahrt": True, "kontakt": True, "ablauf": True, "faq": True},
+            "impressum_zusatz": None, "bewertungen_min_sterne": 4, "leistungen_text": {}, "faq": []}
+# Standardfragen, wenn der Betrieb keine eigenen pflegt; {ort}/{telefon} werden ersetzt
+FAQ_STANDARD = [
+    ("Wie schnell bekomme ich einen Termin?", "Notdienste am selben Tag, Wartungen meist innerhalb von zwei Wochen. Online sehen Sie freie Zeiten sofort und buchen mit zwei Klicks."),
+    ("Was kostet die Anfahrt?", "Die Anfahrt im Einzugsgebiet ist in unseren Pauschalen enthalten oder wird vorab genannt – keine versteckten Kosten."),
+    ("Bekomme ich vorher einen Festpreis?", "Für Wartungen und viele Standardarbeiten ja. Bei Reparaturen nennen wir nach der Diagnose den Preis, bevor wir weiterarbeiten."),
+    ("Wie kann ich bezahlen?", "Per Überweisung (QR-Code auf der Rechnung), online im Kundenportal oder nach Absprache vor Ort."),
+    ("Erinnern Sie mich an die nächste Wartung?", "Ja, auf Wunsch per E-Mail, SMS oder WhatsApp – Sie entscheiden, über welchen Weg."),
+]
+ABLAUF = [("Anfragen", "Online buchen, anrufen oder das Formular nutzen – auch außerhalb der Bürozeiten nimmt unser Telefonassistent Ihr Anliegen auf."),
+          ("Termin bestätigen", "Sie bekommen einen Terminvorschlag und sehen in Ihrem Kundenportal jederzeit, wo Ihr Auftrag steht."),
+          ("Erledigt und erklärt", "Wir arbeiten sauber, erklären, was gemacht wurde, und Sie erhalten Rapport und Rechnung digital.")]
 FARBE = re.compile(r"^#[0-9a-fA-F]{6}$")
 SLUG = re.compile(r"^[a-z0-9](?:[a-z0-9-]{1,58}[a-z0-9])?$")
 DOMAIN = re.compile(r"^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$")
@@ -81,6 +92,13 @@ def pruefen(daten: dict[str, Any], s: Session, m: Mandant) -> dict[str, Any]:
     for k, n in (("claim", 160), ("ueber_uns", 3000), ("oeffnungszeiten", 200), ("einzugsgebiet", 200), ("notdienst_telefon", 40), ("notdienst_text", 300), ("impressum_zusatz", 2000)):
         if k in daten:
             aus[k] = (daten[k] or "").strip()[:n] or None
+    if "faq" in daten:
+        faq = []
+        for e in (daten["faq"] or [])[:12]:
+            frage, antwort = (e.get("frage") or "").strip()[:200], (e.get("antwort") or "").strip()[:1000]
+            if frage and antwort:
+                faq.append({"frage": frage, "antwort": antwort})
+        aus["faq"] = faq
     for k in ("logo_url", "bild_url"):
         if k in daten:
             u = (daten[k] or "").strip()
@@ -182,6 +200,12 @@ def _brutto(a: Artikel) -> str:
     return f"{(Decimal(a.verkauf_netto) * (1 + Decimal(a.ust_satz) / 100)).quantize(Decimal('0.01')):.2f}".replace(".", ",")
 
 
+def _quali(schluessel: str) -> str:
+    from core.qualifikationen import QUALIFIKATIONEN
+    e = QUALIFIKATIONEN.get(schluessel)
+    return e[0].split(" (")[0] if e else schluessel.replace("_", " ").capitalize()
+
+
 def daten(s: Session, m: Mandant) -> dict[str, Any]:
     k, st, b = konfig(m), m.stammdaten or {}, branchen.branche(m)
     personen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv, Ressource.art == "person").order_by(Ressource.name)).all()
@@ -191,7 +215,8 @@ def daten(s: Session, m: Mandant) -> dict[str, Any]:
     if not leistungen:   # noch kein Leistungskatalog angelegt → Standardkatalog der Branche (ohne Preise)
         leistungen = [{"nummer": le.nummer, "bezeichnung": le.bezeichnung, "text": texte.get(le.nummer), "dauer": le.dauer_minuten, "preis": None} for le in b.leistungen]
     return {"konfig": k, "branche": b, "stammdaten": st, "leistungen": leistungen, "bewertungen": _bewertungen(s, m, k),
-            "team": [{"name": r.name.split(" (")[0], "qualifikationen": r.qualifikationen or []} for r in personen],
+            "team": [{"name": r.name.split(" (")[0], "qualifikationen": [_quali(q) for q in (r.qualifikationen or [])]} for r in personen],
+            "whatsapp": portal.whatsapp_link(st.get("whatsapp_nummer"), f"Guten Tag, ich habe eine Frage an {m.name}."),
             "buchung_pfad": f"/buchung/#{st['buchung_token']}" if st.get("buchung_token") and k["bereiche"]["buchung"] and b.online_buchung else None,
             "basis": basis(m)}
 
@@ -230,6 +255,12 @@ form.kontakt label.breit {{ grid-column: 1 / -1; }} form.kontakt input, form.kon
 .falle {{ position: absolute; left: -9999px; }}
 footer {{ border-top: 1px solid var(--rand); padding: 24px 0 40px; color: var(--leise); font-size: .9rem; }} footer a {{ color: var(--leise); }}
 .vorschau {{ background: #fff2e5; color: #b4541a; text-align: center; padding: 8px; font-size: .9rem; }}
+.skip {{ position: absolute; left: -9999px; }} .skip:focus {{ left: 12px; top: 12px; background: var(--karte); padding: 8px 12px; z-index: 10; }}
+a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible {{ outline: 3px solid color-mix(in srgb, var(--akzent) 60%, transparent); outline-offset: 2px; }}
+.schritte {{ display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); counter-reset: s; }}
+.schritte .karte {{ position: relative; padding-left: 64px; }} .schritte .karte::before {{ counter-increment: s; content: counter(s); position: absolute; left: 18px; top: 18px; width: 32px; height: 32px; border-radius: 50%; background: var(--akzent); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; }}
+details.faq {{ background: var(--karte); border: 1px solid var(--rand); border-radius: 12px; padding: 4px 16px; margin-bottom: 8px; }} details.faq summary {{ cursor: pointer; font-weight: 600; padding: 10px 0; }} details.faq p {{ margin: 0 0 12px; color: var(--leise); }}
+.knopf.wa {{ background: #25d366; border-color: #25d366; }} .kontaktwege {{ display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }}
 @media (max-width: 640px) {{ form.kontakt {{ grid-template-columns: 1fr; }} nav.haupt {{ display: none; }} }}
 """
 
@@ -245,6 +276,7 @@ def _kopf(d: dict[str, Any], titel: str, beschreibung: str, pfad_basis: str, jso
 <title>{_e(titel)}</title><meta name="description" content="{_e(beschreibung)}">{'<meta name="robots" content="noindex">' if noindex else ''}
 <meta property="og:title" content="{_e(titel)}"><meta property="og:description" content="{_e(beschreibung)}"><meta property="og:type" content="website"><meta property="og:url" content="{_e(d["basis"])}/">{f'<meta property="og:image" content="{_e(k["bild_url"])}">' if k.get("bild_url") else ''}
 <link rel="canonical" href="{_e(d["basis"])}/"><link rel="icon" href="data:,"><style>{_css(k["farbe"])}</style>{ld}</head><body>
+<a class="skip" href="#inhalt">Zum Inhalt springen</a>
 <header class="kopf"><div class="wrap"><a class="marke" href="{pfad_basis}">{logo}{_e(m_name)}</a><div><nav class="haupt" style="display:inline">{nav}</nav> {knopf}</div></div></header>"""
 
 
@@ -280,8 +312,9 @@ def startseite(s: Session, m: Mandant, gesendet: bool = False, vorschau: bool = 
     if vorschau or not k["aktiv"]:
         teile.append('<div class="vorschau">Vorschau – die Website ist noch nicht veröffentlicht (Ansicht „Website“ im Büro).</div>')
     aktionen = (f'<a class="knopf" href="{_e(d["buchung_pfad"])}">Online Termin buchen</a>' if d.get("buchung_pfad") else "") + \
-               (f'<a class="knopf leise" href="tel:{_e(st["telefon"])}">{_e(st["telefon"])}</a>' if st.get("telefon") else "") + f'<a class="knopf leise" href="{pfad}/#kontakt">Anfrage senden</a>'
-    teile.append(f'<section class="hero"><div class="wrap"><h1>{_e(m.name)}</h1><p class="claim">{_e(claim)}</p><div class="aktionen">{aktionen}</div>'
+               (f'<a class="knopf leise" href="tel:{_e(st["telefon"])}">{_e(st["telefon"])}</a>' if st.get("telefon") else "") + \
+               (f'<a class="knopf wa" href="{_e(d["whatsapp"])}" rel="noopener">WhatsApp</a>' if d.get("whatsapp") else "") + f'<a class="knopf leise" href="{pfad}/#kontakt">Anfrage senden</a>'
+    teile.append(f'<main id="inhalt"><section class="hero"><div class="wrap"><h1>{_e(m.name)}</h1><p class="claim">{_e(claim)}</p><div class="aktionen">{aktionen}</div>'
                  + (f'<div class="bild"><img src="{_e(k["bild_url"])}" alt="{_e(m.name)}"></div>' if k.get("bild_url") else "") + "</div></section>")
     if k["bereiche"]["notdienst"] and (k.get("notdienst_telefon") or st.get("telefon")):
         tel = k.get("notdienst_telefon") or st["telefon"]
@@ -303,15 +336,23 @@ def startseite(s: Session, m: Mandant, gesendet: bool = False, vorschau: bool = 
         teile.append(f'<section id="anfahrt"><div class="wrap"><h2>Öffnungszeiten und Anfahrt</h2><div class="karten"><div class="karte"><h3>Öffnungszeiten</h3><p>{_e(k.get("oeffnungszeiten") or "")}</p></div>'
                      f'<div class="karte"><h3>Adresse</h3><p>{_e(st["strasse"])}<br>{_e(st.get("plz", ""))} {_e(st.get("ort", ""))}</p></div>'
                      + (f'<div class="karte"><h3>Einzugsgebiet</h3><p>{_e(k["einzugsgebiet"])}</p></div>' if k.get("einzugsgebiet") else "") + "</div></div></section>")
+    if k["bereiche"].get("ablauf", True):
+        teile.append('<section id="ablauf"><div class="wrap"><h2>So läuft es ab</h2><div class="schritte">' + "".join(f'<div class="karte"><h3>{_e(t)}</h3><p>{_e(x)}</p></div>' for t, x in ABLAUF) + "</div></div></section>")
+    if k["bereiche"].get("faq", True):
+        fragen = [(f["frage"], f["antwort"]) for f in (k.get("faq") or [])] or FAQ_STANDARD
+        teile.append('<section id="faq"><div class="wrap"><h2>Häufige Fragen</h2>' + "".join(f'<details class="faq"><summary>{_e(fr)}</summary><p>{_e(an)}</p></details>' for fr, an in fragen) + "</div></section>")
     if k["bereiche"]["kontakt"]:
+        wege = (f'<a class="knopf leise" href="tel:{_e(st["telefon"])}">Anrufen: {_e(st["telefon"])}</a>' if st.get("telefon") else "") + \
+               (f'<a class="knopf wa" href="{_e(d["whatsapp"])}" rel="noopener">Per WhatsApp schreiben</a>' if d.get("whatsapp") else "") + \
+               (f'<a class="knopf leise" href="mailto:{_e(st["email"])}">E-Mail: {_e(st["email"])}</a>' if st.get("email") else "")
         meldung = '<p class="hinweis">Vielen Dank, Ihre Anfrage ist eingegangen. Wir melden uns schnellstmöglich.</p>' if gesendet else (f'<p class="hinweis" style="background:#fde8e8;color:#9b1c1c">{_e(fehler)}</p>' if fehler else "")
-        teile.append(f'''<section id="kontakt"><div class="wrap"><h2>Anfrage senden</h2>{meldung}<form class="kontakt" method="post" action="{pfad}/anfrage">
+        teile.append(f'''<section id="kontakt"><div class="wrap"><h2>Anfrage senden</h2><p>Am schnellsten erreichen Sie uns so:</p><div class="kontaktwege">{wege}</div><p>Oder schreiben Sie uns hier – wir antworten in der Regel am selben Werktag.</p>{meldung}<form class="kontakt" method="post" action="{pfad}/anfrage">
 <label>Name <input name="name" required maxlength="200"></label><label>Telefon <input name="telefon" type="tel" maxlength="40"></label>
 <label>E-Mail <input name="email" type="email" maxlength="200"></label><label>Straße, PLZ, Ort <input name="adresse" maxlength="300"></label>
 <label class="breit">Ihr Anliegen <textarea name="nachricht" rows="4" required maxlength="3000"></textarea></label>
 <label class="falle" aria-hidden="true">Website <input name="website" tabindex="-1" autocomplete="off"></label>
 <div class="breit"><button class="knopf" type="submit">Anfrage senden</button> <small>Mit dem Absenden stimmen Sie der Verarbeitung Ihrer Angaben zur Bearbeitung der Anfrage zu (<a href="{pfad}/datenschutz">Datenschutz</a>).</small></div></form></div></section>''')
-    teile.append(_fuss(d, pfad))
+    teile.append("</main>" + _fuss(d, pfad))
     return "".join(teile)
 
 

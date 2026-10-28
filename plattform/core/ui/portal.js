@@ -14,7 +14,7 @@
     return `<div class="karte"><h2>Wo steht Ihr Auftrag?</h2><ul class="verlauf">${d.verlauf.map((s) => `<li class="${esc(s.zustand)}"><span class="punkt"></span><span class="titel">${esc(s.titel)}</span>${s.hinweis ? `<small>${esc(s.hinweis)}</small>` : ""}</li>`).join("")}</ul></div>`;
   }
   function termine(d) {
-    return `<div class="karte"><h2>Termine</h2>${d.termine.length ? d.termine.map((t) => `<div class="termin" data-termin="${esc(t.id)}"><div><strong>${esc(t.text)}</strong><br><small>Monteur: ${esc(t.monteur)}</small><br><a href="${basis}/termine/${esc(t.id)}.ics${q}">In meinen Kalender übernehmen</a></div>
+    return `<div class="karte" id="termine"><h2>Termine</h2>${d.termine.length ? d.termine.map((t) => `<div class="termin" data-termin="${esc(t.id)}"><div><strong>${esc(t.text)}</strong><br><small>Monteur: ${esc(t.monteur)}</small><br><a href="${basis}/termine/${esc(t.id)}.ics${q}">In meinen Kalender übernehmen</a></div>
         <div class="aktionen"><span class="status ${esc(t.status)}">${t.status === "bestaetigt" ? "bestätigt" : "vorgeschlagen"}</span>
           ${t.status === "vorgeschlagen" ? `<button data-aktion="bestaetigen">Termin bestätigen</button>` : ""}<button class="leise" data-aktion="absagen">Absagen</button></div></div>`).join("")
         : `<p>Derzeit ist kein Termin geplant.${d.alternativen_moeglich ? " Wählen Sie unten eine freie Zeit, die Ihnen passt." : " Wir melden uns bei Ihnen."}</p>`}
@@ -24,14 +24,14 @@
   }
   function rechnungen(d) {
     if (!d.rechnungen.length) return "";
-    return `<div class="karte"><h2>Rechnungen</h2><table>${d.rechnungen.map((r) => `<tr><td>${esc(r.nummer)}<br><small>${r.status === "bezahlt" ? "bezahlt, vielen Dank" : `fällig ${esc(DATUM.format(new Date(r.faellig)))}`}</small>
+    return `<div class="karte" id="rechnungen"><h2>Rechnungen</h2><table>${d.rechnungen.map((r) => `<tr><td>${esc(r.nummer)}<br><small>${r.status === "bezahlt" ? "bezahlt, vielen Dank" : `fällig ${esc(DATUM.format(new Date(r.faellig)))}`}</small>
         ${r.girocode ? `<div class="girocode"><img src="${basis}/rechnungen/${esc(r.id)}/girocode.png${q}" alt="GiroCode zur Überweisung"><div><strong>Bequem bezahlen:</strong><br><small>QR-Code mit der Banking-App scannen, die Überweisung ist ausgefüllt.${d.zahlung ? `<br>IBAN ${esc(d.zahlung.iban)}` : ""}</small></div></div>` : ""}</td>
-        <td>${esc(EURO.format(r.brutto))}<br><a class="knopf leise" href="${basis}/rechnungen/${esc(r.id)}.pdf${q}" target="_blank" rel="noopener">PDF</a></td></tr>`).join("")}</table></div>`;
+        <td>${esc(EURO.format(r.brutto))}<br><div class="aktionen" style="justify-content:flex-end">${r.online_zahlung ? `<button data-bezahlen="${esc(r.id)}">Online bezahlen</button>` : ""}<a class="knopf leise" href="${basis}/rechnungen/${esc(r.id)}.pdf${q}" target="_blank" rel="noopener">PDF</a></div></td></tr>`).join("")}</table><div id="zahlung-meldung"></div></div>`;
   }
   function bewertung(d) {
     if (!d.bewertung_moeglich) return "";
     if (d.bewertung) return `<div class="karte"><h2>Ihre Bewertung</h2><p>${"★".repeat(d.bewertung.sterne)}${"☆".repeat(5 - d.bewertung.sterne)}${d.bewertung.text ? ` – ${esc(d.bewertung.text)}` : ""}</p><p><small>Vielen Dank!</small></p></div>`;
-    return `<div class="karte"><h2>Wie zufrieden waren Sie?</h2><div class="sterne" id="sterne">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-stern="${n}" aria-label="${n} von 5 Sternen">★</button>`).join("")}</div>
+    return `<div class="karte" id="bewertung"><h2>Wie zufrieden waren Sie?</h2><div class="sterne" id="sterne">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-stern="${n}" aria-label="${n} von 5 Sternen">★</button>`).join("")}</div>
       <textarea id="bewertung-text" rows="2" placeholder="Was lief gut, was können wir besser machen? (optional)"></textarea><div class="aktionen"><button id="bewertung-senden" disabled>Bewertung senden</button></div><div id="bewertung-meldung"></div></div>`;
   }
   function empfehlungen(d) {
@@ -58,13 +58,27 @@
     if (!r.ok) { main.innerHTML = `<div class="karte"><h2>Vorgang nicht gefunden</h2><p>Der Link ist ungültig oder abgelaufen. Bitte rufen Sie uns an.</p></div>`; return; }
     const d = await r.json();
     const b = d.betrieb;
+    if (b.farbe) document.documentElement.style.setProperty("--akzent", b.farbe);
+    const bezahlt = new URLSearchParams(location.search).get("bezahlt") === "1";
+    const ns = d.naechster_schritt;
     main.innerHTML = `<header><h1>${esc(b.name)}</h1><p>Guten Tag ${esc(d.kunde.name)}, hier sehen Sie Ihren Vorgang „${esc(d.vorgang.anliegen)}“.</p></header>
+      ${bezahlt ? `<div class="hinweis" role="status">Vielen Dank, Ihre Zahlung ist unterwegs. Sobald sie bei uns gebucht ist, zeigt die Rechnung „bezahlt“.</div>` : ""}
+      ${ns ? `<div class="karte naechster ${esc(ns.art)}"><div class="etikett">Als Nächstes</div><h2>${esc(ns.titel)}</h2><p>${esc(ns.text)}</p>${ns.aktion ? `<button class="leise" data-springen="${esc(ns.aktion)}">${ns.art === "termin" ? "Zum Termin" : ns.art === "angebot" ? "Angebot ansehen" : ns.art === "rechnung" ? "Zur Rechnung" : "Jetzt bewerten"} ↓</button>` : ""}</div>` : ""}
       ${verlauf(d)}${termine(d)}
-      ${d.angebote.length ? `<div class="karte"><h2>Angebote</h2><table>${d.angebote.map((a) => `<tr><td>${esc(a.nummer)} · ${esc(a.titel)}<br><small>gültig bis ${esc(DATUM.format(new Date(a.gueltig_bis)))}${a.status === "angenommen" ? " · angenommen, vielen Dank" : a.status === "versendet" ? " · wartet auf Ihre Entscheidung" : ""}</small></td><td>${esc(EURO.format(a.brutto))}<br><div class="aktionen"><a class="knopf leise" href="${basis}/angebote/${esc(a.id)}.pdf${q}" target="_blank" rel="noopener">PDF</a>${a.status === "versendet" ? `<button data-annehmen="${esc(a.id)}">Angebot annehmen</button>` : ""}</div></td></tr>`).join("")}</table><div id="angebot-meldung"></div></div>` : ""}
+      ${d.angebote.length ? `<div class="karte" id="angebote"><h2>Angebote</h2><table>${d.angebote.map((a) => `<tr><td>${esc(a.nummer)} · ${esc(a.titel)}<br><small>gültig bis ${esc(DATUM.format(new Date(a.gueltig_bis)))}${a.status === "angenommen" ? " · angenommen, vielen Dank" : a.status === "versendet" ? " · wartet auf Ihre Entscheidung" : ""}</small></td><td>${esc(EURO.format(a.brutto))}<br><div class="aktionen"><a class="knopf leise" href="${basis}/angebote/${esc(a.id)}.pdf${q}" target="_blank" rel="noopener">PDF</a>${a.status === "versendet" ? `<button data-annehmen="${esc(a.id)}">Angebot annehmen</button>` : ""}</div></td></tr>`).join("")}</table><div id="angebot-meldung"></div></div>` : ""}
       ${empfehlungen(d)}
       ${rechnungen(d)}${bewertung(d)}${haus(d)}
-      <div class="karte"><h2>Kontakt</h2><p>${esc(b.name)}${b.strasse ? `, ${esc(b.strasse)}, ${esc(b.plz || "")} ${esc(b.ort || "")}` : ""}</p><div class="aktionen">${b.telefon ? `<a class="knopf" href="tel:${esc(b.telefon)}">Anrufen</a>` : ""}${b.email ? `<a class="knopf leise" href="mailto:${esc(b.email)}">E-Mail schreiben</a>` : ""}</div></div>
+      <div class="karte" id="kontakt"><h2>Kontakt</h2><p>${esc(b.name)}${b.strasse ? `, ${esc(b.strasse)}, ${esc(b.plz || "")} ${esc(b.ort || "")}` : ""}</p><div class="aktionen">${b.telefon ? `<a class="knopf" href="tel:${esc(b.telefon)}">Anrufen</a>` : ""}${b.email ? `<a class="knopf leise" href="mailto:${esc(b.email)}">E-Mail schreiben</a>` : ""}</div></div>
+      <nav class="leiste" aria-label="Schnellkontakt">${b.telefon ? `<a href="tel:${esc(b.telefon)}">📞 Anrufen</a>` : ""}${b.whatsapp ? `<a href="${esc(b.whatsapp)}" rel="noopener" target="_blank">💬 WhatsApp</a>` : ""}${b.email ? `<a href="mailto:${esc(b.email)}">✉️ E-Mail</a>` : ""}</nav>
       <footer>${b.impressum_url ? `<a href="${esc(b.impressum_url)}">Impressum</a> · ` : ""}${b.datenschutz_url ? `<a href="${esc(b.datenschutz_url)}">Datenschutz</a> · ` : ""}Diese Seite zeigt nur diesen Vorgang. Geben Sie den Link nicht weiter.</footer>`;
+    main.querySelectorAll("[data-springen]").forEach((k) => k.addEventListener("click", () => document.getElementById(k.dataset.springen)?.scrollIntoView({ behavior: "smooth", block: "start" })));
+    main.querySelectorAll("[data-bezahlen]").forEach((k) => k.addEventListener("click", async () => {
+      const m = document.getElementById("zahlung-meldung"); k.disabled = true; k.textContent = "Einen Moment …";
+      const r2 = await fetch(`${basis}/rechnungen/${encodeURIComponent(k.dataset.bezahlen)}/zahlung${q}`, { method: "POST" });
+      const d2 = await r2.json().catch(() => ({}));
+      if (!r2.ok || !d2.url) { m.innerHTML = `<div class="fehler">${esc(d2.detail || "Die Online-Zahlung ist gerade nicht möglich. Bitte überweisen Sie per QR-Code oder rufen Sie uns an.")}</div>`; k.disabled = false; k.textContent = "Online bezahlen"; return; }
+      location.href = d2.url;
+    }));
     let aktiverTermin = null;
     main.querySelectorAll("[data-aktion]").forEach((k) => k.addEventListener("click", async () => {
       const terminId = k.closest("[data-termin]").dataset.termin;

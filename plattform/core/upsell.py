@@ -23,9 +23,30 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from core import angebote, branchen, domaene, foerderung, hinweise, lebenszyklus, risiko, vertraege
+from core import (
+    angebote,
+    branchen,
+    domaene,
+    foerderung,
+    hinweise,
+    lebenszyklus,
+    risiko,
+    vertraege,
+)
 from core.domaene import als_utc
-from core.modelle import Angebot, Anlage, Artikel, Bauteil, Ereignis, Kunde, Mandant, Objekt, Servicefall, Termin, Vertrag
+from core.modelle import (
+    Angebot,
+    Anlage,
+    Artikel,
+    Bauteil,
+    Ereignis,
+    Kunde,
+    Mandant,
+    Objekt,
+    Servicefall,
+    Termin,
+    Vertrag,
+)
 
 UNTERDRUECKUNG_TAGE = 180
 STANDARD_UST = Decimal("19")

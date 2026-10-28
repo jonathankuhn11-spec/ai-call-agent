@@ -4,34 +4,43 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
+  <meta name="color-scheme" content="light dark">
   <title>Termin buchen</title>
   <link rel="icon" href="data:,">
   <style>
-    :root { --tinte: #1c2733; --leise: #5b6b7a; --rand: #d9e0e7; --akzent: #1b6ec2; --ok: #1f7a4d; --warn: #b4541a; --flaeche: #f5f7f9; }
+    :root { --tinte: #1c2733; --leise: #5b6b7a; --rand: #d9e0e7; --akzent: #1b6ec2; --ok: #1f7a4d; --warn: #b4541a; --flaeche: #f5f7f9; --karte: #fff; --ok-flaeche: #e3f3ea; --fehler: #9b1c1c; --fehler-flaeche: #fde8e8; --leiste: #eef2f6; }
+    @media (prefers-color-scheme: dark) { :root { --tinte: #e8edf2; --leise: #9aa8b5; --rand: #2c3a48; --akzent: #6fb1ff; --ok: #6fd39a; --flaeche: #0f1620; --karte: #182230; --ok-flaeche: #16382a; --fehler: #ff9a9a; --fehler-flaeche: #3d1b1b; --leiste: #223040; } }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--tinte); background: var(--flaeche); line-height: 1.45; }
     main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
     header { margin-bottom: 16px; } header h1 { font-size: 1.4rem; margin: 0 0 4px; } header p { margin: 0; color: var(--leise); }
-    .karte { background: #fff; border: 1px solid var(--rand); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+    .karte { background: var(--karte); border: 1px solid var(--rand); border-radius: 14px; padding: 18px; margin-bottom: 14px; }
+    .fortschritt { list-style: none; display: flex; gap: 6px; padding: 0; margin: 0 0 16px; } .fortschritt li { flex: 1; display: flex; align-items: center; gap: 8px; font-size: .9rem; color: var(--leise); padding: 8px 0; border-bottom: 3px solid var(--rand); }
+    .fortschritt li span { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--leiste); font-weight: 700; } .fortschritt li.aktiv { color: var(--tinte); border-color: var(--akzent); } .fortschritt li.aktiv span { background: var(--akzent); color: #fff; }
+    .fortschritt li.fertig { border-color: var(--ok); } .fortschritt li.fertig span { background: var(--ok); color: #fff; }
+    .zusammenfassung { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--leiste); font-size: .95rem; } .zusammenfassung:empty { display: none; }
+    .erfolg { text-align: center; } .haken { width: 64px; height: 64px; border-radius: 50%; background: var(--ok); color: #fff; font-size: 2rem; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 8px; }
+    a.haupt { display: inline-flex; align-items: center; text-decoration: none; }
+    a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid color-mix(in srgb, var(--akzent) 60%, transparent); outline-offset: 2px; }
     .karte h2 { font-size: 1.05rem; margin: 0 0 8px; }
     .schritt { font-size: .8rem; color: var(--leise); text-transform: uppercase; letter-spacing: .04em; }
     .leistung { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 10px 12px; margin: 6px 0;
-      border: 1px solid var(--rand); border-radius: 8px; background: #fff; color: var(--tinte); cursor: pointer; font: inherit; }
-    .leistung:hover, .leistung.aktiv { border-color: var(--akzent); background: #eef5fc; }
+      border: 1px solid var(--rand); border-radius: 10px; background: var(--karte); color: var(--tinte); cursor: pointer; font: inherit; min-height: 52px; }
+    .leistung:hover, .leistung.aktiv { border-color: var(--akzent); background: color-mix(in srgb, var(--akzent) 10%, var(--karte)); }
     .leistung small { color: var(--leise); }
     .tag { margin: 10px 0; } .tag h3 { font-size: .95rem; margin: 0 0 6px; }
     .zeiten { display: flex; flex-wrap: wrap; gap: 6px; }
-    .zeit { font: inherit; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--rand); background: #fff; color: var(--akzent); cursor: pointer; }
+    .zeit { font: inherit; padding: 10px 14px; min-height: 44px; border-radius: 10px; border: 1px solid var(--rand); background: var(--karte); color: var(--akzent); cursor: pointer; }
     .zeit.aktiv { background: var(--akzent); color: #fff; border-color: var(--akzent); }
     label { display: block; margin: 8px 0 4px; font-size: .9rem; }
-    input, select, textarea { width: 100%; font: inherit; padding: 8px; border: 1px solid var(--rand); border-radius: 8px; }
+    input, select, textarea { width: 100%; font: inherit; padding: 11px; border: 1px solid var(--rand); border-radius: 10px; background: var(--karte); color: var(--tinte); }
     .zeile { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; }
     .kreuz { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; font-size: .9rem; } .kreuz input { width: auto; margin-top: 4px; }
-    button.haupt { font: inherit; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--akzent); background: var(--akzent); color: #fff; cursor: pointer; margin-top: 12px; }
+    button.haupt, a.haupt { font: inherit; font-size: 1.05rem; min-height: 48px; padding: 10px 18px; border-radius: 10px; border: 1px solid var(--akzent); background: var(--akzent); color: #fff; cursor: pointer; margin-top: 12px; width: 100%; justify-content: center; }
     button.haupt:disabled { opacity: .5; cursor: default; }
-    .hinweis { padding: 10px 12px; border-radius: 8px; background: #e3f3ea; color: var(--ok); margin-top: 10px; }
-    .fehler { padding: 10px 12px; border-radius: 8px; background: #fde8e8; color: #9b1c1c; margin-top: 10px; }
-    .info { padding: 10px 12px; border-radius: 8px; background: #eef2f6; color: var(--leise); font-size: .9rem; }
+    .hinweis { padding: 10px 12px; border-radius: 8px; background: var(--ok-flaeche); color: var(--ok); margin-top: 10px; }
+    .fehler { padding: 10px 12px; border-radius: 8px; background: var(--fehler-flaeche); color: var(--fehler); margin-top: 10px; }
+    .info { padding: 10px 12px; border-radius: 8px; background: var(--leiste); color: var(--leise); font-size: .9rem; }
     .honig { position: absolute; left: -9999px; }
     footer { color: var(--leise); font-size: .85rem; margin-top: 24px; } footer a { color: var(--leise); }
     a { color: var(--akzent); }

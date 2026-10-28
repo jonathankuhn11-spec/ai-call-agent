@@ -12,7 +12,7 @@ import os
 from cryptography.fernet import Fernet, InvalidToken
 
 PRAEFIX = "enc:"
-GEHEIME_FELDER = {"api_key", "api_token", "passwort", "token", "secret", "signatur_schluessel", "client_secret", "refresh_token"}
+GEHEIME_FELDER = {"api_key", "api_token", "passwort", "token", "secret", "signatur_schluessel", "client_secret", "refresh_token", "secret_key", "webhook_secret", "verify_token"}
 log = logging.getLogger(__name__)
 
 

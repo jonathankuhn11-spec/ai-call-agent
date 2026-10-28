@@ -54,10 +54,19 @@
     .sterne button.an { color: #f2b01e; }
     .girocode { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-top: 8px; } .girocode img { width: 150px; height: 150px; border-radius: 8px; background: #fff; padding: 4px; }
     @media (max-width: 480px) { .termin { flex-direction: column; align-items: stretch; } .termin .aktionen button { flex: 1; justify-content: center; } }
+    /* Kundenfreundlich: Nächster Schritt, Schnellkontakt, Fokus */
+    .naechster { border-left: 6px solid var(--akzent); } .naechster .etikett { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--akzent); font-weight: 700; margin-bottom: 4px; }
+    .naechster h2 { font-size: 1.3rem; } .naechster.info { border-left-color: var(--ok); } .naechster.info .etikett { color: var(--ok); }
+    .leiste { position: sticky; bottom: 0; display: flex; gap: 8px; padding: 10px 0 12px; background: linear-gradient(180deg, transparent, var(--flaeche) 30%); }
+    .leiste a { flex: 1; display: inline-flex; justify-content: center; align-items: center; min-height: 48px; border-radius: 12px; background: var(--karte); border: 1px solid var(--rand); color: var(--tinte); text-decoration: none; font-weight: 600; box-shadow: 0 4px 14px rgba(0,0,0,.08); }
+    .skip { position: absolute; left: -9999px; } .skip:focus { left: 12px; top: 12px; background: var(--karte); padding: 8px 12px; z-index: 10; }
+    a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid color-mix(in srgb, var(--akzent) 60%, transparent); outline-offset: 2px; }
+    @media (prefers-reduced-motion: reduce) { .verlauf .aktiv .punkt { animation: none; } }
   </style>
 </head>
 <body>
-<main id="inhalt"><p>Wird geladen …</p></main>
+<a class="skip" href="#inhalt">Zum Inhalt springen</a>
+<main id="inhalt" aria-live="polite"><p>Wird geladen …</p></main>
 <script src="/portal/portal.js"></script>
 </body>
 </html>

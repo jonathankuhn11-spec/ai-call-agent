@@ -56,14 +56,17 @@ def daten(s: Session, m: Mandant, f: Servicefall, jetzt: datetime | None = None)
     st = m.stammdaten or {}
     angebote = s.scalars(select(Angebot).where(Angebot.servicefall_id == f.id, Angebot.status.in_(("versendet", "angenommen")))).all()
     rechnungen = s.scalars(select(Rechnung).where(Rechnung.servicefall_id == f.id, Rechnung.art == "rechnung")).all()
-    return {"betrieb": {"name": m.name, "telefon": st.get("telefon"), "email": st.get("email"), "strasse": st.get("strasse"),
-                        "plz": st.get("plz"), "ort": st.get("ort"), "impressum_url": st.get("impressum_url"), "datenschutz_url": st.get("datenschutz_url")},
+    online_zahlung = "stripe" in (((m.integrationen or {}).get("zahlung") or {}).get("kanaele") or [])
+    daten_ = {"betrieb": {"name": m.name, "telefon": st.get("telefon"), "email": st.get("email"), "strasse": st.get("strasse"),
+                        "plz": st.get("plz"), "ort": st.get("ort"), "impressum_url": st.get("impressum_url"), "datenschutz_url": st.get("datenschutz_url"),
+                        "whatsapp": whatsapp_link(st.get("whatsapp_nummer"), f"Guten Tag, ich habe eine Frage zu meinem Vorgang „{f.anliegen[:60]}“."),
+                        "farbe": ((st.get("website") or {}).get("farbe"))},
             "kunde": {"name": f.kunde.name},
             "vorgang": {"id": f.id, "anliegen": f.anliegen, "status": f.status, "dringlichkeit": f.dringlichkeit},
             "termine": [_termin(t) for t in sorted(f.termine, key=lambda t: t.beginn) if t.status != "abgesagt"],
             "angebote": [{"id": a.id, "nummer": a.nummer, "titel": a.titel, "brutto": a.brutto, "status": a.status, "gueltig_bis": a.gueltig_bis.isoformat()} for a in angebote],
             "rechnungen": [{"id": r.id, "nummer": r.nummer, "brutto": r.brutto, "status": r.status, "faellig": r.faellig.isoformat(),
-                            "girocode": bool(st.get("iban")) and r.status != "bezahlt"} for r in rechnungen],
+                            "girocode": bool(st.get("iban")) and r.status != "bezahlt", "online_zahlung": online_zahlung and r.status not in ("bezahlt", "storniert")} for r in rechnungen],
             "zahlung": {"iban": st.get("iban"), "bic": st.get("bic"), "kontoinhaber": st.get("kontoinhaber") or m.name} if st.get("iban") else None,
             "verlauf": verlauf(s, m, f, jetzt or datetime.now(ZEITZONE)),
             "alternativen_moeglich": f.status in ("eingegangen", "qualifiziert", "eingeplant") and not any(t.status == "bestaetigt" for t in f.termine),
@@ -71,6 +74,53 @@ def daten(s: Session, m: Mandant, f: Servicefall, jetzt: datetime | None = None)
             "bewertung": bewertung_lesen(s, f),
             "bewertung_moeglich": f.status in ("durchgefuehrt", "abgerechnet", "uebergeben"),
             "haus": _haus(s, m, f)}
+    vorgemerkt = {e.entitaet_id for e in s.scalars(select(Ereignis).where(Ereignis.mandant_id == m.id, Ereignis.typ == "termin.kunde_bestaetigt",
+                                                                          Ereignis.entitaet_id.in_([t["id"] for t in daten_["termine"]] or ["-"])))}
+    daten_["naechster_schritt"] = naechster_schritt(daten_, vorgemerkt)
+    return daten_
+
+
+def whatsapp_link(nummer: str | None, text: str) -> str | None:
+    """Klick-zum-Chat (wa.me) ohne Einbindung von Meta-Skripten; Nummer international ohne Plus."""
+    if not nummer:
+        return None
+    from urllib.parse import quote
+    ziffern = "".join(c for c in nummer if c.isdigit())
+    if nummer.strip().startswith("0") and not nummer.strip().startswith("00"):
+        ziffern = "49" + ziffern[1:]
+    elif nummer.strip().startswith("00"):
+        ziffern = ziffern[2:]
+    return f"https://wa.me/{ziffern}?text={quote(text)}" if ziffern else None
+
+
+def naechster_schritt(d: dict[str, Any], vorgemerkt: set[str] | None = None) -> dict[str, Any] | None:
+    """Die eine Sache, die der Kunde jetzt tun kann oder soll – ganz oben im Portal, in Alltagssprache."""
+    vorgemerkt = vorgemerkt or set()
+    vorgeschlagen = [t for t in d["termine"] if t["status"] == "vorgeschlagen"]
+    if d["vorgang"]["status"] == "storniert":
+        return {"art": "info", "titel": "Dieser Vorgang wurde storniert", "text": "Wenn das ein Versehen war, rufen Sie uns kurz an.", "aktion": None}
+    if vorgeschlagen and all(t["id"] in vorgemerkt for t in vorgeschlagen):
+        return {"art": "info", "titel": "Vielen Dank, Ihr Termin ist vorgemerkt", "text": f"{vorgeschlagen[0]['text']}. Wir tragen ihn fest ein und melden uns nur, falls sich etwas ändert.", "aktion": None}
+    if vorgeschlagen:
+        return {"art": "termin", "titel": "Bitte bestätigen Sie Ihren Termin", "text": f"Vorschlag: {vorgeschlagen[0]['text']}. Passt es nicht, wählen Sie eine andere Zeit.", "aktion": "termine", "termin_id": vorgeschlagen[0]["id"]}
+    offene_angebote = [a for a in d["angebote"] if a["status"] == "versendet"]
+    if offene_angebote:
+        a = offene_angebote[0]
+        return {"art": "angebot", "titel": "Ein Angebot wartet auf Ihre Entscheidung", "text": f"{a['nummer']} über {a['brutto'].replace('.', ',')} €, gültig bis {a['gueltig_bis'][8:10]}.{a['gueltig_bis'][5:7]}.{a['gueltig_bis'][:4]}.", "aktion": "angebote"}
+    offene_rechnungen = [r for r in d["rechnungen"] if r["status"] not in ("bezahlt", "storniert")]
+    if offene_rechnungen:
+        r = offene_rechnungen[0]
+        return {"art": "rechnung", "titel": "Ihre Rechnung ist da", "text": f"{r['nummer']} über {r['brutto'].replace('.', ',')} €, fällig am {r['faellig'][8:10]}.{r['faellig'][5:7]}.{r['faellig'][:4]}." + (" Sie können direkt online bezahlen." if r["online_zahlung"] else ""), "aktion": "rechnungen"}
+    if d["bewertung_moeglich"] and not d["bewertung"]:
+        return {"art": "bewertung", "titel": "Wie war’s? Ihre Meinung hilft uns", "text": "Zwei Klicks: Sterne und ein Satz, wenn Sie mögen.", "aktion": "bewertung"}
+    if d["alternativen_moeglich"] and not d["termine"]:
+        return {"art": "termin", "titel": "Wählen Sie eine Zeit, die Ihnen passt", "text": "Unten sehen Sie freie Zeiten der nächsten Tage.", "aktion": "termine"}
+    bestaetigt = [t for t in d["termine"] if t["status"] == "bestaetigt"]
+    if bestaetigt:
+        return {"art": "info", "titel": "Alles geplant", "text": f"{bestaetigt[0]['text']}. Sie müssen nichts weiter tun; wir melden uns, falls sich etwas ändert.", "aktion": None}
+    if d["bewertung"]:
+        return {"art": "info", "titel": "Vielen Dank für Ihre Bewertung", "text": "Dieser Vorgang ist abgeschlossen. Bei Fragen erreichen Sie uns unten.", "aktion": None}
+    return {"art": "info", "titel": "Wir kümmern uns", "text": "Ihre Anfrage ist bei uns. Sobald es einen Terminvorschlag gibt, sehen Sie ihn hier.", "aktion": None}
 
 
 def _empfehlungen(s: Session, m: Mandant, f: Servicefall, jetzt: datetime | None) -> list[dict[str, Any]]:
