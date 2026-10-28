@@ -1,0 +1,295 @@
+"""Kommandozeile des Core-Service.
+
+    python -m core serve [--port 8100]     API und Büro-Oberfläche (/app) starten (DATABASE_URL, CORE_API_KEY)
+    python -m core serve --demo            dito, legt bei leerer DB fiktive Demodaten an
+    python -m core seed                    fiktive Demodaten anlegen, gibt die Mandanten-ID aus
+    python -m core demo                    Demo-Mandant anlegen und Referenzfluss einmal durchspielen
+    python -m core worker [--intervall 5]  Outbox-Worker (Zustellung an Adapter, hier CSV-Degradierung)
+    python -m core migrate [--ziel head]   Datenbankmigrationen (MIGRATION_DATABASE_URL, Eigentümerrolle)
+    python -m core schluessel              INTEGRATIONS_KEY für die Verschlüsselung von Zugangsdaten erzeugen
+    python -m core loeschlauf [--trocken]  Löschkonzept anwenden (Fristen je Mandant), täglich per cron
+    python -m core tagesaufgaben           Angebotsablauf, Mahnvorschläge, Vertragsabrechnungen (Freigaben), täglich per cron
+    python -m core posteingang             E-Mail-Postfächer der Mandanten abrufen und Anfragen zu Vorgängen machen
+    python -m core scaneingang             Scanner-Postfächer und Eingangsordner abrufen, Scans zu Belegen machen
+    python -m core geokodieren [--alle]    Kundenadressen ohne Koordinaten über Nominatim auflösen (Kundenkarte)
+    python -m core lizenz schluesselpaar   Ed25519-Schlüsselpaar für Lizenzschlüssel erzeugen (privat beim Anbieter, öffentlich in der Installation)
+    python -m core lizenz erzeugen …       Lizenzschlüssel ausstellen (--edition pro --kunde "…" --gueltig-bis 2027-12-31 [--mandant ID])
+    python -m core lizenz pruefen SCHL.    Lizenzschlüssel gegen LIZENZ_OEFFENTLICHER_SCHLUESSEL prüfen
+    python -m core version                 Versionsstand ausgeben
+
+Verbindungen in PostgreSQL: DATABASE_URL (shk_app, unterliegt Row-Level Security) für den Core,
+SYSTEM_DATABASE_URL (shk_system) für Worker, Seed und Mandantenverwaltung. Ohne
+SYSTEM_DATABASE_URL wird DATABASE_URL verwendet (SQLite, Entwicklung).
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import time
+from pathlib import Path
+
+from core.db import Datenbank, migrieren
+
+
+def system_datenbank() -> Datenbank:
+    return Datenbank(os.environ.get("SYSTEM_DATABASE_URL") or None)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(prog="python -m core")
+    unter = parser.add_subparsers(dest="befehl", required=True)
+    serve = unter.add_parser("serve")
+    serve.add_argument("--host", default=os.environ.get("HOST", "0.0.0.0"))
+    serve.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8100")))
+    serve.add_argument("--demo", action="store_true")
+    unter.add_parser("demo")
+    unter.add_parser("seed")
+    worker = unter.add_parser("worker")
+    worker.add_argument("--intervall", type=float, default=5.0)
+    worker.add_argument("--csv-verzeichnis", type=Path, default=Path(os.environ.get("CSV_EXPORT", "export")))
+    unter.add_parser("schluessel")
+    lauf = unter.add_parser("loeschlauf")
+    lauf.add_argument("--trocken", action="store_true")
+    unter.add_parser("tagesaufgaben")
+    unter.add_parser("posteingang")
+    unter.add_parser("scaneingang")
+    geo = unter.add_parser("geokodieren")
+    geo.add_argument("--limit", type=int, default=100)
+    geo.add_argument("--alle", action="store_true", help="auch Datensätze mit vorhandenen Koordinaten neu auflösen")
+    migrate = unter.add_parser("migrate")
+    migrate.add_argument("--ziel", default="head")
+    einr = unter.add_parser("einrichten", help="Betrieb in einem Befehl anlegen: Branche, Team, Sachmittel, Leistungskatalog, Online-Buchung")
+    einr.add_argument("--name", required=True)
+    einr.add_argument("--branche", default="shk", help="Schlüssel aus core.branchen (shk, kfz, friseur, dachdecker, …)")
+    einr.add_argument("--mitarbeiter", action="append", default=[], metavar="NAME[:QUALI1,QUALI2]")
+    einr.add_argument("--sachmittel", action="append", default=[], metavar="NAME:TYP")
+    einr.add_argument("--basis-url", default=os.environ.get("BASIS_URL"))
+    einr.add_argument("--telefon")
+    einr.add_argument("--email")
+    einr.add_argument("--ohne-buchung", action="store_true")
+    einr.add_argument("--mandant", help="bestehenden Mandanten (ID) einrichten statt neu anlegen")
+    liz = unter.add_parser("lizenz", help="Lizenzschlüssel: schluesselpaar | erzeugen | pruefen")
+    liz_u = liz.add_subparsers(dest="lizenz_befehl", required=True)
+    liz_u.add_parser("schluesselpaar")
+    liz_e = liz_u.add_parser("erzeugen")
+    liz_e.add_argument("--edition", required=True, choices=["starter", "pro", "enterprise"])
+    liz_e.add_argument("--kunde", required=True)
+    liz_e.add_argument("--gueltig-bis", required=True, help="ISO-Datum, z. B. 2027-12-31")
+    liz_e.add_argument("--mandant", help="Mandanten-ID; ohne Angabe gilt der Schlüssel für jede Installation mit dem öffentlichen Schlüssel")
+    liz_e.add_argument("--sitze", type=int)
+    liz_e.add_argument("--privat", help="privater Schlüssel (sonst LIZENZ_PRIVATER_SCHLUESSEL)")
+    liz_p = liz_u.add_parser("pruefen")
+    liz_p.add_argument("schluessel")
+    liz_p.add_argument("--mandant", default="*")
+    unter.add_parser("version")
+    imp = unter.add_parser("import-kunden", help="Kunden aus CSV importieren (Spalten werden erkannt; Kennzeichen legt Fahrzeuge an)")
+    imp.add_argument("datei", type=Path)
+    imp.add_argument("--mandant", required=True)
+    imp.add_argument("--pruefen", action="store_true")
+    imp.add_argument("--trennzeichen")
+    args = parser.parse_args()
+
+    if args.befehl == "serve":
+        import uvicorn
+
+        from core.api import app_erzeugen
+        app = app_erzeugen()
+        if args.demo:
+            from core.seed import demodaten_anlegen
+            with app.state.system_db.sitzungen() as s:
+                print(f"Demo-Mandant: {demodaten_anlegen(s)}", flush=True)
+        uvicorn.run(app, host=args.host, port=args.port)
+    elif args.befehl == "seed":
+        from core.seed import demodaten_anlegen
+        db = system_datenbank()
+        db.schema_anlegen()
+        with db.sitzungen() as s:
+            print(demodaten_anlegen(s))
+    elif args.befehl == "demo":
+        from core.demo import referenzfluss
+        print(json.dumps(referenzfluss(), indent=2, ensure_ascii=False, default=str))
+    elif args.befehl == "migrate":
+        migrieren(ziel=args.ziel)
+    elif args.befehl == "einrichten":
+        from core import einrichtung
+        from core.modelle import Mandant
+        db = system_datenbank()
+        db.schema_anlegen()
+        with db.sitzungen() as s:
+            m = s.get(Mandant, args.mandant) if args.mandant else None
+            if args.mandant and m is None:
+                raise SystemExit(f"Mandant {args.mandant} nicht gefunden")
+            if m is None:
+                m = Mandant(name=args.name, gewerk=args.branche.upper())
+                s.add(m)
+                s.flush()
+            mitarbeiter = []
+            for eintrag in args.mitarbeiter:
+                name, _, quali = eintrag.partition(":")
+                mitarbeiter.append({"name": name.strip(), "qualifikationen": [q.strip() for q in quali.split(",") if q.strip()]})
+            sachmittel = []
+            for eintrag in args.sachmittel:
+                name, _, typ = eintrag.partition(":")
+                sachmittel.append({"name": name.strip(), "typ": typ.strip()})
+            stammdaten = {k: v for k, v in {"basis_url": args.basis_url, "telefon": args.telefon, "email": args.email}.items() if v}
+            ergebnis = einrichtung.einrichten(s, m, {"branche": args.branche.lower(), "name": args.name, "stammdaten": stammdaten, "mitarbeiter": mitarbeiter,
+                                                     "sachmittel": sachmittel, "online_buchung": not args.ohne_buchung}, "cli")
+            s.commit()
+            st = ergebnis["status"]
+            print(json.dumps({"mandant": m.id, "name": m.name, "branche": st["branche"], "mitarbeiter_angelegt": ergebnis["mitarbeiter_angelegt"],
+                              "sachmittel_angelegt": ergebnis["sachmittel_angelegt"], "fortschritt": st["fortschritt"],
+                              "naechste_schritte": [x["titel"] for x in st["naechste"]]}, ensure_ascii=False, indent=2), flush=True)
+    elif args.befehl == "version":
+        from core.produkt import __version__
+        print(__version__)
+    elif args.befehl == "lizenz":
+        from datetime import date
+
+        from core import produkt
+        if args.lizenz_befehl == "schluesselpaar":
+            paar = produkt.schluesselpaar()
+            print("# privater Schlüssel: nur beim Anbieter aufbewahren, nie in die Installation des Kunden")
+            print(f"LIZENZ_PRIVATER_SCHLUESSEL={paar['privat']}")
+            print("# öffentlicher Schlüssel: in die .env jeder Kundeninstallation")
+            print(f"LIZENZ_OEFFENTLICHER_SCHLUESSEL={paar['oeffentlich']}")
+        elif args.lizenz_befehl == "erzeugen":
+            privat = args.privat or os.environ.get("LIZENZ_PRIVATER_SCHLUESSEL")
+            if not privat:
+                raise SystemExit("Privater Schlüssel fehlt (--privat oder LIZENZ_PRIVATER_SCHLUESSEL)")
+            print(produkt.schluessel_erzeugen(privat, edition=args.edition, kunde=args.kunde, gueltig_bis=date.fromisoformat(args.gueltig_bis), mandant=args.mandant, sitze=args.sitze))
+        else:
+            try:
+                nutz = produkt.schluessel_pruefen(args.schluessel, produkt.oeffentlicher_schluessel(), args.mandant, date.today())
+            except produkt.Lizenzfehler as e:
+                raise SystemExit(f"Ungültig: {e}") from e
+            print(json.dumps(nutz, ensure_ascii=False, indent=2))
+    elif args.befehl == "import-kunden":
+        from core import einrichtung
+        from core.modelle import Mandant
+        db = system_datenbank()
+        db.schema_anlegen()
+        roh = args.datei.read_bytes()
+        try:
+            text = roh.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = roh.decode("latin-1")
+        with db.sitzungen() as s:
+            m = s.get(Mandant, args.mandant)
+            if m is None:
+                raise SystemExit(f"Mandant {args.mandant} nicht gefunden")
+            ergebnis = einrichtung.kunden_import(s, m, text, args.trennzeichen, args.pruefen, akteur_name="cli")
+            if args.pruefen:
+                s.rollback()
+            else:
+                s.commit()
+            print(json.dumps(ergebnis, ensure_ascii=False, indent=2, default=str), flush=True)
+    elif args.befehl == "loeschlauf":
+        from sqlalchemy import select
+
+        from core.loeschung import loeschlauf
+        from core.modelle import Mandant
+        db = system_datenbank()
+        db.schema_anlegen()
+        with db.sitzungen() as s:
+            for m in s.scalars(select(Mandant)).all():
+                print(json.dumps({"mandant": m.name, **loeschlauf(s, m, trocken=args.trocken)}, ensure_ascii=False), flush=True)
+    elif args.befehl == "tagesaufgaben":
+        from datetime import datetime, timezone
+
+        from sqlalchemy import select
+
+        from core.modelle import Mandant
+        from core.tagesaufgaben import tagesaufgaben
+        db = system_datenbank()
+        db.schema_anlegen()
+        with db.sitzungen() as s:
+            for m in s.scalars(select(Mandant)).all():
+                print(json.dumps({"mandant": m.name, **tagesaufgaben(s, m, datetime.now(timezone.utc))}, ensure_ascii=False, default=str), flush=True)
+                s.commit()
+    elif args.befehl == "scaneingang":
+        from datetime import datetime, timezone
+
+        from sqlalchemy import select
+
+        from core import scanner
+        from core.anfragen import ImapPostfach
+        from core.geheimnisse import konfiguration_entschluesseln
+        from core.modelle import Mandant
+        db = system_datenbank()
+        db.schema_anlegen()
+        with db.sitzungen() as s:
+            for m in s.scalars(select(Mandant)).all():
+                k = konfiguration_entschluesseln(m.integrationen.get("scanner") or {})
+                ergebnis = {"mandant": m.name}
+                try:
+                    if k.get("host"):
+                        postfach = ImapPostfach(k["host"], k.get("benutzer", ""), k.get("passwort", ""), k.get("ordner", "INBOX"), int(k.get("port", 993)))
+                        try:
+                            ergebnis["postfach"] = scanner.postfach_scans(s, m, postfach, datetime.now(timezone.utc), k.get("erlaubte_absender"),
+                                                                          k.get("kategorie", "material"))
+                        finally:
+                            postfach.schliessen()
+                    if k.get("eingangsordner"):
+                        ergebnis["ordner"] = scanner.ordner_scans(s, m, Path(k["eingangsordner"]), datetime.now(timezone.utc), k.get("kategorie", "material"))
+                    s.commit()
+                except OSError as e:
+                    s.rollback()
+                    ergebnis["fehler"] = str(e)
+                if len(ergebnis) > 1:
+                    print(json.dumps(ergebnis, ensure_ascii=False), flush=True)
+    elif args.befehl == "geokodieren":
+        from datetime import datetime, timezone
+
+        from sqlalchemy import select
+
+        from core import karte
+        from core.modelle import Mandant
+        db = system_datenbank()
+        db.schema_anlegen()
+        with db.sitzungen() as s:
+            for m in s.scalars(select(Mandant)).all():
+                geocoder = karte.nominatim(email=(m.stammdaten or {}).get("email"))
+                ergebnis = karte.geokodieren(s, m, geocoder, datetime.now(timezone.utc), args.limit, nur_fehlende=not args.alle)
+                s.commit()
+                print(json.dumps({"mandant": m.name, **ergebnis}, ensure_ascii=False), flush=True)
+    elif args.befehl == "posteingang":
+        from datetime import datetime, timezone
+
+        from sqlalchemy import select
+
+        from core.anfragen import ImapPostfach, postfach_abrufen
+        from core.geheimnisse import konfiguration_entschluesseln
+        from core.modelle import Mandant
+        db = system_datenbank()
+        db.schema_anlegen()
+        with db.sitzungen() as s:
+            for m in s.scalars(select(Mandant)).all():
+                k = konfiguration_entschluesseln(m.integrationen.get("posteingang") or {})
+                if not k.get("host"):
+                    continue
+                postfach = ImapPostfach(k["host"], k["benutzer"], k["passwort"], k.get("ordner", "INBOX"), int(k.get("port", 993)))
+                try:
+                    print(json.dumps({"mandant": m.name, **postfach_abrufen(s, m, postfach, datetime.now(timezone.utc))}, ensure_ascii=False), flush=True)
+                    s.commit()
+                finally:
+                    postfach.schliessen()
+    elif args.befehl == "schluessel":
+        from core.geheimnisse import schluessel_erzeugen
+        print(schluessel_erzeugen())
+    elif args.befehl == "worker":
+        from core.adapter import Register
+        from core.zustellung import abarbeiten
+        db = system_datenbank()
+        db.schema_anlegen()
+        register = Register(args.csv_verzeichnis)
+        while True:
+            with db.sitzungen() as s:
+                ergebnis = abarbeiten(s, register)
+            if any(ergebnis.values()):
+                print(json.dumps(ergebnis), flush=True)
+            time.sleep(args.intervall)
+
+
+if __name__ == "__main__":
+    main()

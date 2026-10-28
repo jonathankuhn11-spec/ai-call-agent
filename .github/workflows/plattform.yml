@@ -1,0 +1,142 @@
+name: Plattform
+
+on:
+  push:
+    paths: ["plattform/**", ".github/workflows/plattform.yml"]
+  pull_request:
+    paths: ["plattform/**", ".github/workflows/plattform.yml"]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plattform
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: shk
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: shk
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U shk -d shk" --health-interval 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Abhängigkeiten installieren
+        run: python -m pip install -r requirements.txt ruff
+      - name: Statische Prüfung
+        run: ruff check --select F,E9 .
+      - name: Datenbankrollen anlegen (wie deploy/postgres/init)
+        run: psql "postgresql://shk:ci@localhost:5432/shk" -v app_passwort=ci-app -v system_passwort=ci-system -f deploy/postgres/rollen.sql
+      - name: Tests (SQLite im Speicher, zusätzlich Migrationen und Row-Level Security gegen PostgreSQL)
+        env:
+          PG_TEST_URL: postgresql+psycopg://shk:ci@localhost:5432/shk
+        run: python -m pytest -q
+      - name: Referenzfluss (Heizungsausfall per Telefon bis Outbox)
+        run: python -m core demo
+      - name: Core gegen PostgreSQL starten (Rolle shk_app unter RLS) und Durchstich per HTTP
+        env:
+          MIGRATION_DATABASE_URL: postgresql+psycopg://shk:ci@localhost:5432/shk
+          DATABASE_URL: postgresql+psycopg://shk_app:rls-test@localhost:5432/shk
+          SYSTEM_DATABASE_URL: postgresql+psycopg://shk_system:rls-test@localhost:5432/shk
+          CORE_API_KEY: ci-key
+        run: |
+          psql "postgresql://shk:ci@localhost:5432/shk" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public"
+          python -m core migrate
+          python -m core serve --port 8100 > serve.log 2>&1 &
+          for i in $(seq 1 40); do curl -fsS http://127.0.0.1:8100/health > /dev/null 2>&1 && break; sleep 0.5; done
+          H='-H X-API-Key:ci-key -H Content-Type:application/json'
+          M=$(curl -fsS $H -d '{"name":"CI-Betrieb"}' http://127.0.0.1:8100/mandanten | python -c 'import json,sys;print(json.load(sys.stdin)["id"])')
+          curl -fsS $H -H "X-Mandant:$M" -d '{"name":"Monteur","qualifikationen":["gas"]}' http://127.0.0.1:8100/ressourcen
+          curl -fsS $H -H "X-Mandant:$M" -d '{"telefon":"0221 555","name":"Kunde","anliegen":"Heizung ist aus","anlagentyp":"gas_brennwert"}' http://127.0.0.1:8100/voice/servicefall
+          curl -fsS $H -H "X-Mandant:$M" http://127.0.0.1:8100/twin/betrieb
+          curl -fsS $H -H "X-Mandant:$M" "http://127.0.0.1:8100/ontologie/export?mit_tbox=true" | head -5
+          kill %1 || (cat serve.log; exit 1)
+
+  voice:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plattform
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Voice-Abhängigkeiten installieren
+        run: python -m pip install -r requirements-voice.txt
+      - name: Agent importieren und Werkzeuge prüfen (ohne LiveKit-Server, ohne Schlüssel)
+        env:
+          CORE_MANDANT: ci
+        run: |
+          python -c "import voice.agent as a; names = sorted(t.info.name for t in a.Assistenz('CI').tools); print(names); assert names == ['kunde_suchen', 'notdienst_erfragen', 'rueckruf_vormerken', 'servicefall_anlegen', 'zeitfenster_abfragen']"
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Core-Image bauen
+        run: docker build -t shk-core:ci plattform
+      - name: Referenzfluss im Container
+        run: docker run --rm shk-core:ci python -m core demo
+      - name: Compose-Dateien und Caddyfile prüfen
+        working-directory: plattform
+        run: |
+          cp .env.example .env
+          SHK_VERSION=0.0.0 SHK_DOMAIN=ci.example.de ACME_EMAIL=ci@example.de KEYCLOAK_DB_PASSWORD=ci \
+            docker compose -f docker-compose.yml -f deploy/server/docker-compose.prod.yml --profile auth --profile voice config --quiet
+          docker run --rm -e SHK_DOMAIN=backoffice.example.de -e ACME_EMAIL=it@example.de \
+            -v "$PWD/deploy/server/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile
+          python -c "import json; json.load(open('deploy/keycloak/shk-realm.json'))"
+
+  image:
+    # Fertige Images nach GHCR: ghcr.io/<owner>/shk-core:<sha> und :<branch>; auf main zusätzlich :latest.
+    # deploy/server/deploy.sh zieht sie mit SHK_VERSION=<sha|branch|latest>; schnellstart.sh mit SHK_IMAGE=ghcr.io/<owner>/shk-core:latest.
+    needs: [tests, docker]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Image-Namen bestimmen
+        id: namen
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          ZWEIG=$(echo "${GITHUB_REF_NAME}" | tr '/' '-' | tr '[:upper:]' '[:lower:]')
+          KURZ=$(echo "${GITHUB_SHA}" | cut -c1-12)
+          echo "basis=ghcr.io/$OWNER/shk-core" >> "$GITHUB_OUTPUT"
+          echo "zweig=$ZWEIG" >> "$GITHUB_OUTPUT"
+          echo "kurz=$KURZ" >> "$GITHUB_OUTPUT"
+      - name: Core-Image bauen und veröffentlichen
+        uses: docker/build-push-action@v6
+        with:
+          context: plattform
+          push: true
+          tags: |
+            ${{ steps.namen.outputs.basis }}:${{ steps.namen.outputs.kurz }}
+            ${{ steps.namen.outputs.basis }}:${{ steps.namen.outputs.zweig }}
+            ${{ github.ref_name == github.event.repository.default_branch && format('{0}:latest', steps.namen.outputs.basis) || '' }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+      - name: Voice-Image bauen und veröffentlichen
+        uses: docker/build-push-action@v6
+        with:
+          context: plattform
+          push: true
+          build-args: MIT_VOICE=1
+          tags: |
+            ${{ steps.namen.outputs.basis }}:${{ steps.namen.outputs.kurz }}-voice
+            ${{ steps.namen.outputs.basis }}:${{ steps.namen.outputs.zweig }}-voice

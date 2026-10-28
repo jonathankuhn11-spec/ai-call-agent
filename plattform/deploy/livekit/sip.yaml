@@ -1,0 +1,11 @@
+# LiveKit SIP (Profil voice). api_key/api_secret identisch zu LIVEKIT_API_KEY/SECRET in .env eintragen.
+api_key: BITTE-EINTRAGEN
+api_secret: BITTE-EINTRAGEN
+ws_url: ws://127.0.0.1:7880
+redis:
+  address: 127.0.0.1:6379
+sip_port: 5060
+rtp_port: 10000-20000
+use_external_ip: true
+logging:
+  level: info

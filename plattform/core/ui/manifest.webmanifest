@@ -1,0 +1,14 @@
+{
+  "name": "Backoffice – Mein Einsatz",
+  "short_name": "Einsatz",
+  "description": "Tagesliste, Zeitstempel, Rapport mit Foto und Unterschrift für Monteure; Büro-Oberfläche der Plattform.",
+  "start_url": "./#einsatz",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f7fa",
+  "theme_color": "#0b5cad",
+  "lang": "de",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
