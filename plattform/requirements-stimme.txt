@@ -1,0 +1,7 @@
+# Stimmdienst (stimme/): Chatterbox Multilingual (MIT, Resemble AI) als selbst gehostete Stimmklonung.
+# Zieht torch 2.6 mit CUDA-Laufzeit (~3 GB); für CPU-Tests reicht STIMME_ENGINE=test mit requirements.txt.
+chatterbox-tts==0.1.7
+fastapi==0.143.0
+uvicorn==0.53.0
+python-multipart==0.0.32
+httpx==0.28.1

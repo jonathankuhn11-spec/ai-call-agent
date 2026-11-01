@@ -1,0 +1,66 @@
+name: Plattform ausrollen
+
+# Baut die Images (Core und Voice-Agent), legt sie in der GitHub Container Registry ab und rollt
+# sie per SSH auf den Server aus. Nur manuell oder per Tag plattform-v*, nie bei jedem Push.
+# Voraussetzungen (HOSTING.md): Environment „produktion“ mit Pflicht-Freigabe, Variable DEPLOY_HOST,
+# Secrets DEPLOY_SSH_KEY und DEPLOY_KNOWN_HOSTS. Ohne DEPLOY_HOST wird nur gebaut.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version (z. B. 0.2.0)"
+        required: true
+  push:
+    tags: ["plattform-v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/shk-core
+
+jobs:
+  bauen:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: v
+        run: |
+          V="${{ inputs.version }}"; [ -n "$V" ] || V="${GITHUB_REF_NAME#plattform-v}"
+          echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "Ungültige Version: $V"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+      - name: Anmeldung an der GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Core-Image bauen und prüfen
+        run: |
+          docker build -t "$IMAGE:${{ steps.v.outputs.version }}" plattform
+          docker run --rm "$IMAGE:${{ steps.v.outputs.version }}" python -m core demo > /dev/null
+          docker push "$IMAGE:${{ steps.v.outputs.version }}"
+      - name: Voice-Image bauen
+        run: |
+          docker build --build-arg MIT_VOICE=1 -t "$IMAGE:${{ steps.v.outputs.version }}-voice" plattform
+          docker push "$IMAGE:${{ steps.v.outputs.version }}-voice"
+
+  ausrollen:
+    needs: bauen
+    if: ${{ vars.DEPLOY_HOST != '' }}
+    runs-on: ubuntu-latest
+    environment: produktion
+    concurrency: produktion
+    steps:
+      - name: Per SSH ausrollen
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          HOST: ${{ vars.DEPLOY_HOST }}
+          VERSION: ${{ needs.bauen.outputs.version }}
+          REF: ${{ github.sha }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh "shk@$HOST" "cd /opt/shk && git fetch --quiet origin && git checkout --quiet --detach $REF && plattform/deploy/server/deploy.sh $VERSION"

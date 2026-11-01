@@ -1,0 +1,89 @@
+# Serverbetrieb: Override zu ../../docker-compose.yml. Aufruf auf dem Server (siehe HOSTING.md):
+#   docker compose -f docker-compose.yml -f deploy/server/docker-compose.prod.yml --profile auth up -d
+# Unterschiede zur Entwicklung: fertiges Image aus GHCR statt Build, Neustart-Policy, Log-Rotation,
+# Caddy mit TLS als einziger öffentlicher HTTP-Eingang, Keycloak im Produktionsmodus auf PostgreSQL.
+
+x-betrieb: &betrieb
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: {max-size: "20m", max-file: "5"}
+
+x-image: &image
+  image: ${SHK_IMAGE:-ghcr.io/jonathankuhn11-spec/shk-core}:${SHK_VERSION:?SHK_VERSION setzen, z. B. 0.2.0}
+  build: !reset null
+
+services:
+  postgres:
+    <<: *betrieb
+    shm_size: 256mb
+
+  migrate:
+    <<: *image
+    restart: "no"
+
+  core:
+    <<: [*betrieb, *image]
+    environment:
+      OIDC_ISSUER: https://auth.${SHK_DOMAIN}/realms/shk
+      FORWARDED_ALLOW_IPS: "*"
+    ports: !override ["127.0.0.1:8100:8100"]   # Voice-Agent (Host-Netz) spricht den Core lokal an
+    volumes:
+      - ${SHK_SCAN_ORDNER:-/srv/scans}:/srv/scans                                 # Abruf auf Knopfdruck aus der Oberfläche
+      - ${SHK_BELEGTRANSFER_ORDNER:-/srv/datev-belegtransfer}:/srv/datev-belegtransfer
+
+  worker:
+    <<: [*betrieb, *image]
+    # Scanner-Eingang und DATEV-Belegtransfer: Host-Ordner einhängen (Pfade in den Einstellungen des Mandanten eintragen),
+    # z. B. /srv/scans/<betrieb> als SMB-Freigabe für den Netzwerkscanner, /srv/datev-belegtransfer per Sync zum Kanzlei-Rechner.
+    volumes:
+      - export:/app/export
+      - ${SHK_SCAN_ORDNER:-/srv/scans}:/srv/scans
+      - ${SHK_BELEGTRANSFER_ORDNER:-/srv/datev-belegtransfer}:/srv/datev-belegtransfer
+
+  voice-agent:
+    <<: *betrieb
+    image: ${SHK_IMAGE:-ghcr.io/jonathankuhn11-spec/shk-core}:${SHK_VERSION}-voice
+    build: !reset null
+
+  redis:
+    <<: *betrieb
+  livekit:
+    <<: *betrieb
+  livekit-sip:
+    <<: *betrieb
+
+  keycloak:
+    <<: *betrieb
+    command: ["start", "--import-realm"]
+    ports: !reset []
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?KEYCLOAK_DB_PASSWORD setzen}
+      KC_HOSTNAME: https://auth.${SHK_DOMAIN}
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      SHK_OEFFENTLICHE_URL: https://${SHK_DOMAIN}
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  caddy:
+    <<: *betrieb
+    image: caddy:2.10-alpine
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      SHK_DOMAIN: ${SHK_DOMAIN:?SHK_DOMAIN setzen}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL setzen}
+      SHK_ADMIN_NETZE: ${SHK_ADMIN_NETZE:-127.0.0.1/32}
+    volumes:
+      - ./deploy/server/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-daten:/data
+      - caddy-konfig:/config
+    depends_on: [core]
+
+volumes:
+  caddy-daten:
+  caddy-konfig:

@@ -1,0 +1,8 @@
+{
+  "trunk": {
+    "name": "carrier-0221",
+    "numbers": ["+49221BITTE-EINTRAGEN"],
+    "auth_username": "BITTE-EINTRAGEN",
+    "auth_password": "BITTE-EINTRAGEN"
+  }
+}

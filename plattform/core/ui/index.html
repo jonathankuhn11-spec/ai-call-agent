@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>SHK-Backoffice</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0b5cad">
+  <link rel="stylesheet" href="lib/leaflet.css">
+  <link rel="stylesheet" href="lib/uplot.min.css">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="layout">
+  <header class="topleiste"><button id="nav-auf" type="button" aria-label="Menü öffnen" aria-controls="navigation" aria-expanded="false">☰</button><strong id="topleiste-titel">SHK-Backoffice</strong></header>
+  <div class="nav-schleier" id="nav-schleier"></div>
+  <nav class="seitenleiste" id="navigation" aria-label="Hauptnavigation">
+    <div class="marke">SHK-Backoffice<span id="mandant-name" class="mandant"></span></div>
+    <div class="suche"><input id="suche" type="search" placeholder="Suchen … (Strg+K)" autocomplete="off" aria-label="Globale Suche"><div id="suche-treffer" class="suche-treffer" hidden></div></div>
+    <div class="nav-gruppe"><h4>Heute</h4>
+      <a href="#cockpit" data-ansicht="cockpit"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x='3' y='3' width='7' height='9' rx='1.5'/><rect x='14' y='3' width='7' height='5' rx='1.5'/><rect x='14' y='12' width='7' height='9' rx='1.5'/><rect x='3' y='16' width='7' height='5' rx='1.5'/></svg><span class="nav-text">Cockpit</span></a>
+      <a href="#freigaben" data-ansicht="freigaben"><svg viewBox="0 0 24 24" aria-hidden="true"><path d='M3 13h5l2 3h4l2-3h5'/><path d='M5 5h14l2 8v6H3v-6z'/></svg><span class="nav-text">Freigabe-Inbox</span><span id="zaehler-freigaben" class="zaehler"></span></a>
+      <a href="#vorgaenge" data-ansicht="vorgaenge"><svg viewBox="0 0 24 24" aria-hidden="true"><path d='M9 5h6M9 12h6M9 19h6'/><circle cx='5' cy='5' r='1.3'/><circle cx='5' cy='12' r='1.3'/><circle cx='5' cy='19' r='1.3'/></svg><span class="nav-text">Vorgänge</span></a>
+      <a href="#plantafel" data-ansicht="plantafel"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x='3' y='5' width='18' height='16' rx='2'/><path d='M3 10h18M8 3v4M16 3v4'/></svg><span class="nav-text">Plantafel</span></a>
+      <a href="#einsatz" data-ansicht="einsatz" data-recht="einsatz"><svg viewBox="0 0 24 24" aria-hidden="true"><path d='M4 20c0-3.5 3.6-6 8-6s8 2.5 8 6'/><circle cx='12' cy='8' r='4'/></svg><span class="nav-text">Mein Einsatz</span></a>
+      <a href="#anruf" data-ansicht="anruf"><svg viewBox="0 0 24 24" aria-hidden="true"><path d='M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z'/></svg><span class="nav-text">Anruf simulieren</span></a>
+    </div>
+    <div class="nav-gruppe"><h4>Kunden</h4>
+      <a href="#kunden" data-ansicht="kunden"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx='9' cy='8' r='3.5'/><path d='M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6'/><circle cx='17' cy='9' r='2.5'/><path d='M16 14c3 0 5.5 2 5.5 5'/></svg><span class="nav-text">Kunden &amp; Anlagen</span></a>
+      <a href="#anfragen" data-ansicht="anfragen" data-recht="bearbeiten"><svg viewBox="0 0 24 24" aria-hidden="true"><path d='M4 5h16v11H9l-5 4z'/></svg><span class="nav-text">Anfragen</span></a>
+      <a href="#warteliste" data-ansicht="warteliste" data-recht="bearbeiten"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx='12' cy='12' r='9'/><path d='M12 7v5l3 2'/></svg><span class="nav-text">Warteliste</span></a>
+      <a href="#wartung" data-ansicht="wartung"><svg viewBox="0 0 24 24" aria-hidden="true"><path d='M14.5 6.5a4 4 0 0 0 5 5L9 22l-3-3L16.5 8.5a4 4 0 0 0-2-2z'/><path d='M3 7l3-3 3 3-3 3z'/></svg><span class="nav-text">Wartungsplanung</span></a>
+      <a href="#upsell" data-ansicht="upsell" data-recht="bearbeiten"><svg viewBox="0 0 24 24" aria-hidden="true"><path d='M3 17l6-6 4 4 8-8'/><path d='M15 7h6v6'/></svg><span class="nav-text">Empfehlungen</span></a>
+      <a href="#vertraege" data-ansicht="vertraege"><svg viewBox="0 0 24 24" aria-hidden="true"><path d='M6 3h9l4 4v14H6z'/><path d='M14 3v5h5M9 13h6M9 17h6'/></svg><span class="nav-text">Wartungsverträge</span></a>
+    </div>
+    <div class="nav-gruppe"><h4>Verkauf und Finanzen</h4>
+      <a href="#angebote" data-ansicht="angebote"><svg viewBox="0 0 24 24" aria-hidden="true"><path d='M4 4h16v16H4z'/><path d='M8 9h8M8 13h5'/></svg><span class="nav-text">Angebote</span></a>
+      <a href="#rechnungen" data-ansicht="rechnungen" data-recht="finanzen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d='M5 3h14v18l-2.5-1.5L14 21l-2-1.5L10 21l-2.5-1.5L5 21z'/><path d='M9 8h6M9 12h6'/></svg><span class="nav-text">Rechnungen</span></a>
+      <a href="#forderungen" data-ansicht="forderungen" data-recht="finanzen"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx='12' cy='12' r='9'/><path d='M12 7v10M9.5 9.5h3.5a1.75 1.75 0 0 1 0 3.5h-2a1.75 1.75 0 0 0 0 3.5h3.5'/></svg><span class="nav-text">Offene Posten</span><span id="zaehler-op" class="zaehler"></span></a>
+      <a href="#belege" data-ansicht="belege" data-recht="finanzen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d='M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z'/><path d='M14 3v5h5M9 13h6M9 17h4'/></svg><span class="nav-text">Belege</span><span id="zaehler-belege" class="zaehler"></span></a>
+      <a href="#gutscheine" data-ansicht="gutscheine" data-recht="finanzen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d='M3 8a2 2 0 0 0 2-2V5h14v1a2 2 0 0 0 2 2v8a2 2 0 0 0-2 2v1H5v-1a2 2 0 0 0-2-2z'/><path d='M9 5v14'/></svg><span class="nav-text">Gutscheine</span></a>
+      <a href="#auswertungen" data-ansicht="auswertungen" data-recht="finanzen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d='M4 20V10M10 20V4M16 20v-7M22 20H2'/></svg><span class="nav-text">Auswertungen</span></a>
+    </div>
+    <div class="nav-gruppe"><h4>Team und Betrieb</h4>
+      <a href="#dienstplan" data-ansicht="dienstplan" data-recht="einsatz"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x='3' y='4' width='18' height='17' rx='2'/><path d='M3 9h18M8 2v4M16 2v4M8 14h3M13 14h3M8 18h3'/></svg><span class="nav-text">Dienstplan</span></a>
+      <a href="#zeiten" data-ansicht="zeiten" data-recht="einsatz"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx='12' cy='13' r='8'/><path d='M12 9v4l2.5 2M9 2h6'/></svg><span class="nav-text">Zeiten</span></a>
+      <a href="#lager" data-ansicht="lager" data-recht="einsatz"><svg viewBox="0 0 24 24" aria-hidden="true"><path d='M3 9l9-5 9 5v11H3z'/><path d='M9 20v-7h6v7'/></svg><span class="nav-text">Lager &amp; Großhandel</span></a>
+      <a href="#betrieb" data-ansicht="betrieb"><svg viewBox="0 0 24 24" aria-hidden="true"><path d='M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z'/><path d='M12 8v4l2 2'/></svg><span class="nav-text">Bereitschaft &amp; Fristen</span></a>
+      <a href="#ontologie" data-ansicht="ontologie"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx='6' cy='6' r='2.5'/><circle cx='18' cy='6' r='2.5'/><circle cx='12' cy='18' r='2.5'/><path d='M8 7.5l3 8M16 7.5l-3 8M8.5 6h7'/></svg><span class="nav-text">Ontologie</span></a>
+      <a href="#protokoll" data-ansicht="protokoll"><svg viewBox="0 0 24 24" aria-hidden="true"><path d='M4 6h16M4 12h10M4 18h14'/></svg><span class="nav-text">Ereignisprotokoll</span></a>
+    </div>
+    <div class="nav-gruppe"><h4>Verwaltung</h4>
+      <a href="#einrichtung" data-ansicht="einrichtung" data-recht="verwalten"><svg viewBox="0 0 24 24" aria-hidden="true"><path d='M12 2l2 3 3.5-.5.5 3.5 3 2-2 3 2 3-3 2-.5 3.5-3.5-.5-2 3-2-3-3.5.5-.5-3.5-3-2 2-3-2-3 3-2 .5-3.5 3.5.5z'/><circle cx='12' cy='12' r='3'/></svg><span class="nav-text">Einrichtung</span></a>
+      <a href="#website" data-ansicht="website" data-recht="bearbeiten"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx='12' cy='12' r='9'/><path d='M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18'/></svg><span class="nav-text">Website</span></a>
+      <a href="#integrationen" data-ansicht="integrationen" data-recht="verwalten"><svg viewBox="0 0 24 24" aria-hidden="true"><path d='M9 3v4M15 3v4M7 7h10v5a5 5 0 0 1-10 0z'/><path d='M12 17v4'/></svg><span class="nav-text">Integrationen</span></a>
+      <a href="#einstellungen" data-ansicht="einstellungen" id="nav-einstellungen" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d='M4 7h10M18 7h2M4 12h2M10 12h10M4 17h8M16 17h4'/><circle cx='16' cy='7' r='2'/><circle cx='8' cy='12' r='2'/><circle cx='14' cy='17' r='2'/></svg><span class="nav-text">Einstellungen</span></a>
+      <a href="#betreiber" data-ansicht="betreiber" data-recht="plattform"><svg viewBox="0 0 24 24" aria-hidden="true"><path d='M3 21V8l9-5 9 5v13'/><path d='M9 21v-6h6v6M9 11h2M13 11h2'/></svg><span class="nav-text">Betreiberkonsole</span></a>
+    </div>
+    <div class="nav-fuss">
+      <button id="abmelden" class="leise">Abmelden / Betrieb wechseln</button>
+      <small id="version" class="version"></small>
+    </div>
+  </nav>
+  <main id="inhalt" tabindex="-1"></main>
+</div>
+
+<dialog id="anmeldung">
+  <form method="dialog" id="anmeldeformular">
+    <h2>Anmelden</h2>
+    <div id="oidc-bereich" hidden>
+      <p><button id="oidc-anmelden" type="button">Mit Betriebskonto anmelden</button></p>
+      <p class="unterzeile">Administration und Entwicklung: mit API-Key und Betrieb.</p>
+    </div>
+    <label>API-Key <input id="api-key" type="password" autocomplete="off" placeholder="leer lassen, wenn CORE_API_KEY nicht gesetzt ist"></label>
+    <label>Betrieb <select id="mandant-auswahl"></select></label>
+    <p id="anmeldefehler" class="fehler" hidden></p>
+    <div class="aktionen"><button id="mandanten-laden" type="button" class="leise">Betriebe laden</button><button type="submit">Öffnen</button></div>
+  </form>
+</dialog>
+
+<dialog id="detail" aria-label="Details"><div class="dialog-kopf"><form method="dialog"><button class="schliessen" aria-label="Schließen" title="Schließen (Esc)">×</button></form></div><div id="detail-inhalt"></div></dialog>
+<script src="lib/leaflet.js"></script>
+<script src="lib/uplot.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

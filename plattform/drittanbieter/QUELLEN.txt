@@ -1,0 +1,5 @@
+# Herkunft der mitgeführten und gespiegelten Fremdartefakte (Name  Version  Lizenz  URL); vom Spiegelskript gelesen.
+# Spalten durch Tabulator getrennt. Prüfsummen in SHA256SUMS.
+xrechnung/validator-1.5.0-distribution.zip	1.5.0	Apache-2.0	https://github.com/itplr-kosit/validator/releases/download/v1.5.0/validator-1.5.0-distribution.zip
+xrechnung/validator-configuration-xrechnung_3.0.2_2025-07-10.zip	3.0.2 (2025-07-10)	Apache-2.0	https://github.com/itplr-kosit/validator-configuration-xrechnung/releases/download/release-2025-07-10/validator-configuration-xrechnung_3.0.2_2025-07-10.zip
+ontologie/Brick-1.4.1.ttl	1.4.1	BSD-3-Clause	https://github.com/BrickSchema/Brick/releases/download/v1.4.1/Brick.ttl

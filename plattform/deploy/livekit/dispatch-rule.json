@@ -1,0 +1,7 @@
+{
+  "dispatch_rule": {
+    "name": "shk-assistenz",
+    "rule": {"dispatchRuleIndividual": {"roomPrefix": "anruf-"}},
+    "roomConfig": {"agents": [{"agentName": "shk-assistenz"}]}
+  }
+}
