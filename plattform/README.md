@@ -31,8 +31,9 @@ plattform/
 ├── deploy/postgres/      Datenbankrollen (shk_app unter RLS, shk_system) und Init-Skripte
 ├── deploy/server/        Serverbetrieb: Compose-Override, Caddy, cloud-init, Deploy, Backup
 ├── HOSTING.md            Hosting in Deutschland, Einrichtung, Sicherung, Sicherheitskonzept
-├── STIMME.md             Eigene Stimme des Inhabers für den Sprachagenten (Voice Cloning, Anbieter, Einwilligung)
-├── docker-compose.yml    Profile: Basis, voice, ops (n8n), auth (Keycloak), ontologie (Fuseki), routing (OSRM), push (ntfy), monitoring (Prometheus, Alertmanager)
+├── stimme/               Stimmdienst: selbst gehostete Stimmklonung (Chatterbox, MIT) hinter OpenAI-kompatibler API, eigenes Dockerfile
+├── STIMME.md             Eigene Stimme des Inhabers für den Sprachagenten (Stimmprofil, Einwilligung, Stimmdienst, externe Anbieter)
+├── docker-compose.yml    Profile: Basis, voice, stimme (GPU), ops (n8n), auth (Keycloak), ontologie (Fuseki), routing (OSRM), push (ntfy), monitoring (Prometheus, Alertmanager)
 ├── KATALOG.md            Open-Source-Komponenten mit Lizenz und Einbindungsart
 ├── drittanbieter/        mitgeführte Fremdartefakte: Lizenztexte, Brick-Ontologie, KoSIT-Validator, Wheelhouse, Image-Spiegel (spiegeln.sh)
 └── VOICE-AGENT.md        Auswahl des Voice-Agenten und Aufbau des Voice-Backends
@@ -99,6 +100,7 @@ Seit Runde 11 mit eigenem Designsystem (`core/ui/app.css`: Tokens, Dunkelmodus, 
 | Rapport (Ergänzung) | **Wartungs-Checkliste** je Anlagentyp (Gas-Brennwert, Öl, Wärmepumpe, Solarthermie, Klima, Trinkwasser, Warmwasser, Sanitär) mit Prüfpunkten, Messwertgrenzen und Normbezug; Befunde (ok/auffällig/offen) landen am Rapport, Auffälligkeiten als Kundenhinweis |
 | Angebote (Ergänzung) | **BEG-Förderrechner** (KfW 458 Heizungsförderung mit Grund-, Klimageschwindigkeits-, Einkommens- und Effizienz-Bonus; BAFA-Einzelmaßnahmen mit iSFP-Bonus) mit Übernahme als Vorbehaltstext in die Angebotseinleitung |
 | Kundenportal (öffentlich) | `/portal/#<vorgang>/<token>`: Zeitachse „Anfrage eingegangen → Termin geplant → Wir sind unterwegs (aus der Fahrtzeit des Monteurs, Ankunft) → Arbeit erledigt → Rechnung“, Termin bestätigen oder absagen, **Wunschtermin** aus freien Fenstern wählen (ersetzt den Vorschlag, Freigabe im Büro), Termin als ICS in den eigenen Kalender, Angebote und Rechnungen als PDF, **GiroCode** zur Rechnung (Banking-App scannen), **Bewertung** mit Sternen nach erledigter Arbeit (kritische Bewertungen gehen als Hinweis ans Büro), „Ihr Haus/Ihr Fahrzeug“ mit Erneuerungen und Zählerstandsmeldung; Dunkelmodus, 44-px-Bedienelemente; Link steht in Terminbestätigung und Terminerinnerung (Tageslauf, Vortag) |
+| Stimme des Sprachagenten | Stimmprofil je Betrieb (Einstellungen): Aufnahme 20–60 s hochladen, Einwilligungstext mit Name, Betrieb, Datum und entgegennehmender Person, Hörprobe über den Stimmdienst, genau ein aktives Profil, Widerruf löscht die Aufnahme sofort und entfernt die Stimme aus dem Dienst (Profilsatz bleibt als Nachweis); Begrüßung nennt die nachgebildete Stimme (Art. 50 KI-VO); Sprachminuten des Monats aus den Gesprächsdauern; Edition Pro/Enterprise |
 | Betreiberkonsole | nur mit Maschinenschlüssel (Recht „plattform“): alle Betriebe mit Edition, Testphase, Nutzung; Edition zuweisen, Testphase verlängern, Lizenzschlüssel ausstellen (Runde 10) |
 | Integrationen | Hub aller Anbindungen mit Zustand (aktiv, eingerichtet, gestört, aus), Outbox-Zahlen je Ziel (zugestellt, ausstehend, Dead Letter, letzter Fehler), **Verbindung prüfen** mit den gespeicherten Zugangsdaten (WhatsApp, Stripe, Lexware, sevDesk, seven.io, ntfy …), Einrichtungsformulare je Ziel, Webhook-Adressen für WhatsApp und Stripe, Systemdienste (Telefonie, OSRM, Nominatim, OIDC, Scanner, Großhandel) |
 | Website | Eigene Internetseite des Betriebs aus den Stammdaten (`/web/<slug>` oder eigene Domain): Claim, Über uns, Leistungen mit optionalen Preisen, Online-Buchung, Kundenstimmen (Freigabe je Text, Mindeststerne, gekürzte Namen), Notdienst-Leiste, Team, Anfahrt/Einzugsgebiet, Kontaktformular mit Übernahme in die Anfragen (Honeypot, 30/h), Impressum- und Datenschutz-**Entwurf**, Sitemap, robots.txt, JSON-LD LocalBusiness mit Bewertungen; Vorschau vor Veröffentlichung, `noindex` solange nicht aktiv; serverseitig gerendert ohne Cookies und Skripte |
@@ -290,7 +292,7 @@ Löschkonzept (deckungsgleich mit `core/loeschung.py`) und Datenschutzhinweis f�
 Bereitgestellt, aber nur mit Konten des Betreibers ausführbar:
 - echter Anruf über SIP: TELEFONIE.md, `deploy/livekit/trunk-anlegen.sh`, `python -m voice.probe`
 - Erstausrollung: HOSTING.md, `deploy/server/einrichten.sh` (erzeugt `.env`, rollt aus, legt Mandant an; `--lokal` baut die Images auf dem Server)
-- eigene Stimme: STIMME.md (ElevenLabs, Cartesia oder Azure Custom Neural Voice über `TTS_ANBIETER`/`TTS_STIMME`)
+- eigene Stimme: STIMME.md (selbst gehosteter Stimmdienst mit GPU, Profil `stimme`; alternativ ElevenLabs, Cartesia oder Azure Custom Neural Voice über `TTS_ANBIETER`/`TTS_STIMME`)
 - eigenes Repository: `deploy/repo-abspalten.sh` (git subtree split, Workflows angepasst)
 - Finanzanbindung (Lexware Office, sevDesk, DATEV, XRechnung über Mustang Project)
 - AVV, TOMs, Löschkonzept: rechtliche Unterlagen vor dem ersten Pilotkunden

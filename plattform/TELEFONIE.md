@@ -37,6 +37,7 @@ Betrieb jederzeit erreichbar, auch wenn der Server ausfällt.
 | Dienst | Konto | Variablen in `.env` |
 | --- | --- | --- |
 | Azure AI Speech (STT/TTS), Region Germany West Central | Azure-Abonnement, Ressource „Speech“ | `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION=germanywestcentral`, `TTS_STIMME` |
+| Stimmdienst (eigene Stimme, optional) | eigener GPU-Server, Profil `stimme` (STIMME.md) | `STIMME_URL`, `STIMME_API_KEY`, `STIMME_ENGINE`, `STIMME_GERAET` |
 | Claude (LLM) | Anthropic Console oder EU-Gateway | `ANTHROPIC_API_KEY`, optional `LLM_BASE_URL` |
 | LiveKit | lokal, Schlüsselpaar selbst erzeugen | `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` (identisch in `deploy/livekit/sip.yaml`) |
 

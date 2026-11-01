@@ -39,11 +39,20 @@ class KernClient:
         return await self._post("/voice/servicefall", daten)
 
     async def gespraech_beendet(self, transkript: str, telefon: str | None = None, servicefall_id: str | None = None,
-                                zusammenfassung: str | None = None, extraktion: dict[str, Any] | None = None) -> dict[str, Any]:
+                                zusammenfassung: str | None = None, extraktion: dict[str, Any] | None = None,
+                                dauer_sekunden: float | None = None, kennzahlen: dict[str, Any] | None = None,
+                                stimme_id: str | None = None) -> dict[str, Any]:
         return await self._post("/voice/gespraech-beendet", {"transkript": transkript, "telefon": telefon,
                                                              "servicefall_id": servicefall_id,
                                                              "zusammenfassung": zusammenfassung,
-                                                             "extraktion": extraktion or {}})
+                                                             "extraktion": extraktion or {}, "dauer_sekunden": dauer_sekunden,
+                                                             "kennzahlen": kennzahlen or None, "stimme_id": stimme_id})
+
+    async def konfiguration(self) -> dict[str, Any]:
+        """Begrüßung (mit KI-Offenlegung), aktives Stimmprofil, Weiterleitung und Minutenkontingent des Mandanten."""
+        r = await self._http.get("/voice/konfiguration")
+        r.raise_for_status()
+        return r.json()
 
     async def notdienst(self) -> dict[str, Any]:
         """Aktuelle Bereitschaft (Rufnummer und Name) für Notfälle außerhalb der Bürozeit."""

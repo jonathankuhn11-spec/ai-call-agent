@@ -3,7 +3,7 @@
     python -m voice.probe
 
 Prüft ohne Anruf, ob alles für den ersten echten Anruf bereit ist: Umgebungsvariablen, LiveKit-Server,
-SIP-Port, Core-Tool-API, Azure Speech und das Sprachmodell. Jede Zeile endet mit OK oder FEHLT/FEHLER;
+SIP-Port, Core-Tool-API, Azure Speech, Stimmdienst (falls konfiguriert) und das Sprachmodell. Jede Zeile endet mit OK oder FEHLT/FEHLER;
 der Exit-Code ist 1, sobald eine Pflichtprüfung scheitert. Eignet sich auch als Cron-Überwachung.
 """
 from __future__ import annotations
@@ -79,6 +79,18 @@ def pruefen() -> int:
                 ergebnis &= _zeile("Azure Speech (Token)", status == 200, f"Region {region} → {status}")
             except Exception as fehler:  # noqa: BLE001
                 ergebnis &= _zeile("Azure Speech (Token)", False, str(fehler))
+
+    if os.environ.get("STIMME_URL"):
+        stimme = os.environ["STIMME_URL"].rstrip("/")
+        kopf_s = {"Authorization": f"Bearer {os.environ['STIMME_API_KEY']}"} if os.environ.get("STIMME_API_KEY") else {}
+        try:
+            status, inhalt = _http(stimme + "/health", kopf_s, timeout=10.0)
+            daten = json.loads(inhalt or b"{}") if status == 200 else {}
+            ergebnis &= _zeile("Stimmdienst (eigene Stimme)", status == 200, f"{stimme} → {status} {daten.get('engine', '')} auf {daten.get('geraet', '')}, {daten.get('stimmen', 0)} Stimmen".rstrip(", "))
+        except Exception as fehler:  # noqa: BLE001
+            ergebnis &= _zeile("Stimmdienst (eigene Stimme)", False, f"{stimme}: {fehler}")
+    else:
+        _zeile("Stimmdienst (eigene Stimme)", True, "nicht konfiguriert (STIMME_URL leer): Standardstimme")
 
     if os.environ.get("LLM_ANBIETER", "anthropic") == "anthropic":
         basis = (os.environ.get("LLM_BASE_URL") or "https://api.anthropic.com").rstrip("/")

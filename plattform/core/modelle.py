@@ -11,7 +11,21 @@ import uuid
 from datetime import date, datetime, time, timezone
 from typing import Any
 
-from sqlalchemy import JSON, Date, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, Time, UniqueConstraint, select
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Date,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    Time,
+    UniqueConstraint,
+    select,
+)
 from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
 
 from core.db import Basis, UtcZeit
@@ -260,6 +274,31 @@ class ExternalRef(_Mandantenbezug, Basis):
     zielsystem: Mapped[str] = mapped_column(String(50))
     externe_id: Mapped[str] = mapped_column(String(120))
     letzter_sync: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
+
+
+class Stimmprofil(_Mandantenbezug, Basis):
+    """Geklonte Stimme für den Sprachagenten (core.stimme): Referenzaufnahme der sprechenden Person mit dokumentierter
+    Einwilligung; genau ein Profil je Mandant ist aktiv. Widerruf löscht die Aufnahme, das Profil bleibt als Nachweis."""
+    __tablename__ = "stimmprofil"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    name: Mapped[str] = mapped_column(String(120))            # sprechende Person
+    rolle: Mapped[str] = mapped_column(String(20), default="inhaber")   # inhaber, mitarbeiter
+    status: Mapped[str] = mapped_column(String(20), default="bereit")   # bereit, widerrufen
+    aktiv: Mapped[bool] = mapped_column(Boolean, default=False)
+    anbieter: Mapped[str] = mapped_column(String(20), default="eigen")  # eigen = Stimmdienst (stimme/), sonst Anbieterkürzel
+    extern_id: Mapped[str | None] = mapped_column(String(120))
+    einwilligung_am: Mapped[date | None] = mapped_column(Date)
+    einwilligung_text: Mapped[str | None] = mapped_column(Text)
+    einwilligung_durch: Mapped[str | None] = mapped_column(String(120))
+    probe_name: Mapped[str | None] = mapped_column(String(200))
+    probe_mime: Mapped[str | None] = mapped_column(String(60))
+    probe_groesse: Mapped[int] = mapped_column(Integer, default=0)
+    probe_dauer_sek: Mapped[float | None] = mapped_column(Float)
+    probe: Mapped[bytes | None] = mapped_column(LargeBinary)
+    synchronisiert: Mapped[datetime | None] = mapped_column(UtcZeit)
+    widerrufen_am: Mapped[datetime | None] = mapped_column(UtcZeit)
+    letzter_fehler: Mapped[str | None] = mapped_column(String(300))
+    erstellt: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
 
 
 # --- Betriebsmodule: Dokumente, Belegeingang, Zeiten, Rapport, Bereitschaft, Fristen -----------

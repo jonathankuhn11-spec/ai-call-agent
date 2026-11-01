@@ -242,3 +242,5 @@ form.vorlage { padding: var(--s1) 0 var(--s4); } form.vorlage textarea, form.vor
   dialog { width: calc(100vw - 16px); max-height: 92vh; border-radius: 12px; }
 }
 @media print { .seitenleiste, .topleiste, .toasts, button { display: none !important; } .layout { display: block; } main { padding: 0; max-width: none; } .karte { box-shadow: none; break-inside: avoid; } }
+
+tr.gedaempft td { color: var(--gedämpft); }

@@ -917,6 +917,7 @@ async function einstellungen(ziel) {
   await monteureVerwalten(ziel);
   await einstellungenErgaenzen(ziel);
   await produktErgaenzen(ziel);
+  await stimmeErgaenzen(ziel);
   const brancheKarte = document.createElement("div");
   brancheKarte.className = "karte"; brancheKarte.style.marginBottom = "16px";
   const [branchen, buchung] = await Promise.all([api("/branchen"), api("/betrieb/buchung")]);
@@ -955,6 +956,60 @@ async function protokoll(ziel) {
 }
 
 produktLaden().finally(() => oidcRueckkehr().then(zeigen, (e) => anmelden(e.message)));
+
+// --- Betreiberstimme: Stimmprofil mit Einwilligung, Hörprobe, Widerruf (Einstellungen) --------------------------
+const ROLLE_TEXT = { inhaber: "Inhaber/in", mitarbeiter: "Mitarbeiter/in" };
+async function audioAbspielen(pfad, daten) {
+  const kopf = authKopf(true); if (daten) kopf["Content-Type"] = "application/json";
+  const r = await fetch(pfad, { method: daten ? "POST" : "GET", headers: kopf, body: daten ? JSON.stringify(daten) : undefined });
+  if (!r.ok) { const inhalt = await r.json().catch(() => ({})); throw new Error(inhalt.detail || `HTTP ${r.status}`); }
+  const url = URL.createObjectURL(await r.blob()); const audio = new Audio(url); audio.addEventListener("ended", () => URL.revokeObjectURL(url)); await audio.play(); return audio;
+}
+async function stimmeErgaenzen(ziel) {
+  let st; try { st = await api("/betrieb/stimme"); } catch (e) { return; }
+  const karte = document.createElement("div"); karte.className = "karte"; karte.style.marginBottom = "16px";
+  const dienst = st.dienst.status; const dienstOk = dienst && dienst.status === "ok";
+  const profil = (p) => `<tr class="${p.status === "widerrufen" ? "gedaempft" : ""}"><td><strong>${esc(p.name)}</strong><br><small>${esc(ROLLE_TEXT[p.rolle] || p.rolle)} · Einwilligung ${p.einwilligung_am ? DATUM.format(new Date(p.einwilligung_am)) : "–"}${p.einwilligung_durch ? ` (entgegengenommen von ${esc(p.einwilligung_durch)})` : ""}</small></td>
+      <td>${p.status === "widerrufen" ? tag("widerrufen", "tot", `widerrufen ${p.widerrufen_am ? DATUM.format(new Date(p.widerrufen_am)) : ""}`) : p.aktiv ? tag("aktiv", "ok", "aktiv") : tag("bereit", "neutral", "bereit")}${p.letzter_fehler ? `<br><small class="fehler">${esc(p.letzter_fehler)}</small>` : p.aktiv && st.dienst.konfiguriert ? `<br><small>${p.synchronisiert ? "im Stimmdienst registriert" : "wird beim ersten Anruf geladen"}</small>` : ""}</td>
+      <td><small>${p.probe_groesse ? `${esc(p.probe_name)} · ${(p.probe_groesse / 1024 / 1024).toFixed(1)} MB${p.probe_dauer_sek ? ` · ${Math.round(p.probe_dauer_sek)} s` : ""}` : "Aufnahme gelöscht"}</small></td>
+      <td class="aktionen" style="margin:0;justify-content:flex-start">${p.status === "bereit" ? `<button type="button" class="leise klein" data-probe="${p.id}">Aufnahme anhören</button><button type="button" class="leise klein" data-vorschau="${p.id}" ${dienstOk ? "" : "disabled title='Stimmdienst nicht erreichbar'"}>Hörprobe</button>
+        <button type="button" class="${p.aktiv ? "leise" : ""} klein" data-aktiv="${p.id}" data-wert="${p.aktiv ? "false" : "true"}">${p.aktiv ? "Deaktivieren" : "Aktivieren"}</button><button type="button" class="gefahr klein" data-widerruf="${p.id}">Widerrufen und löschen</button>` : ""}</td></tr>`;
+  karte.innerHTML = `<h2>Stimme des Sprachagenten</h2>
+    <p class="unterzeile">Der Telefonagent kann mit der nachgebildeten Stimme des Inhabers oder einer Mitarbeiterin sprechen. Dafür reicht eine Aufnahme von 20–60 Sekunden (WAV oder FLAC, ruhiger Raum, normales Sprechtempo). Die Nachbildung läuft auf dem eigenen Stimmdienst (Chatterbox, MIT-Lizenz) in Deutschland; die Aufnahme verlässt den Server nicht. Der Agent sagt zu Beginn jedes Gesprächs, dass eine KI mit der nachgebildeten Stimme spricht (Art. 50 KI-VO), und die Ausgabe trägt ein Wasserzeichen.</p>
+    ${st.feature ? "" : `<p class="banner fehler">Eigene Stimme ist in der Edition ${esc(st.edition)} nicht enthalten (ab Pro). Vorhandene Profile bleiben gespeichert, der Agent nutzt die Standardstimme.</p>`}
+    ${st.dienst.konfiguriert ? `<p class="unterzeile">Stimmdienst: ${dienstOk ? `${tag("erreichbar", "ok", "erreichbar")} ${esc(dienst.engine)} auf ${esc(dienst.geraet)}${dienst.wasserzeichen ? ", Wasserzeichen aktiv" : ""}` : `${tag("nicht erreichbar", "tot", "nicht erreichbar")} ${esc(dienst?.fehler || dienst?.status || "")}`}</p>` : `<p class="banner hinweis">Kein Stimmdienst konfiguriert (STIMME_URL). Profile und Einwilligungen lassen sich bereits anlegen; der Agent spricht bis dahin mit der Standardstimme. Einrichtung: STIMME.md.</p>`}
+    <div class="tabelle-rahmen">${st.profile.length ? `<table><thead><tr><th>Person</th><th>Status</th><th>Aufnahme</th><th></th></tr></thead><tbody>${st.profile.map(profil).join("")}</tbody></table>` : leer("Noch kein Stimmprofil. Mit dem Formular unten eine Aufnahme hochladen.")}</div>
+    <h3>Begrüßung am Telefon</h3><p><small>${esc(st.begruessung)}</small></p>
+    <p class="unterzeile">Sprachminuten in diesem Monat: ${st.sprachminuten.verbraucht.toLocaleString("de-DE")}${st.sprachminuten.limit ? ` von ${st.sprachminuten.limit.toLocaleString("de-DE")}` : ""}.</p>
+    <details ${st.profile.length ? "" : "open"}><summary>Neue Stimme aufnehmen und einwilligen</summary>
+      <form id="stimme-form" enctype="multipart/form-data"><div class="raster">
+        <label>Name der sprechenden Person <input name="name" required minlength="2" placeholder="Vor- und Nachname"></label>
+        <label>Rolle <select name="rolle"><option value="inhaber">Inhaber/in</option><option value="mitarbeiter">Mitarbeiter/in</option></select></label>
+        <label>Aufnahme (WAV/FLAC/MP3, 20–60 s) <input type="file" name="datei" accept="audio/*,.wav,.flac,.mp3,.ogg" required></label>
+        <label>Einwilligung entgegengenommen von <input name="einwilligung_durch" placeholder="Name, z. B. Büroleitung"></label>
+      </div>
+      <p class="unterzeile" id="stimme-einwilligung">${esc(st.einwilligung_vorlage)}</p>
+      <label><span><input type="checkbox" name="einwilligung" required> Die sprechende Person hat den obigen Text gelesen und willigt ein; die Einwilligung liegt schriftlich oder als Aufnahme vor.</span></label>
+      <label><span><input type="checkbox" name="aktivieren" checked> Sofort als Stimme des Agenten verwenden</span></label>
+      <div class="aktionen"><span class="fehler" id="stimme-fehler" hidden></span><button type="submit" ${st.feature ? "" : "disabled"}>Stimmprofil anlegen</button></div></form></details>`;
+  ziel.append(karte);
+  $("#stimme-form", karte).addEventListener("submit", async (ev) => {
+    ev.preventDefault(); const fehler = $("#stimme-fehler", karte); fehler.hidden = true;
+    const fd = new FormData(ev.target); fd.set("einwilligung", fd.has("einwilligung") ? "true" : "false"); fd.set("aktivieren", fd.has("aktivieren") ? "true" : "false");
+    try { await api("/betrieb/stimme", { methode: "POST", daten: fd }); melden("Stimmprofil angelegt", "ok"); zeigen(); }
+    catch (e) { fehler.textContent = e.message; fehler.hidden = false; }
+  });
+  karte.querySelectorAll("[data-probe]").forEach((b) => b.addEventListener("click", () => audioAbspielen(`/betrieb/stimme/${b.dataset.probe}/probe`).catch((e) => melden(e.message))));
+  karte.querySelectorAll("[data-vorschau]").forEach((b) => b.addEventListener("click", async () => {
+    const text = prompt("Text für die Hörprobe", "Guten Tag, hier ist der digitale Assistent. Wann passt Ihnen ein Termin, Dienstag um neun oder Donnerstag um vierzehn Uhr?"); if (!text) return;
+    b.disabled = true; try { await audioAbspielen(`/betrieb/stimme/${b.dataset.vorschau}/vorschau`, { text }); } catch (e) { melden(e.message); } finally { b.disabled = false; }
+  }));
+  karte.querySelectorAll("[data-aktiv]").forEach((b) => b.addEventListener("click", async () => { try { await api(`/betrieb/stimme/${b.dataset.aktiv}/aktiv?aktiv=${b.dataset.wert}`, { methode: "PUT" }); zeigen(); } catch (e) { melden(e.message); } }));
+  karte.querySelectorAll("[data-widerruf]").forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm("Einwilligung widerrufen? Die Aufnahme wird sofort gelöscht und die Stimme aus dem Stimmdienst entfernt; der Agent spricht dann mit der Standardstimme.")) return;
+    try { await api(`/betrieb/stimme/${b.dataset.widerruf}`, { methode: "DELETE" }); melden("Widerrufen, Aufnahme gelöscht", "ok"); zeigen(); } catch (e) { melden(e.message); }
+  }));
+}
 
 // --- Produkt: Edition und Lizenz, Textvorlagen (Einstellungen) ---------------------------------------------
 const QUELLE_TEXT = { lizenz: "per Lizenzschlüssel", betreiber: "vom Betreiber zugewiesen", testphase: "Testphase", starter: "ohne Lizenz (Starter)" };

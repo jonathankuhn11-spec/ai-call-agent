@@ -17,6 +17,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
 
+import httpx
 from fastapi import (
     Depends,
     FastAPI,
@@ -72,12 +73,13 @@ from core import (
     portal,
     produkt,
     prognose,
-    registrierung,
     qualifikationen,
+    registrierung,
     risiko,
     routing,
     scanner,
     schaetzung,
+    stimme,
     suche,
     tagesaufgaben,
     twin,
@@ -135,6 +137,7 @@ from core.modelle import (
     Rechnung,
     Ressource,
     Servicefall,
+    Stimmprofil,
     Termin,
     Vertrag,
     Wartelisteneintrag,
@@ -911,6 +914,13 @@ class VoiceGespraechBeendet(_Schema):
     zusammenfassung: str | None = None
     extraktion: dict[str, Any] = {}
     aufzeichnung_eingewilligt: bool = False
+    dauer_sekunden: float | None = Field(None, ge=0, description="Gesprächsdauer; Grundlage des Sprachminuten-Kontingents")
+    kennzahlen: dict[str, Any] = Field({}, description="Latenzen des Agenten (STT, LLM, TTS, Ende-der-Äußerung) in Sekunden")
+    stimme_id: str | None = Field(None, description="genutztes Stimmprofil, falls mit geklonter Stimme gesprochen wurde")
+
+
+class StimmeVorschau(_Schema):
+    text: str = Field("Guten Tag, hier ist der digitale Assistent. Wann passt Ihnen ein Termin, Dienstag um neun oder Donnerstag um vierzehn Uhr?", min_length=2, max_length=600)
 
 
 class ArtikelNeu(_Schema):
@@ -1113,6 +1123,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     app.state.metriken = metriken.Metriken(system_db.sitzungen, uhr)
     app.state.datev_transport = None  # Tests: httpx.MockTransport für den DATEV-Login
     app.state.adapter_zusatz = {}     # Tests: {"transport": httpx.MockTransport(...)} für Verbindungstests und Webhooks
+    app.state.stimme_transport = None  # Tests: httpx-Transport zum Stimmdienst (core.stimme.Dienst)
 
     domain_cache: dict[str, tuple[float, str | None]] = {}
 
@@ -1322,6 +1333,93 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
             return vorlagen.vorschau(m, daten.schluessel, daten.text, daten.betreff)
         except (vorlagen.Vorlagenfehler, KeyError) as e:
             raise HTTPException(422, str(e)) from e
+
+    # --- Betreiberstimme (core.stimme): Stimmprofil, Einwilligung, Stimmdienst -----------------
+    def stimme_dienst() -> stimme.Dienst:
+        return stimme.Dienst(transport=app.state.stimme_transport)
+
+    @app.get("/betrieb/stimme", dependencies=[Depends(recht("bearbeiten"))])
+    def stimme_lesen(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        d = stimme_dienst()
+        st = produkt.status(m, heute())
+        aktiv = stimme.aktives(s, m)
+        return {"profile": [stimme.aus(p) for p in stimme.alle(s, m)], "aktiv": aktiv.id if aktiv else None,
+                "feature": "eigene_stimme" in st["features"], "edition": st["titel"],
+                "dienst": {"konfiguriert": d.konfiguriert, "url": d.url, "status": d.gesund()},
+                "einwilligung_vorlage": stimme.EINWILLIGUNG.format(name="<Name>", betrieb=m.name),
+                "begruessung": stimme.begruessung(m, aktiv), "begruessung_ohne": stimme.begruessung(m, None),
+                "sprachminuten": {"verbraucht": stimme.sprachminuten(s, m, heute()), "limit": st["limits"].get("sprachminuten_monat")}}
+
+    @app.post("/betrieb/stimme", status_code=201, dependencies=[Depends(recht("verwalten")), Depends(feature("eigene_stimme"))])
+    async def stimme_anlegen(datei: UploadFile = File(...), name: str = Form(...), rolle: str = Form("inhaber"),
+                             einwilligung: bool = Form(False), einwilligung_durch: str = Form(""), aktivieren: bool = Form(True),
+                             m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        inhalt = await datei.read()
+        try:
+            profil = stimme.anlegen(s, m, name=name, rolle=rolle, inhalt=inhalt, dateiname=datei.filename or "aufnahme", mime=datei.content_type,
+                                    einwilligung_bestaetigt=einwilligung, einwilligung_durch=einwilligung_durch or p.name, heute=heute(), akteur_name=p.name)
+            if aktivieren:
+                stimme.aktivieren(s, m, profil, True, stimme_dienst(), p.name)
+        except stimme.Stimmfehler as e:
+            raise HTTPException(422, str(e)) from e
+        s.commit()
+        return stimme.aus(profil)
+
+    @app.put("/betrieb/stimme/{profil_id}/aktiv", dependencies=[Depends(recht("verwalten")), Depends(feature("eigene_stimme"))])
+    def stimme_aktivieren(profil_id: str, aktiv: bool = True, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                          p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        profil = holen(s, Stimmprofil, profil_id, m)
+        try:
+            stimme.aktivieren(s, m, profil, aktiv, stimme_dienst(), p.name)
+        except stimme.Stimmfehler as e:
+            raise HTTPException(409, str(e)) from e
+        s.commit()
+        return stimme.aus(profil)
+
+    @app.delete("/betrieb/stimme/{profil_id}", dependencies=[Depends(recht("verwalten"))])
+    def stimme_widerrufen(profil_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        """Widerruf der Einwilligung: Aufnahme sofort löschen, Referenz im Stimmdienst entfernen; der Profilsatz bleibt als Nachweis."""
+        profil = holen(s, Stimmprofil, profil_id, m)
+        stimme.widerrufen(s, m, profil, stimme_dienst(), p.name)
+        s.commit()
+        return stimme.aus(profil)
+
+    @app.get("/betrieb/stimme/{profil_id}/probe", dependencies=[Depends(recht("verwalten"))])
+    def stimme_probe(profil_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> Response:
+        profil = holen(s, Stimmprofil, profil_id, m)
+        if not profil.probe:
+            raise HTTPException(404, "Aufnahme gelöscht (Einwilligung widerrufen)")
+        return Response(profil.probe, media_type=profil.probe_mime or "audio/wav",
+                        headers={"Content-Disposition": f'inline; filename="{profil.probe_name}"', "Cache-Control": "private, no-store"})
+
+    @app.post("/betrieb/stimme/{profil_id}/vorschau", dependencies=[Depends(recht("bearbeiten")), Depends(feature("eigene_stimme"))])
+    def stimme_vorschau(profil_id: str, daten: StimmeVorschau, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> Response:
+        """Hörprobe über den Stimmdienst (WAV); 503, solange kein Stimmdienst konfiguriert oder erreichbar ist."""
+        profil = holen(s, Stimmprofil, profil_id, m)
+        d = stimme_dienst()
+        if not d.konfiguriert:
+            raise HTTPException(503, "Kein Stimmdienst konfiguriert (STIMME_URL); siehe STIMME.md")
+        if profil.status != "bereit":
+            raise HTTPException(409, "Profil ist widerrufen")
+        try:
+            audio, typ = d.sprechen(daten.text, profil.id)
+        except (stimme.Stimmfehler, httpx.HTTPError) as e:
+            raise HTTPException(503, f"Stimmdienst nicht erreichbar: {e}") from e
+        return Response(audio, media_type=typ, headers={"Cache-Control": "no-store"})
+
+    @app.get("/voice/konfiguration", dependencies=[Depends(recht("bearbeiten"))])
+    def voice_konfiguration(m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> dict[str, Any]:
+        """Für den Sprachagenten zu Gesprächsbeginn: Begrüßung mit KI-Offenlegung, aktives Stimmprofil, Weiterleitung, Minutenkontingent."""
+        return stimme.konfiguration(s, m, heute(), stimme_dienst(), produkt.status(m, heute()))
+
+    @app.get("/voice/stimmprobe/{profil_id}", dependencies=[Depends(recht("plattform"))])
+    def voice_stimmprobe(profil_id: str, s: Session = Depends(system_sitzung)) -> Response:
+        """Referenzaufnahme für den Stimmdienst (nur Maschinenschlüssel, mandantenübergreifend über die Profil-ID); nur aktive Profile."""
+        profil = s.get(Stimmprofil, profil_id)
+        if profil is None or not profil.aktiv or profil.status != "bereit" or not profil.probe:
+            raise HTTPException(404, "Stimmprofil nicht aktiv")
+        return Response(profil.probe, media_type=profil.probe_mime or "audio/wav",
+                        headers={"X-Stimme-Name": profil.name.encode("ascii", "replace").decode(), "Cache-Control": "private, no-store"})
 
     def xlsx(inhalt: bytes, art: str) -> Response:
         return Response(inhalt, media_type=export.MIME, headers={"Content-Disposition": f'attachment; filename="{export.dateiname(art, heute())}"'})
@@ -2572,9 +2670,16 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
             k = s.scalar(select(Kunde).where(Kunde.mandant_id == m.id, Kunde.telefon == telefon_normalisieren(daten.telefon)))
         if daten.servicefall_id:
             holen(s, Servicefall, daten.servicefall_id, m)
+        extraktion = dict(daten.extraktion)
+        if daten.dauer_sekunden is not None:
+            extraktion["dauer_sekunden"] = daten.dauer_sekunden
+        if daten.kennzahlen:
+            extraktion["kennzahlen"] = daten.kennzahlen
+        if daten.stimme_id:
+            extraktion["stimme_id"] = daten.stimme_id
         c = Kommunikation(mandant_id=m.id, kunde_id=k.id if k else None, servicefall_id=daten.servicefall_id,
                           kanal="telefon", transkript=daten.transkript, zusammenfassung=daten.zusammenfassung,
-                          extraktion=daten.extraktion)
+                          extraktion=extraktion)
         s.add(c)
         s.flush()
         if k and daten.aufzeichnung_eingewilligt:

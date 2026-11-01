@@ -52,7 +52,9 @@ Prinzipien:
 | `servicefall_anlegen` | `POST /voice/servicefall` | Kunde/Anlage anlegen falls neu, Servicefall, Terminvormerkung |
 | `rueckruf_vormerken` | `POST /voice/servicefall` | Rückrufwunsch als Vorgang |
 | `notdienst_erfragen` | `POST /voice/notdienst` | Rufnummer der aktuellen Bereitschaft bei Notfällen außerhalb der Bürozeit (Gasgeruch bleibt Sicherheitsfall) |
-| (automatisch) | `POST /voice/gespraech-beendet` | Transkript und Notizen an den Vorgang |
+| `weiterleiten` | `POST /voice/notdienst` + SIP-REFER (`transfer_sip_participant`) | Anrufer direkt mit der Bereitschaft verbinden, nur bei Policy `notdienst_weiterleiten` und eingetragener Bereitschaft; sonst Rufnummer nennen |
+| (Start) | `GET /voice/konfiguration` | Begrüßung mit KI-Offenlegung, aktives Stimmprofil (eigene Stimme, STIMME.md), Weiterleitungsregel, Minutenkontingent; Mandant aus `CORE_MANDANT` oder Job-Metadaten `{"mandant": …}` |
+| (automatisch) | `POST /voice/gespraech-beendet` | Transkript, Notizen, Gesprächsdauer, Latenz-Kennzahlen (LLM erstes Token, TTS erstes Audio, Ende-der-Äußerung) und genutztes Stimmprofil an den Vorgang |
 
 ## Inbetriebnahme
 
@@ -65,9 +67,14 @@ Prinzipien:
 
 Lokal ohne Telefon: `python -m voice.agent dev` und im LiveKit Agents Playground per Browser sprechen.
 
+## Gesprächsführung (Runde 12)
+
+- **Eigene Stimme:** `tts_erzeugen(stimme)` nutzt den Stimmdienst (`openai.TTS` gegen `STIMME_URL/v1`, PCM 24 kHz) mit der Standardstimme als `FallbackAdapter`; Details in [STIMME.md](STIMME.md).
+- **Turn-Handling:** `turn_handling()` setzt Endpointing 0,4–2,5 s (`ENDPOINTING_MIN/MAX`), vorgezogene Antwortgenerierung (`VORGEZOGENE_ANTWORT`) und wahlweise das lokale End-of-Turn-Modell (`TURN_ERKENNUNG=modell`).
+- **Kennzahlen:** `Kennzahlen` sammelt `metrics_collected` (Mittelwerte je Gespräch, keine Inhalte) und meldet sie mit der Dauer an den Core; Auswertung über `kommunikation.extraktion`.
+- **Mehrere Betriebe je Worker:** Dispatch-Regel mit `metadata: {"mandant": "<id>"}` je Trunk-Nummer; ohne Metadaten gilt `CORE_MANDANT`.
+
 ## Offen
 
 - Latenzmessung Ende-zu-Ende (Ziel unter 1 s bis zur ersten Silbe) mit der gewählten STT/TTS-Kombination.
-- Eigene Stimme des Inhabers als geklonte TTS-Stimme: Anbieter, Aufnahmen, Einwilligung und Konfiguration in [STIMME.md](STIMME.md).
 - Eval-Set aus echten Pilotgesprächen (Extraktion, Terminwahl), analog zum UAT des PV-Prototyps.
-- Notdienst-Weiterleitung an eine Bereitschaftsnummer (`ctx.transfer_sip_participant`).

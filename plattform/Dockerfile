@@ -11,7 +11,8 @@ COPY requirements.txt requirements-voice.txt ./
 COPY drittanbieter/wheelhouse drittanbieter/wheelhouse
 RUN if [ "$OFFLINE" = "1" ]; then PIP="--no-index --find-links drittanbieter/wheelhouse"; else PIP=""; fi \
  && pip install --no-cache-dir $PIP -r requirements.txt \
- && if [ "$MIT_VOICE" = "1" ]; then pip install --no-cache-dir $PIP -r requirements-voice.txt; fi \
+ && if [ "$MIT_VOICE" = "1" ]; then pip install --no-cache-dir $PIP -r requirements-voice.txt \
+ && (python -m livekit.agents download-files || echo "Turn-Detector-Modell nicht geladen (offline?); TURN_ERKENNUNG=vad nutzen"); fi \
  && rm -rf drittanbieter
 COPY core core
 COPY voice voice

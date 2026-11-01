@@ -14,6 +14,8 @@ x-core-umgebung: &core-umgebung
   SYSTEM_DATABASE_URL: postgresql+psycopg://shk_system:${SHK_SYSTEM_PASSWORD}@postgres:5432/shk
   CORE_API_KEY: ${CORE_API_KEY}
   OIDC_ISSUER: ${OIDC_ISSUER:-}
+  STIMME_URL: ${STIMME_URL:-}
+  STIMME_API_KEY: ${STIMME_API_KEY:-}
 
 services:
   postgres:
@@ -107,8 +109,31 @@ services:
       LLM_MODELL: ${LLM_MODELL:-claude-haiku-5-5}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
+      STIMME_URL: ${STIMME_URL:-}
+      STIMME_API_KEY: ${STIMME_API_KEY:-}
+      TURN_ERKENNUNG: ${TURN_ERKENNUNG:-vad}
     network_mode: host
     depends_on: [livekit, core]
+
+  stimme:   # eigene Stimme des Inhabers (Chatterbox, MIT); GPU über NVIDIA Container Toolkit, sonst STIMME_GERAET=cpu
+    build:
+      context: .
+      dockerfile: stimme/Dockerfile
+    profiles: [stimme]
+    ports: ["127.0.0.1:8300:8300"]
+    environment:
+      STIMME_ENGINE: ${STIMME_ENGINE:-chatterbox}
+      STIMME_GERAET: ${STIMME_GERAET:-auto}
+      STIMME_API_KEY: ${STIMME_API_KEY:-}
+      STIMME_CORE_URL: http://core:8100
+      STIMME_CORE_API_KEY: ${CORE_API_KEY}
+    volumes: [stimme-daten:/daten/stimmen, stimme-modelle:/modelle]
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]
+    depends_on:
+      core: {condition: service_healthy}
 
   n8n:
     image: n8nio/n8n:2.45.1
@@ -177,6 +202,8 @@ services:
 
 volumes:
   postgres-daten:
+  stimme-daten:
+  stimme-modelle:
   export:
   n8n-daten:
   fuseki-daten:

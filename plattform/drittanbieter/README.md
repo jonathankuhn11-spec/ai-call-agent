@@ -62,6 +62,7 @@ bewusst nicht enthalten und werden auch nicht als Dienst betrieben; sie stehen i
 | ntfy | v2.11.0 | Apache-2.0 | Container-Image (Profil `push`) | `lizenzen/ntfy.txt` |
 | Prometheus, Alertmanager | v3.5.0, v0.28.1 | Apache-2.0 | Container-Image (Profil `monitoring`) | `lizenzen/prometheus.txt` |
 | LiveKit Agents (inkl. Plugins) | 1.8.8 | Apache-2.0 | Python-Paket (Voice) | `lizenzen/livekit-agents.txt` |
+| Chatterbox Multilingual (Resemble AI) | chatterbox-tts 0.1.7 | MIT (Code und Gewichte) | Python-Paket des Stimmdienstes (`requirements-stimme.txt`), Gewichte zur Laufzeit von Hugging Face | `lizenzen/chatterbox.txt` |
 | LiveKit Server, LiveKit SIP | v1.13.10, v1.21.0 | Apache-2.0 | Container-Image | `lizenzen/livekit.txt` |
 | Silero VAD | über LiveKit-Plugin | MIT | Modell im Voice-Image | `lizenzen/silero-vad.txt` |
 | Keycloak | 26.0.7 | Apache-2.0 | Container-Image | `lizenzen/keycloak.txt` |

@@ -74,7 +74,9 @@ jobs:
         env:
           CORE_MANDANT: ci
         run: |
-          python -c "import voice.agent as a; names = sorted(t.info.name for t in a.Assistenz('CI').tools); print(names); assert names == ['kunde_suchen', 'notdienst_erfragen', 'rueckruf_vormerken', 'servicefall_anlegen', 'zeitfenster_abfragen']"
+          python -c "import voice.agent as a; names = sorted(t.info.name for t in a.Assistenz('CI').tools); print(names); assert names == ['kunde_suchen', 'notdienst_erfragen', 'rueckruf_vormerken', 'servicefall_anlegen', 'weiterleiten', 'zeitfenster_abfragen']"
+          AZURE_SPEECH_KEY=ci python -c "import voice.agent as a; t = a.tts_erzeugen({'anbieter': 'eigen', 'id': 'x', 'dienst_url': 'http://stimme:8300'}); assert type(t).__name__ == 'FallbackAdapter'; print(a.turn_handling())"
+          TURN_ERKENNUNG=modell python -c "import voice.agent as a; assert type(a.turn_handling()['turn_detection']).__name__ == 'TurnDetector'"
 
   docker:
     runs-on: ubuntu-latest

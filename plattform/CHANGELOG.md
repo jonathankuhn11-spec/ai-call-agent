@@ -3,6 +3,13 @@
 Versionsschema: MAJOR.MINOR.PATCH (`VERSION`, `python -m core version`, `/health`). Jede Runde erhöht MINOR; Hotfixes PATCH.
 Datenbankänderungen stehen bei der jeweiligen Version mit Migrationsnummer; `python -m core migrate` vor dem Start der neuen Version.
 
+## 0.12.0 – 2026-11-01 (Runde 12, Migration 0015)
+
+- Betreiberstimme: Stimmprofil je Mandant mit Referenzaufnahme (WAV/FLAC/MP3, 5–180 s) und dokumentierter Einwilligung (`core/stimme.py`, Tabelle `stimmprofil`); genau ein aktives Profil; Widerruf löscht die Aufnahme sofort und entfernt die Stimme aus dem Stimmdienst.
+- Stimmdienst `stimme/`: selbst gehostete Stimmklonung mit Chatterbox Multilingual (MIT, Resemble AI; Perth-Wasserzeichen) hinter einer OpenAI-kompatiblen Schnittstelle (`/v1/audio/speech`, `/v1/voices`), satzweises Streaming, Test-Engine ohne GPU, Compose-Profil `stimme` mit GPU-Reservierung, eigenes Dockerfile.
+- Sprachagent: holt `GET /voice/konfiguration` (Begrüßung mit Offenlegung der nachgebildeten Stimme, Stimmprofil, Weiterleitung, Minutenkontingent), spricht über den Stimmdienst mit Rückfall auf die Standardstimme (`FallbackAdapter`), Mandant aus Job-Metadaten, Werkzeug `weiterleiten` (SIP-Transfer zur Bereitschaft, Policy `notdienst_weiterleiten`), Turn-Handling mit optionalem lokalem End-of-Turn-Modell, vorgezogene Antwortgenerierung, Latenz-Kennzahlen und Gesprächsdauer an den Core.
+- Feature `eigene_stimme` (Pro, Enterprise); Sprachminuten je Monat aus den Gesprächsdauern; Einstellungen-Karte „Stimme des Sprachagenten“ (Aufnahme, Einwilligungstext, Hörprobe, Aktivieren, Widerruf); `voice.probe` prüft den Stimmdienst.
+
 ## 0.11.0 – 2026-10-28 (Runde 11, keine Migration)
 - UX-Überarbeitung der Büro-Oberfläche: Designsystem in `app.css` (Tokens für Farbe, Abstand, Typografie, Radien, Schatten, Fokusringe,
   Dunkelmodus auch per `data-theme`), Navigation in fünf Gruppen mit Icons, Mobilansicht mit Schublade und Kopfleiste, Ladeskelett,

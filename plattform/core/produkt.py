@@ -32,12 +32,13 @@ FEATURES: dict[str, str] = {
     "finanzanbindung": "Lexware, sevDesk, DATEV", "lager": "Lager und Großhandel", "dienstplan": "Dienstplan, Zeitkonten, ArbZG",
     "auswertungen": "Auswertungen und Excel-Export", "optimierung": "Tourenoptimierung, Prognose, Risiko", "mehrbetrieb": "mehrere Standorte je Mandant",
     "api": "offene API und Webhooks", "white_label": "eigenes Branding je Betrieb",
+    "eigene_stimme": "Telefonagent mit der eigenen Stimme des Inhabers (Stimmklon, selbst gehostet)",
 }
 EDITIONEN: dict[str, dict[str, Any]] = {
     "starter": {"titel": "Starter", "preis_monat": 149, "features": ["disposition", "crm", "rechnungen", "portal", "online_buchung", "auswertungen"],
                 "limits": {"mitarbeiter": 3, "kunden": 1000, "sprachminuten_monat": 300}},
     "pro": {"titel": "Pro", "preis_monat": 249, "features": ["disposition", "crm", "voice", "rechnungen", "portal", "online_buchung", "website", "upsell", "whatsapp",
-                                                            "online_zahlung", "finanzanbindung", "lager", "dienstplan", "auswertungen", "api"],
+                                                            "online_zahlung", "finanzanbindung", "lager", "dienstplan", "auswertungen", "api", "eigene_stimme"],
             "limits": {"mitarbeiter": 10, "kunden": 10000, "sprachminuten_monat": 1500}},
     "enterprise": {"titel": "Enterprise", "preis_monat": 582, "features": list(FEATURES), "limits": {"mitarbeiter": 50, "kunden": 100000, "sprachminuten_monat": 6000}},
 }
