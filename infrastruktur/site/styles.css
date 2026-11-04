@@ -224,3 +224,17 @@ section.grau { background: var(--flaeche-2); }
 .rechtstext h3 { font-size: 1.02rem; margin: 1.4rem 0 .3rem; }
 .rechtstext p { margin: 0 0 .9rem; }
 .rechtstext a { overflow-wrap: anywhere; }
+
+/* Pilotseite */
+.pilot a { color: inherit; text-decoration: underline; text-underline-offset: .2em; }
+.nav a[aria-current="page"] { color: var(--text); }
+.zeitstrahl-liste { list-style: none; margin: 0; padding: 0; display: grid; gap: .8rem; }
+.zeitstrahl-liste li { padding: 1rem 1.2rem 1rem 3rem; position: relative; border-radius: 12px; background: var(--flaeche-2);
+                       border: 1px solid var(--linie); }
+.zeitstrahl-liste li::before { content: ""; position: absolute; left: 1.2rem; top: 1.35rem; width: .9rem; height: .5rem;
+                               border-left: 2.5px solid var(--kupfer); border-bottom: 2.5px solid var(--kupfer); transform: rotate(-45deg); }
+.problem .zahl { font-variant-numeric: tabular-nums; }
+
+/* Fehlerseite */
+.fehler { min-height: 60vh; display: grid; place-content: center; text-align: center; gap: 1rem; padding: 4rem 20px; }
+.messwert .zahl { font-size: 1.7rem; letter-spacing: 0; }

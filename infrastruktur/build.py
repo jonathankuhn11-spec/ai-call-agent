@@ -32,7 +32,7 @@ from pathlib import Path
 BASIS = Path(__file__).resolve().parent
 PLATZHALTER = re.compile(r"\{\{\s*([a-z_]+\.[a-z0-9_]+)\s*\}\}")
 QUELLEN = ["site", "einseiter"]
-TEXTFORMATE = {".html", ".txt", ".md", ".csv"}
+TEXTFORMATE = {".html", ".txt", ".md", ".csv", ".xml"}
 CHROME_KANDIDATEN = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]
 
 

@@ -10,6 +10,8 @@
 marke = "KUHN"             # Marke, erscheint in Seitentitel, Logo, Signatur und Einseiter
 domain = ""                # ohne Protokoll, z. B. "beispiel.de"
 stand = ""                 # Datum der Rechtstexte, z. B. "20. Oktober 2026"
+region = "Lippstadt, Münster, Paderborn, Gütersloh und Hamm"  # Akquiseregion für Website, Pilotseite, Einseiter und Brief
+pilot_plaetze = "fünf"     # Zahl der Pilotplätze, erscheint auf der Pilotseite und im Brief
 
 [anbieter]
 # Bis zur Eintragung einer UG treten die Gesellschafter als GbR auf (§ 705 BGB).

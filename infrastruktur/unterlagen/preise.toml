@@ -23,3 +23,14 @@ name = "Premium"
 monat_netto = 999
 einrichtung_netto = 4990
 minuten = 1000
+
+# Pilotprogramm: identisch mit site/pilot.html und unterlagen/vertrag/pilotvereinbarung.md (Abschnitte 3 und 6).
+[pilot]
+dauer_wochen = 8
+paket = "pro"
+monat_netto = 0
+einrichtung_netto = 0
+nachlass_einrichtung_prozent = 50     # Gründungspartner, bei Übergang in den Regelvertrag
+nachlass_monat_prozent = 30           # Gründungspartner, erste zwölf Vertragsmonate (Basis 244,30 €, Pro 454,30 €)
+preisgarantie_monate = 12             # im Anschluss an die rabattierten zwölf Monate
+plaetze = 5
