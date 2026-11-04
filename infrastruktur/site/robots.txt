@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /einseiter.html
+Disallow: /einseiter.pdf
+
+Sitemap: https://{{auftritt.domain}}/sitemap.xml

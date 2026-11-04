@@ -12,9 +12,12 @@ Das Verzeichnis ist in sich geschlossen. Zieht der Auftritt in ein eigenes Repos
 infrastruktur/
 ├── stammdaten.toml     einzige auszufüllende Datei (Name, Anschrift, Domain, Kontakt, Dienstleister)
 ├── build.py            rendert site/ + einseiter/ nach dist/ und vorlagen/ nach dist-vorlagen/
-├── site/               index.html, impressum.html, datenschutz.html, styles.css
+├── serienbrief.py      Pilot-Serienbrief je Betrieb aus der Leadliste (PDF, nie veröffentlicht)
+├── golive_check.py     prüft Stammdaten, DNS, HTTPS und Seiten vor und nach dem Go-live
+├── site/               index.html, pilot.html, impressum.html, datenschutz.html, 404.html, styles.css,
+│                       robots.txt, sitemap.xml, .htaccess (nur für deutschen Apache-Hoster)
 ├── einseiter/          einseiter.html (A4, Druckvorlage für das PDF)
-└── vorlagen/           Signatur (txt/html), Mail nach Telefonat, Widerspruchsbestätigung, CSV-Schema
+└── vorlagen/           Brief Pilotprogramm, Signatur (txt/html), Mailvorlagen, CSV-Schema
 ```
 
 ## Marke und Website
@@ -28,6 +31,27 @@ Anthrazit, Bildmarke „K“ als Inline-SVG) stehen in `site/styles.css` bzw. im
 
 Vor einer Markenanmeldung oder dem Logodruck eine Markenrecherche zu „KUHN“ durchführen (DPMA, EUIPO):
 Das Zeichen ist für andere Waren bereits eingetragen.
+
+## Pilotprogramm und Serienbrief
+
+`site/pilot.html` wirbt um Pilotbetriebe im Raum `auftritt.region` (Zahl der Plätze: `auftritt.pilot_plaetze`):
+acht Wochen Paket Pro ohne Grundgebühr und ohne Einrichtungspauschale, messbare Erfolgskriterien (K1–K3 der
+Pilotvereinbarung), danach Gründungspartner-Konditionen (50 % auf die Einrichtung, 30 % auf die Monatspauschale im
+ersten Vertragsjahr, Preisgarantie für weitere zwölf Monate). Dieselben Werte stehen in `unterlagen/preise.toml`
+(`[pilot]`) und in Abschnitt 6 der Pilotvereinbarung; bei Änderungen alle drei Stellen anpassen.
+
+Erstkontakt per Brief, weil Briefwerbung an Unternehmer ohne Einwilligung zulässig ist (§ 7 Abs. 1 UWG), während
+Werbe-E-Mails auch B2B eine vorherige ausdrückliche Einwilligung brauchen (§ 7 Abs. 2 Nr. 2 UWG):
+
+```bash
+python infrastruktur/build.py
+python infrastruktur/serienbrief.py /pfad/zur/Leadliste.xlsx --welle 2 --limit 30 --pdf
+```
+
+Ergebnis in `infrastruktur/dist-briefe/` (gitignored): `briefe.pdf` (eine A4-Seite je Betrieb, DIN 5008 Form B,
+passt in DL-Fensterumschläge), `versandliste.csv` mit Versanddatum für die Spalte „Art.-14-Info versendet am“.
+Betriebe mit Widerspruch, „kein Interesse“ oder ohne Straße werden übersprungen. Die Leadliste bleibt in der privaten
+Projektablage, nie in diesem Repository.
 
 ## Lokal bauen
 
@@ -55,8 +79,8 @@ Preise sind Richtwerte und vor Vertragsschluss zu prüfen.
 - Bezeichnung in `stammdaten.toml`: ohne eigenen Namen „Vorname Nachname und Vorname Nachname GbR“.
   Keine „UG (haftungsbeschränkt)“ vor Handelsregistereintragung, nach dem Notartermin allenfalls „UG i. G.“.
 - Ladungsfähige Anschrift: Privatadresse oder Geschäftsadresse mit c/o-Service. Ein Postfach genügt nicht.
-- Die Anschrift sollte im Kölner Ortsnetz liegen, weil Anbieter eine 0221-Ortsnetzrufnummer nur bei Wohn- oder
-  Geschäftssitz im Ortsnetz vergeben (Zuteilungsregeln der Bundesnetzagentur).
+- Die Ortsnetzrufnummer richtet sich nach dieser Anschrift, weil Anbieter Ortsnetzrufnummern nur bei Wohn- oder
+  Geschäftssitz im Ortsnetz vergeben (Zuteilungsregeln der Bundesnetzagentur), z. B. 02941 für Lippstadt.
 
 ### 2. Domain kaufen
 - Eine .de-Domain bei einem Registrar mit DNS-Verwaltung (z. B. beim späteren Mailanbieter, IONOS, INWX).
@@ -82,13 +106,13 @@ Preise sind Richtwerte und vor Vertragsschluss zu prüfen.
   Prüfen mit einer Testmail an ein Gmail-Konto: „Original anzeigen“ muss `SPF: PASS`, `DKIM: PASS`, `DMARC: PASS` zeigen.
 - Signatur aus `dist-vorlagen/email-signatur.html` (bzw. `.txt`) im Mailprogramm hinterlegen.
 
-### 4. VoIP-Nummer 0221
-- Tarif mit Ortsnetzrufnummer Köln und App für Smartphone/Rechner (z. B. sipgate). Beim Vertrag die
+### 4. VoIP-Nummer im Ortsnetz
+- Tarif mit Ortsnetzrufnummer am Sitz (z. B. 02941 Lippstadt) und App für Smartphone/Rechner (z. B. sipgate). Beim Vertrag die
   Anschrift aus Schritt 1 angeben.
 - Rufnummernanzeige einschalten; die Nummer darf bei Anrufen nicht unterdrückt werden (für Werbeanrufe
   ausdrücklich untersagt, TKG). Mailbox-Ansage mit Namen des Vorhabens und Rückrufversprechen.
 - AVV abschließen, Anbieter als `dienstleister.telefon_anbieter` eintragen; Nummer als `kontakt.telefon`
-  und im E.164-Format (`+49221…`) als `kontakt.telefon_e164`.
+  und im E.164-Format (`+492941…`) als `kontakt.telefon_e164`.
 
 ### 5. GitHub Pages aktivieren
 1. *Repository → Settings → Pages → Build and deployment → Source:* **GitHub Actions**.
@@ -106,7 +130,23 @@ Preise sind Richtwerte und vor Vertragsschluss zu prüfen.
 5. `stammdaten.toml` vollständig ausfüllen, auf `main` mergen, *Actions → Landingpage → Run workflow*.
    Danach optional die Variable `LANDINGPAGE_LIVE=true` setzen (*Settings → Secrets and variables → Actions → Variables*).
 
-### 6. Vor dem ersten Anruf prüfen
+### 6. Go-live prüfen
+
+```bash
+python infrastruktur/golive_check.py                    # GitHub Pages
+python infrastruktur/golive_check.py --hoster eigener   # deutscher Webhoster
+```
+
+Prüft Stammdaten, A/AAAA/CNAME, MX, SPF, DMARC (über DNS-over-HTTPS), die Umleitung http → https, das Zertifikat,
+Startseite, Pilotseite, Impressum und Datenschutz ohne `[OFFEN: …]` sowie die 404-Seite. Erst bei „Go-live bereit.“
+den ersten Brief verschicken: Der Brief verweist auf `domain/pilot.html`.
+
+**Alternative: Hosting in Deutschland.** `python infrastruktur/build.py --strict --pdf` lokal ausführen und den Inhalt
+von `infrastruktur/dist/` (inklusive `.htaccess`) per SFTP in das Webverzeichnis eines deutschen Hosters laden
+(z. B. IONOS, Strato, all-inkl). Dann Abschnitt 2 der Datenschutzerklärung auf den Hoster umstellen und dessen AVV
+abschließen. Vorteil: keine Drittlandübermittlung, Domain, Postfach und Webspace aus einer Hand.
+
+### 7. Vor dem ersten Anruf prüfen
 - Impressum, Datenschutz und Einseiter im Browser gegenlesen; keine gelben `[OFFEN: …]`-Marker mehr.
 - Ein Anwalt oder die IHK-Gründungsberatung sollte die Rechtstexte einmal gegenlesen; sie sind sorgfältig
   formuliert, aber keine Rechtsberatung.

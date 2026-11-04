@@ -45,8 +45,9 @@ Ausgangswerte (vom Betrieb vor Beginn auszufüllen): K1 ____ % · K4 ____ Stunde
 
 ## 6 Übergang in den Regelbetrieb
 
-Sind K1 bis K3 erreicht, bietet {{auftritt.marke}} dem Betrieb den Regelvertrag mit einem Nachlass von 50 % auf
-die Einrichtungspauschale an. Nimmt der Betrieb nicht innerhalb von 14 Tagen nach Pilotende an, gilt
+Sind K1 bis K3 erreicht, bietet {{auftritt.marke}} dem Betrieb den Regelvertrag zu Gründungspartner-Konditionen an:
+Nachlass von 50 % auf die Einrichtungspauschale, Nachlass von 30 % auf die Monatspauschale in den ersten zwölf
+Vertragsmonaten und Festschreibung der dann gültigen Listenpreise für weitere zwölf Monate. Nimmt der Betrieb nicht innerhalb von 14 Tagen nach Pilotende an, gilt
 Abschnitt 7.
 
 ## 7 Ende ohne Übergang
