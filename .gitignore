@@ -28,3 +28,7 @@ infrastruktur/unterlagen/kunden/*.toml
 
 # Kundenpakete je Lead (Paket-Agenten): personenbezogene Leaddaten, nie versionieren
 infrastruktur/dist-pakete/
+
+# Vertriebs-Agenten: Pipeline-Datenbank und Cockpit mit personenbezogenen Leaddaten, nie versionieren
+infrastruktur/vertrieb/*.db
+pipeline.db
