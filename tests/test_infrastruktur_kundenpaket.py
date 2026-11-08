@@ -90,7 +90,12 @@ def test_paket_ohne_plattform_liefert_angebot_brief_und_leitfaden(liste, tmp_pat
     assert "§ 7 Abs. 1 UWG" in leitfaden and "P5 Notdienst nur telefonisch" in leitfaden
     meta = json.loads((paket / "paket.json").read_text(encoding="utf-8"))
     assert meta["edition"] == "pro" and meta["fehler"] and "Plattform nicht gefunden" in meta["fehler"][0]
-    assert (out / "Pakete_Uebersicht.xlsx").exists() and "Kundenpakete (2)" in (out / "index.html").read_text(encoding="utf-8")
+    assert "Kundenpakete (2)" in (out / "index.html").read_text(encoding="utf-8")
+    try:  # Excel-Übersicht nur mit openpyxl (in CI nicht installiert; CSV-Listen brauchen es nicht)
+        import openpyxl  # noqa: F401
+        assert (out / "Pakete_Uebersicht.xlsx").exists()
+    except ImportError:
+        assert not (out / "Pakete_Uebersicht.xlsx").exists()
     # inkrementell: zweiter Lauf erzeugt nichts neu
     assert "0 Pakete zu erzeugen" in _lauf(liste, out, "--plattform", str(tmp_path / "fehlt"), env=env).stdout
 
