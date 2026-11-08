@@ -25,3 +25,6 @@ infrastruktur/dist-briefe/
 infrastruktur/unterlagen/geschaeftsdaten.toml
 infrastruktur/unterlagen/kunden/*.toml
 !infrastruktur/unterlagen/kunden/vorlage.toml
+
+# Kundenpakete je Lead (Paket-Agenten): personenbezogene Leaddaten, nie versionieren
+infrastruktur/dist-pakete/

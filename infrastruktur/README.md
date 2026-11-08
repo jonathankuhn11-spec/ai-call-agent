@@ -161,6 +161,13 @@ Angebot und Rechnung (PDF), Onboarding-Fragebogen, Einrichtungsprotokoll, Schulu
 Exit-Prozess. Erzeugt mit `python infrastruktur/build.py --unterlagen --kunde …`; Einzelheiten in
 [unterlagen/README.md](unterlagen/README.md). Unterlagen werden nie veröffentlicht.
 
+## Kundenpakete je Lead (Paket-Agenten)
+
+`python infrastruktur/paketagent.py <Leadliste> --akut --plattform <plattform/>` erzeugt je Lead aus den
+Problemcodes P1–P10 ein vollständiges Paket: vorkonfigurierte KUHN-Instanz (Branchenprofil, Website, Karriereseite,
+Online-Buchung, Telefonagent), Website-Entwurf mit Bildschirmfotos, `kunde.toml` und Angebot, personalisierten Brief
+(DIN 5008, zwei Seiten) und Gesprächsleitfaden. Einzelheiten in [kundenpaket/README.md](kundenpaket/README.md).
+
 ## Bewusste Entscheidungen und offene Punkte
 
 - **Kein Kontaktformular, kein Tracking, keine externen Schriften.** Damit entfallen Cookie-Banner (§ 25 TDDDG),
