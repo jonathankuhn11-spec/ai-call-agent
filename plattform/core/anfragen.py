@@ -18,10 +18,11 @@ from typing import Any, Protocol
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from core import domaene
+from core import domaene, hinweise
 from core.modelle import Anfrage, Kommunikation, Kunde, Mandant, Servicefall
-from core.regeln import dringlichkeit_bewerten, telefon_normalisieren
+from core.regeln import Bewertung, dringlichkeit_bewerten, telefon_normalisieren
 
+KANAL_TEXT = {"web": "Website", "email": "E-Mail", "whatsapp": "WhatsApp", "telefon": "Telefon"}
 MUSTER_TELEFON = re.compile(r"(?:\+49|0)[\d\s/()-]{6,20}\d")
 
 
@@ -37,8 +38,9 @@ def _kunde_finden(s: Session, m: Mandant, telefon: str | None, mail: str | None)
 
 def anfrage_verarbeiten(s: Session, m: Mandant, kanal: str, externe_id: str, name: str | None, telefon: str | None, mail: str | None,
                         betreff: str | None, nachricht: str | None, jetzt: datetime, strasse: str | None = None, plz: str | None = None,
-                        ort: str | None = None) -> Anfrage | None:
-    """Idempotent je externe_id. Legt Anfrage, Kunde (falls neu), Servicefall und Kommunikation an."""
+                        ort: str | None = None, notfall: bool = False) -> Anfrage | None:
+    """Idempotent je externe_id. Legt Anfrage, Kunde (falls neu), Servicefall und Kommunikation an. `notfall`: vom Absender
+    ausdrücklich als Notfall markiert (Website-Formular); hebt die Dringlichkeit auf „notdienst“, auch ohne Regeltreffer."""
     if s.scalar(select(Anfrage).where(Anfrage.mandant_id == m.id, Anfrage.externe_id == externe_id)):
         return None
     tel = telefon_normalisieren(telefon) if telefon else None
@@ -62,6 +64,8 @@ def anfrage_verarbeiten(s: Session, m: Mandant, kanal: str, externe_id: str, nam
         s.flush()
         domaene.protokollieren(s, m.id, "kunde.angelegt", "kunde", kunde.id, "system", {"quelle": kanal})
     bewertung = dringlichkeit_bewerten(text, jetzt.month)
+    if notfall and bewertung.dringlichkeit != "notdienst":
+        bewertung = Bewertung("notdienst", None, "vom Absender als Notfall gemeldet")
     fall = Servicefall(mandant_id=m.id, kunde_id=kunde.id, anliegen=(betreff or nachricht or "Anfrage")[:200], symptom=nachricht,
                        dringlichkeit=bewertung.dringlichkeit, quelle=kanal, erstellt=jetzt)
     s.add(fall)
@@ -71,6 +75,12 @@ def anfrage_verarbeiten(s: Session, m: Mandant, kanal: str, externe_id: str, nam
     s.add(Kommunikation(mandant_id=m.id, kunde_id=kunde.id, servicefall_id=fall.id, kanal=kanal, richtung="eingehend",
                         transkript=text, zusammenfassung=(betreff or nachricht or "")[:200], zeit=jetzt))
     a.kunde_id, a.servicefall_id, a.status = kunde.id, fall.id, "uebernommen"
+    if fall.dringlichkeit == "notdienst":
+        # schriftliche Notfälle (Website, E-Mail, WhatsApp) alarmieren wie Anrufe: Push an Inhaber/Bereitschaft
+        art = "sicherheit" if bewertung.sicherheitshinweis else "notdienst"
+        titel = "Sicherheitsfall schriftlich gemeldet" if bewertung.sicherheitshinweis else "Notfall schriftlich gemeldet"
+        hinweise.senden(s, m, art, titel, f"{kunde.name} ({KANAL_TEXT.get(kanal, kanal)}): {(betreff or nachricht or '')[:120]}"
+                        + (f" – Rückruf: {tel or telefon}" if (tel or telefon) else ""), f"servicefall:{fall.id}", f"vorgaenge/{fall.id}")
     if bewertung.sicherheitshinweis:
         domaene.aktion_beantragen(s, m, "nachricht_an_endkunde", {"kunde_id": kunde.id, "betreff": "Wichtiger Sicherheitshinweis",
                                   "text": bewertung.sicherheitshinweis},

@@ -16,22 +16,23 @@ import html
 import json
 import re
 import unicodedata
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from core import anfragen, branchen, buchung, hinweise, portal
+from core import anfragen, branchen, buchung, hinweise, karriere, portal
 from core.domaene import als_utc
 from core.modelle import Artikel, Ereignis, Mandant, Ressource
 
-BEREICHE = ("leistungen", "preise", "buchung", "bewertungen", "team", "notdienst", "anfahrt", "kontakt", "ablauf", "faq")
+BEREICHE = ("leistungen", "preise", "buchung", "bewertungen", "team", "notdienst", "anfahrt", "kontakt", "ablauf", "faq", "karriere", "fotos")
 STANDARD = {"aktiv": False, "slug": None, "domain": None, "claim": None, "ueber_uns": None, "farbe": "#1b6ec2", "logo_url": None, "bild_url": None,
             "oeffnungszeiten": "Mo–Fr 7:30–17:00 Uhr", "einzugsgebiet": None, "notdienst_telefon": None, "notdienst_text": "24 Stunden erreichbar, auch am Wochenende.",
-            "bereiche": {"leistungen": True, "preise": False, "buchung": True, "bewertungen": True, "team": False, "notdienst": True, "anfahrt": True, "kontakt": True, "ablauf": True, "faq": True},
-            "impressum_zusatz": None, "bewertungen_min_sterne": 4, "leistungen_text": {}, "faq": []}
+            "bereiche": {"leistungen": True, "preise": False, "buchung": True, "bewertungen": True, "team": False, "notdienst": True, "anfahrt": True, "kontakt": True, "ablauf": True, "faq": True,
+                         "karriere": True, "fotos": True},
+            "impressum_zusatz": None, "bewertungen_min_sterne": 4, "leistungen_text": {}, "faq": [], "stellen": []}
 # Standardfragen, wenn der Betrieb keine eigenen pflegt; {ort}/{telefon} werden ersetzt
 FAQ_STANDARD = [
     ("Wie schnell bekomme ich einen Termin?", "Notdienste am selben Tag, Wartungen meist innerhalb von zwei Wochen. Online sehen Sie freie Zeiten sofort und buchen mit zwei Klicks."),
@@ -47,6 +48,20 @@ FARBE = re.compile(r"^#[0-9a-fA-F]{6}$")
 SLUG = re.compile(r"^[a-z0-9](?:[a-z0-9-]{1,58}[a-z0-9])?$")
 DOMAIN = re.compile(r"^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$")
 _e = html.escape
+MAX_FOTOS, MAX_FOTO = 3, 10 * 1024 * 1024
+
+
+def foto_mime(inhalt: bytes) -> str | None:
+    """MIME-Typ aus der Dateisignatur (JPEG, PNG, WebP, HEIC/HEIF vom iPhone); None bei allem anderen."""
+    if inhalt.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if inhalt.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if inhalt[:4] == b"RIFF" and inhalt[8:12] == b"WEBP":
+        return "image/webp"
+    if inhalt[4:8] == b"ftyp" and inhalt[8:12] in (b"heic", b"heix", b"mif1", b"msf1", b"hevc"):
+        return "image/heic"
+    return None
 
 
 def slug_aus(name: str) -> str:
@@ -62,7 +77,7 @@ def konfig(m: Mandant) -> dict[str, Any]:
     return k
 
 
-def pruefen(daten: dict[str, Any], s: Session, m: Mandant) -> dict[str, Any]:
+def pruefen(daten: dict[str, Any], s: Session, m: Mandant, heute: date | None = None) -> dict[str, Any]:
     """Validiert Website-Einstellungen; liefert das zu speichernde Teilobjekt (nur bekannte Schlüssel)."""
     aus: dict[str, Any] = {}
     for k in ("aktiv",):
@@ -109,13 +124,15 @@ def pruefen(daten: dict[str, Any], s: Session, m: Mandant) -> dict[str, Any]:
         aus["bereiche"] = {k: bool(v) for k, v in daten["bereiche"].items() if k in BEREICHE}
     if daten.get("bewertungen_min_sterne") is not None:
         aus["bewertungen_min_sterne"] = max(1, min(5, int(daten["bewertungen_min_sterne"])))
+    if "stellen" in daten:
+        aus["stellen"] = karriere.stellen_pruefen(daten["stellen"], ((m.stammdaten or {}).get("website") or {}).get("stellen"), heute or date.today())
     if daten.get("leistungen_text") is not None:
         aus["leistungen_text"] = {str(k)[:40]: str(v)[:300] for k, v in dict(daten["leistungen_text"]).items()}
     return aus
 
 
-def speichern(s: Session, m: Mandant, daten: dict[str, Any]) -> dict[str, Any]:
-    neu = pruefen(daten, s, m)
+def speichern(s: Session, m: Mandant, daten: dict[str, Any], heute: date | None = None) -> dict[str, Any]:
+    neu = pruefen(daten, s, m, heute)
     alt = (m.stammdaten or {}).get("website") or {}
     if "bereiche" in neu:
         neu["bereiche"] = {**(alt.get("bereiche") or {}), **neu["bereiche"]}
@@ -206,7 +223,7 @@ def _quali(schluessel: str) -> str:
     return e[0].split(" (")[0] if e else schluessel.replace("_", " ").capitalize()
 
 
-def daten(s: Session, m: Mandant) -> dict[str, Any]:
+def daten(s: Session, m: Mandant, heute: date | None = None) -> dict[str, Any]:
     k, st, b = konfig(m), m.stammdaten or {}, branchen.branche(m)
     personen = s.scalars(select(Ressource).where(Ressource.mandant_id == m.id, Ressource.aktiv, Ressource.art == "person").order_by(Ressource.name)).all()
     texte = k.get("leistungen_text") or {}
@@ -218,7 +235,12 @@ def daten(s: Session, m: Mandant) -> dict[str, Any]:
             "team": [{"name": r.name.split(" (")[0], "qualifikationen": [_quali(q) for q in (r.qualifikationen or [])]} for r in personen],
             "whatsapp": portal.whatsapp_link(st.get("whatsapp_nummer"), f"Guten Tag, ich habe eine Frage an {m.name}."),
             "buchung_pfad": f"/buchung/#{st['buchung_token']}" if st.get("buchung_token") and k["bereiche"]["buchung"] and b.online_buchung else None,
-            "basis": basis(m)}
+            "basis": basis(m), "stellen": karriere.offene(m, heute or _heute()) if k["bereiche"].get("karriere", True) else []}
+
+
+def _heute() -> date:
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("Europe/Berlin")).date()
 
 
 # --- Rendering ------------------------------------------------------------------------------------------
@@ -261,30 +283,38 @@ a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visib
 .schritte .karte {{ position: relative; padding-left: 64px; }} .schritte .karte::before {{ counter-increment: s; content: counter(s); position: absolute; left: 18px; top: 18px; width: 32px; height: 32px; border-radius: 50%; background: var(--akzent); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; }}
 details.faq {{ background: var(--karte); border: 1px solid var(--rand); border-radius: 12px; padding: 4px 16px; margin-bottom: 8px; }} details.faq summary {{ cursor: pointer; font-weight: 600; padding: 10px 0; }} details.faq p {{ margin: 0 0 12px; color: var(--leise); }}
 .knopf.wa {{ background: #25d366; border-color: #25d366; }} .kontaktwege {{ display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }}
+nav.haupt {{ display: inline; }} nav.haupt a {{ white-space: nowrap; }} button.knopf {{ font: inherit; font-weight: 600; cursor: pointer; }}
+a.karte.stelle {{ display: block; color: inherit; text-decoration: none; }} a.karte.stelle:hover, a.karte.stelle:focus-visible {{ border-color: {farbe}; }}
+.hinweis.notfall {{ background: #fff4e5; color: #7a3e00; }} input[type=file] {{ padding: 8px 0; }}
 @media (max-width: 640px) {{ form.kontakt {{ grid-template-columns: 1fr; }} nav.haupt {{ display: none; }} }}
 """
 
 
-def _kopf(d: dict[str, Any], titel: str, beschreibung: str, pfad_basis: str, json_ld: dict[str, Any] | None = None, noindex: bool = False) -> str:
+def _kopf(d: dict[str, Any], titel: str, beschreibung: str, pfad_basis: str, json_ld: dict[str, Any] | None = None, noindex: bool = False,
+          kanonisch: str = "/") -> str:
     k, st, m_name = d["konfig"], d["stammdaten"], d["name"]
     ld = f'<script type="application/ld+json">{json.dumps(json_ld, ensure_ascii=False)}</script>' if json_ld else ""
     logo = f'<img src="{_e(k["logo_url"])}" alt="">' if k.get("logo_url") else ""
-    nav = "".join(f'<a href="{pfad_basis}#{a}">{t}</a>' for a, t in (("leistungen", "Leistungen"), ("bewertungen", "Bewertungen"), ("kontakt", "Kontakt")) if k["bereiche"].get(a, True))
+    start = pfad_basis.rstrip("/") + "/"
+    nav = "".join(f'<a href="{start}#{a}">{t}</a>' for a, t in (("leistungen", "Leistungen"), ("bewertungen", "Bewertungen"), ("kontakt", "Kontakt")) if k["bereiche"].get(a, True))
+    if d.get("stellen"):
+        nav += f'<a href="{start}karriere">Karriere</a>'
+
     knopf = f'<a class="knopf" href="{_e(d["buchung_pfad"])}">Termin buchen</a>' if d.get("buchung_pfad") else (f'<a class="knopf" href="tel:{_e(st["telefon"])}">Anrufen</a>' if st.get("telefon") else "")
     return f"""<!doctype html>
 <html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark">
 <title>{_e(titel)}</title><meta name="description" content="{_e(beschreibung)}">{'<meta name="robots" content="noindex">' if noindex else ''}
-<meta property="og:title" content="{_e(titel)}"><meta property="og:description" content="{_e(beschreibung)}"><meta property="og:type" content="website"><meta property="og:url" content="{_e(d["basis"])}/">{f'<meta property="og:image" content="{_e(k["bild_url"])}">' if k.get("bild_url") else ''}
-<link rel="canonical" href="{_e(d["basis"])}/"><link rel="icon" href="data:,"><style>{_css(k["farbe"])}</style>{ld}</head><body>
+<meta property="og:title" content="{_e(titel)}"><meta property="og:description" content="{_e(beschreibung)}"><meta property="og:type" content="website"><meta property="og:url" content="{_e(d["basis"])}{_e(kanonisch)}">{f'<meta property="og:image" content="{_e(k["bild_url"])}">' if k.get("bild_url") else ''}
+<link rel="canonical" href="{_e(d["basis"])}{_e(kanonisch)}"><link rel="icon" href="data:,"><style>{_css(k["farbe"])}</style>{ld}</head><body>
 <a class="skip" href="#inhalt">Zum Inhalt springen</a>
-<header class="kopf"><div class="wrap"><a class="marke" href="{pfad_basis}">{logo}{_e(m_name)}</a><div><nav class="haupt" style="display:inline">{nav}</nav> {knopf}</div></div></header>"""
+<header class="kopf"><div class="wrap"><a class="marke" href="{pfad_basis}">{logo}{_e(m_name)}</a><div><nav class="haupt">{nav}</nav> {knopf}</div></div></header>"""
 
 
 def _fuss(d: dict[str, Any], pfad_basis: str) -> str:
     st = d["stammdaten"]
     imp = st.get("impressum_url") or f"{pfad_basis}/impressum"
     ds = st.get("datenschutz_url") or f"{pfad_basis}/datenschutz"
-    return f"""<footer><div class="wrap">© {datetime.now().year} {_e(d["name"])}{f" · {_e(st['strasse'])}, {_e(st.get('plz', ''))} {_e(st.get('ort', ''))}" if st.get("strasse") else ""} · <a href="{_e(imp)}">Impressum</a> · <a href="{_e(ds)}">Datenschutz</a></div></footer></body></html>"""
+    return f"""<footer><div class="wrap">© {datetime.now().year} {_e(d["name"])}{f" · {_e(st['strasse'])}, {_e(st.get('plz', ''))} {_e(st.get('ort', ''))}" if st.get("strasse") else ""} {f' · <a href="{pfad_basis}/karriere">Karriere</a>' if d.get("stellen") else ""} · <a href="{_e(imp)}">Impressum</a> · <a href="{_e(ds)}">Datenschutz</a></div></footer></body></html>"""
 
 
 def _json_ld(d: dict[str, Any]) -> dict[str, Any]:
@@ -301,8 +331,9 @@ def _json_ld(d: dict[str, Any]) -> dict[str, Any]:
     return {kk: v for kk, v in ld.items() if v not in (None, "", {})}
 
 
-def startseite(s: Session, m: Mandant, gesendet: bool = False, vorschau: bool = False, fehler: str | None = None) -> str:
-    d = {**daten(s, m), "name": m.name}
+def startseite(s: Session, m: Mandant, gesendet: bool | int = False, vorschau: bool = False, fehler: str | None = None, heute: date | None = None) -> str:
+    """gesendet: 1 = Anfrage eingegangen, 2 = als Notfall eingegangen (zeigt zusätzlich die Notdienstnummer)."""
+    d = {**daten(s, m, heute), "name": m.name}
     k, st, b, bw = d["konfig"], d["stammdaten"], d["branche"], d["bewertungen"]
     pfad = "" if k.get("domain") else f"/web/{k['slug']}"
     gebiet = k.get("einzugsgebiet") or (f"in {st['ort']} und Umgebung" if st.get("ort") else "")
@@ -319,6 +350,10 @@ def startseite(s: Session, m: Mandant, gesendet: bool = False, vorschau: bool = 
     if k["bereiche"]["notdienst"] and (k.get("notdienst_telefon") or st.get("telefon")):
         tel = k.get("notdienst_telefon") or st["telefon"]
         teile.append(f'<section class="wrap"><div class="notdienst"><div><strong>Notdienst</strong><br>{_e(k.get("notdienst_text") or "")}</div><a class="knopf" href="tel:{_e(tel)}">Notdienst anrufen: {_e(tel)}</a></div></section>')
+    if d["stellen"]:
+        karten = "".join(f'<a class="karte stelle" href="{pfad}/karriere/{_e(st_["id"])}"><h3>{_e(st_["titel"])}</h3><p>{_e(karriere.ARTEN[st_["art"]][0])}{" · " + _e(st_["ort"]) if st_.get("ort") else ""}</p></a>'
+                         for st_ in d["stellen"][:3])
+        teile.append(f'<section id="wir-stellen-ein"><div class="wrap"><h2>Wir stellen ein</h2><div class="karten">{karten}</div><p><a href="{pfad}/karriere">Alle Stellen und Kurzbewerbung in zwei Minuten</a></p></div></section>')
     if k["bereiche"]["leistungen"] and d["leistungen"]:
         karten = "".join(f'<div class="karte"><h3>{_e(le["bezeichnung"])}</h3><p>{_e(le["text"] or (f"ca. {le['dauer']} Minuten" if le["dauer"] else ""))}</p>{f"<div class=\'preis\'>ab {_e(le['preis'])} €</div>" if le["preis"] else ""}</div>' for le in d["leistungen"])
         teile.append(f'<section id="leistungen"><div class="wrap"><h2>Leistungen</h2><div class="karten">{karten}</div></div></section>')
@@ -345,11 +380,16 @@ def startseite(s: Session, m: Mandant, gesendet: bool = False, vorschau: bool = 
         wege = (f'<a class="knopf leise" href="tel:{_e(st["telefon"])}">Anrufen: {_e(st["telefon"])}</a>' if st.get("telefon") else "") + \
                (f'<a class="knopf wa" href="{_e(d["whatsapp"])}" rel="noopener">Per WhatsApp schreiben</a>' if d.get("whatsapp") else "") + \
                (f'<a class="knopf leise" href="mailto:{_e(st["email"])}">E-Mail: {_e(st["email"])}</a>' if st.get("email") else "")
-        meldung = '<p class="hinweis">Vielen Dank, Ihre Anfrage ist eingegangen. Wir melden uns schnellstmöglich.</p>' if gesendet else (f'<p class="hinweis" style="background:#fde8e8;color:#9b1c1c">{_e(fehler)}</p>' if fehler else "")
-        teile.append(f'''<section id="kontakt"><div class="wrap"><h2>Anfrage senden</h2><p>Am schnellsten erreichen Sie uns so:</p><div class="kontaktwege">{wege}</div><p>Oder schreiben Sie uns hier – wir antworten in der Regel am selben Werktag.</p>{meldung}<form class="kontakt" method="post" action="{pfad}/anfrage">
+        not_tel = k.get("notdienst_telefon") or st.get("telefon")
+        meldung = ('<p class="hinweis notfall">Ihre Notfallmeldung ist eingegangen und wurde sofort an unseren Bereitschaftsdienst weitergeleitet.'
+                   + (f' Bei Gefahr für Personen oder Gebäude rufen Sie bitte zusätzlich direkt an: <a href="tel:{_e(not_tel)}">{_e(not_tel)}</a>.' if not_tel else "") + '</p>') if gesendet == 2 else \
+                  '<p class="hinweis">Vielen Dank, Ihre Anfrage ist eingegangen. Wir melden uns schnellstmöglich.</p>' if gesendet else (f'<p class="hinweis" style="background:#fde8e8;color:#9b1c1c">{_e(fehler)}</p>' if fehler else "")
+        teile.append(f'''<section id="kontakt"><div class="wrap"><h2>Anfrage senden</h2><p>Am schnellsten erreichen Sie uns so:</p><div class="kontaktwege">{wege}</div><p>Oder schreiben Sie uns hier – wir antworten in der Regel am selben Werktag.</p>{meldung}<form class="kontakt" method="post" action="{pfad}/anfrage" enctype="multipart/form-data">
 <label>Name <input name="name" required maxlength="200"></label><label>Telefon <input name="telefon" type="tel" maxlength="40"></label>
 <label>E-Mail <input name="email" type="email" maxlength="200"></label><label>Straße, PLZ, Ort <input name="adresse" maxlength="300"></label>
 <label class="breit">Ihr Anliegen <textarea name="nachricht" rows="4" required maxlength="3000"></textarea></label>
+{f'<label class="breit">Fotos (optional, bis zu {MAX_FOTOS}: Schaden, Typenschild, Einbausituation) <input name="fotos" type="file" accept="image/jpeg,image/png,image/webp,image/heic" multiple></label>' if k["bereiche"].get("fotos", True) else ""}
+{'<label class="breit"><span><input type="checkbox" name="notfall" value="1"> Notfall (z. B. Wasserrohrbruch, Heizungsausfall bei Frost) – wir alarmieren sofort den Bereitschaftsdienst</span></label>' if k["bereiche"]["notdienst"] else ""}
 <label class="falle" aria-hidden="true">Website <input name="website" tabindex="-1" autocomplete="off"></label>
 <div class="breit"><button class="knopf" type="submit">Anfrage senden</button> <small>Mit dem Absenden stimmen Sie der Verarbeitung Ihrer Angaben zur Bearbeitung der Anfrage zu (<a href="{pfad}/datenschutz">Datenschutz</a>).</small></div></form></div></section>''')
     teile.append("</main>" + _fuss(d, pfad))
@@ -384,16 +424,88 @@ def datenschutz(s: Session, m: Mandant) -> str:
 <h3>Server-Logdaten</h3><p>Beim Aufruf dieser Website verarbeitet unser Server technisch notwendige Daten (IP-Adresse, Zeitpunkt, aufgerufene Seite, Browser) zur Auslieferung und Sicherheit (Art. 6 Abs. 1 lit. f DSGVO); Löschung nach spätestens 14 Tagen. Es werden keine Cookies zu Analyse- oder Werbezwecken gesetzt und keine Drittanbieter-Skripte geladen.</p>
 <h3>Kontaktformular und Online-Terminbuchung</h3><p>Ihre Angaben (Name, Kontaktdaten, Anliegen, Adresse, gewünschter Termin) verarbeiten wir zur Bearbeitung Ihrer Anfrage und zur Vertragsdurchführung (Art. 6 Abs. 1 lit. b DSGVO). Sie werden in unserer Kundenverwaltung gespeichert und nach den gesetzlichen Aufbewahrungsfristen gelöscht.</p>
 <h3>Kundenportal, Terminerinnerungen, Bewertungen</h3><p>Für bestehende Aufträge erhalten Sie einen persönlichen Portal-Link. Erinnerungen per E-Mail oder SMS und die Bitte um eine Bewertung versenden wir nur mit Ihrer Einwilligung (Art. 6 Abs. 1 lit. a DSGVO), die Sie jederzeit widerrufen können. Bewertungen veröffentlichen wir nur gekürzt mit Vorname und Initial.</p>
+<h3 id="bewerbungen">Bewerbungen</h3><p>Angaben und Unterlagen aus Bewerbungen verarbeiten wir zur Durchführung des Bewerbungsverfahrens (Art. 6 Abs. 1 lit. b, Art. 88 DSGVO). Nach Abschluss des Verfahrens löschen wir sie nach sechs Monaten, sofern kein Arbeitsverhältnis zustande kommt (Nachweis nach dem AGG). Nur wenn Sie zusätzlich in die Aufnahme in unseren Talentpool einwilligen (Art. 6 Abs. 1 lit. a DSGVO), speichern wir sie bis zu zwei Jahre; die Einwilligung können Sie jederzeit widerrufen.</p>
 <h3>Telefonassistent</h3><p>Anrufe kann ein KI-gestützter Telefonassistent entgegennehmen; er stellt sich zu Beginn als solcher vor. Eine Aufzeichnung erfolgt nur nach Ihrer ausdrücklichen Zustimmung im Gespräch.</p>
 <h3>Auftragsverarbeitung und Hosting</h3><p>Hosting in Deutschland; Dienstleister sind durch Auftragsverarbeitungsverträge nach Art. 28 DSGVO gebunden.</p>
 <h3>Ihre Rechte</h3><p>Auskunft, Berichtigung, Löschung, Einschränkung, Datenübertragbarkeit, Widerspruch (Art. 15–21 DSGVO) sowie Beschwerde bei einer Aufsichtsbehörde. Wenden Sie sich an die oben genannte Adresse.</p></div></section>"""
     return _kopf(d, f"Datenschutz – {m.name}", f"Datenschutzerklärung von {m.name}", pfad or "/", noindex=True) + inhalt + _fuss(d, pfad)
 
 
-def sitemap(m: Mandant) -> str:
+def sitemap(m: Mandant, heute: date | None = None) -> str:
     b = basis(m)
+    pfade = ["/", "/impressum", "/datenschutz"]
+    stellen = karriere.offene(m, heute or _heute()) if konfig(m)["bereiche"].get("karriere", True) else []
+    if stellen:
+        pfade += ["/karriere", *(f"/karriere/{st['id']}" for st in stellen)]
     return ('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
-            + "".join(f"<url><loc>{_e(b)}{p}</loc></url>" for p in ("/", "/impressum", "/datenschutz")) + "</urlset>")
+            + "".join(f"<url><loc>{_e(b)}{p}</loc></url>" for p in pfade) + "</urlset>")
+
+
+# --- Karriereseite (core.karriere) ------------------------------------------------------------------------
+def _stelle_karte(pfad: str, st_: dict[str, Any]) -> str:
+    zeile = " · ".join(x for x in (karriere.ARTEN[st_["art"]][0], st_.get("ort"), st_.get("stunden"), st_.get("start") and f"ab {st_['start']}") if x)
+    gehalt = f'<div class="preis">{_e(st_["gehalt"])}</div>' if st_.get("gehalt") else ""
+    return f'<a class="karte stelle" href="{pfad}/karriere/{_e(st_["id"])}"><h3>{_e(st_["titel"])}</h3><p>{_e(zeile)}</p>{gehalt}</a>'
+
+
+def _bewerbungsformular(pfad: str, st_: dict[str, Any] | None, fehler: str | None) -> str:
+    sid = f'<input type="hidden" name="stelle_id" value="{_e(st_["id"])}">' if st_ else ""
+    return f'''<section id="bewerben"><div class="wrap"><h2>{"Jetzt bewerben" if st_ else "Initiativ bewerben"}</h2>
+<p>Kein Anschreiben nötig: Name, Kontakt und ein paar Sätze reichen. Lebenslauf oder Zeugnisse können Sie anhängen, müssen aber nicht.</p>
+{f'<p class="hinweis" style="background:#fde8e8;color:#9b1c1c">{_e(fehler)}</p>' if fehler else ""}
+<form class="kontakt" method="post" action="{pfad}/karriere/bewerbung" enctype="multipart/form-data">{sid}
+<label>Name <input name="name" required maxlength="200" autocomplete="name"></label><label>Telefon <input name="telefon" type="tel" maxlength="40" autocomplete="tel"></label>
+<label>E-Mail <input name="email" type="email" maxlength="200" autocomplete="email"></label><label>Frühester Start <input name="start" maxlength="60" placeholder="z. B. sofort, 01.03."></label>
+<label class="breit">Ein paar Sätze zu Ihnen (optional) <textarea name="nachricht" rows="3" maxlength="3000"></textarea></label>
+<label class="breit">Unterlagen (optional, bis zu {karriere.MAX_UNTERLAGEN} Dateien als PDF, JPEG oder PNG) <input name="unterlagen" type="file" accept="application/pdf,image/jpeg,image/png" multiple></label>
+<label class="falle" aria-hidden="true">Website <input name="website" tabindex="-1" autocomplete="off"></label>
+<label class="breit"><span><input type="checkbox" name="datenschutz" value="1" required> Ich habe die <a href="{pfad}/datenschutz#bewerbungen">Datenschutzhinweise zur Bewerbung</a> gelesen.</span></label>
+<label class="breit"><span><input type="checkbox" name="talentpool" value="1"> Freiwillig: Meine Bewerbung darf bis zu zwei Jahre für künftige Stellen gespeichert werden (jederzeit widerrufbar).</span></label>
+<div class="breit"><button class="knopf" type="submit">Bewerbung absenden</button></div></form></div></section>'''
+
+
+def karriere_seite(s: Session, m: Mandant, heute: date | None = None, gesendet: bool = False, fehler: str | None = None) -> str:
+    d = {**daten(s, m, heute), "name": m.name}
+    k, st = d["konfig"], d["stammdaten"]
+    pfad = "" if k.get("domain") else f"/web/{k['slug']}"
+    ort = st.get("ort") or ""
+    teile = [_kopf(d, f"Karriere bei {m.name}{' in ' + ort if ort else ''}", f"Offene Stellen bei {m.name}{' in ' + ort if ort else ''}: "
+                   + (", ".join(x["titel"] for x in d["stellen"][:4]) or "Initiativbewerbung") + ". Kurzbewerbung ohne Anschreiben.", pfad or "/",
+                   noindex=not k["aktiv"], kanonisch="/karriere")]
+    teile.append(f'<main id="inhalt"><section class="hero"><div class="wrap"><h1>Karriere bei {_e(m.name)}</h1><p class="claim">'
+                 + ("Wir suchen Verstärkung für unser Team." if d["stellen"] else "Derzeit keine ausgeschriebenen Stellen – wir freuen uns über Initiativbewerbungen.") + "</p></div></section>")
+    if gesendet:
+        teile.append('<section class="wrap"><p class="hinweis">Vielen Dank für Ihre Bewerbung! Wir melden uns in der Regel innerhalb weniger Werktage.</p></section>')
+    if d["stellen"]:
+        teile.append(f'<section id="stellen"><div class="wrap"><h2>Offene Stellen</h2><div class="karten">{"".join(_stelle_karte(pfad, x) for x in d["stellen"])}</div></div></section>')
+    teile.append(_bewerbungsformular(pfad, None, fehler))
+    teile.append("</main>" + _fuss(d, pfad))
+    return "".join(teile)
+
+
+def stelle_seite(s: Session, m: Mandant, stelle_id: str, heute: date | None = None, fehler: str | None = None) -> str | None:
+    d = {**daten(s, m, heute), "name": m.name}
+    st_ = next((x for x in d["stellen"] if x["id"] == stelle_id), None)
+    if st_ is None:
+        return None
+    k, st = d["konfig"], d["stammdaten"]
+    pfad = "" if k.get("domain") else f"/web/{k['slug']}"
+    ort = st_.get("ort") or st.get("ort") or ""
+    zeile = " · ".join(x for x in (karriere.ARTEN[st_["art"]][0], ort, st_.get("stunden"), st_.get("start") and f"Start {st_['start']}", st_.get("gehalt")) if x)
+    teile = [_kopf(d, f"{st_['titel']} ({karriere.ARTEN[st_['art']][0]}) – {m.name}{' ' + ort if ort else ''}",
+                   f"{st_['titel']} bei {m.name}{' in ' + ort if ort else ''}. {(st_.get('text') or '')[:100]} Kurzbewerbung in zwei Minuten.", pfad or "/",
+                   karriere.job_posting(d, st_), noindex=not k["aktiv"], kanonisch=f"/karriere/{st_['id']}")]
+    teile.append(f'<main id="inhalt"><section class="hero"><div class="wrap"><p><a href="{pfad}/karriere">← Alle Stellen</a></p><h1>{_e(st_["titel"])}</h1><p class="claim">{_e(zeile)}</p>'
+                 f'<div class="aktionen"><a class="knopf" href="#bewerben">Jetzt bewerben</a>'
+                 + (f'<a class="knopf leise" href="tel:{_e(st["telefon"])}">Fragen? {_e(st["telefon"])}</a>' if st.get("telefon") else "") + "</div></div></section>")
+    if st_.get("text"):
+        teile.append(f'<section><div class="wrap">{"".join(f"<p>{_e(a)}</p>" for a in st_["text"].split(chr(10)) if a.strip())}</div></section>')
+    for schl, titel in (("aufgaben", "Ihre Aufgaben"), ("profil", "Ihr Profil"), ("wir_bieten", "Das bieten wir")):
+        if st_.get(schl):
+            teile.append(f'<section><div class="wrap"><h2>{titel}</h2><ul>{"".join(f"<li>{_e(x)}</li>" for x in st_[schl])}</ul></div></section>')
+    teile.append(_bewerbungsformular(pfad, st_, fehler))
+    teile.append("</main>" + _fuss(d, pfad))
+    return "".join(teile)
 
 
 def robots(m: Mandant) -> str:
@@ -402,24 +514,46 @@ def robots(m: Mandant) -> str:
 
 
 # --- Kontaktformular ----------------------------------------------------------------------------------------
-def anfrage(s: Session, m: Mandant, form: dict[str, Any], jetzt: datetime) -> dict[str, Any]:
+def anfrage(s: Session, m: Mandant, form: dict[str, Any], jetzt: datetime, fotos: list[tuple[str, bytes]] | None = None) -> dict[str, Any]:
+    """Kontaktformular: legt Anfrage/Servicefall an, hängt Fotos an den Vorgang und meldet, ob als Notfall eingestuft."""
+    from core.einsatz import anhang_anlegen
+    from core.modelle import Servicefall
     if form.get("website"):
-        return {"status": "angenommen"}   # Honeypot
+        return {"status": "angenommen", "notdienst": False}   # Honeypot
     name, nachricht = (form.get("name") or "").strip(), (form.get("nachricht") or "").strip()
     if not name or len(nachricht) < 5:
         raise ValueError("Bitte Name und Anliegen angeben")
     telefon, email = (form.get("telefon") or "").strip() or None, (form.get("email") or "").strip() or None
     if not (telefon or email):
         raise ValueError("Bitte Telefon oder E-Mail angeben, damit wir antworten können")
+    fotos = [(n, b) for n, b in (fotos or []) if b]
+    if len(fotos) > MAX_FOTOS:
+        raise ValueError(f"Bitte höchstens {MAX_FOTOS} Fotos anhängen")
+    geprueft = []
+    for n, b in fotos:
+        mime = foto_mime(b)
+        if mime is None:
+            raise ValueError(f"{n or 'Datei'}: bitte nur Fotos (JPEG, PNG, WebP, HEIC)")
+        if len(b) > MAX_FOTO:
+            raise ValueError(f"{n or 'Foto'}: größer als {MAX_FOTO // 1024 // 1024} MB")
+        geprueft.append((n or "foto", mime, b))
+    notfall = bool(form.get("notfall")) and konfig(m)["bereiche"]["notdienst"]
     kennung = "website:" + hashlib.sha256(f"{m.id}|{name}|{telefon}|{email}|{nachricht}|{als_utc(jetzt).strftime('%Y-%m-%d %H')}".encode()).hexdigest()[:24]
     adresse = (form.get("adresse") or "").strip()
     strasse = plz = ort = None
     if adresse:
         t = re.match(r"^(.*?),?\s*(\d{5})\s+(.+)$", adresse)
         strasse, plz, ort = (t.group(1).strip(" ,"), t.group(2), t.group(3).strip()) if t else (adresse, None, None)
-    a = anfragen.anfrage_verarbeiten(s, m, "web", kennung, name, telefon, email, nachricht[:120], nachricht, jetzt, strasse, plz, ort)
-    hinweise.senden(s, m, "info", "Anfrage über die Website", f"{name}: {nachricht[:160]}", f"website:{kennung}", "anfragen")
-    return {"status": "angenommen", "anfrage_id": a.id if a else None}
+    a = anfragen.anfrage_verarbeiten(s, m, "web", kennung, name, telefon, email, nachricht[:120], nachricht, jetzt, strasse, plz, ort, notfall=notfall)
+    fall = s.get(Servicefall, a.servicefall_id) if a is not None and a.servicefall_id else None
+    if fall is not None:
+        for n, mime, b in geprueft:
+            anhang_anlegen(s, m, "servicefall", fall.id, "foto", n, mime, b, "kunde (Website)", "über das Kontaktformular")
+    notdienst = bool(fall is not None and fall.dringlichkeit == "notdienst")
+    if a is not None and not notdienst:   # Notfälle alarmiert bereits core.anfragen mit hoher Priorität
+        hinweise.senden(s, m, "info", "Anfrage über die Website", f"{name}: {nachricht[:160]}" + (f" ({len(geprueft)} Foto(s))" if geprueft else ""),
+                        f"website:{kennung}", f"vorgaenge/{fall.id}" if fall is not None else "anfragen")
+    return {"status": "angenommen", "anfrage_id": a.id if a else None, "notdienst": notdienst, "fotos": len(geprueft) if fall is not None else 0}
 
 
 def buchungslink(m: Mandant) -> str | None:

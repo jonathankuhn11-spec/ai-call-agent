@@ -13,6 +13,7 @@ import base64
 import json
 import os
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -34,13 +35,19 @@ FEATURES: dict[str, str] = {
     "api": "offene API und Webhooks", "white_label": "eigenes Branding je Betrieb",
     "eigene_stimme": "Telefonagent mit der eigenen Stimme des Inhabers (Stimmklon, selbst gehostet)",
 }
+# Editionen = Pakete der Preisliste (infrastruktur/unterlagen/preise.toml, Website „Preise“): Basis 349 €, Pro 649 €,
+# Premium 999 € netto je Monat; die Schlüssel starter/pro/enterprise bleiben wegen bereits ausgestellter Lizenzschlüssel.
+MEHRMINUTE_NETTO = Decimal("0.25")
 EDITIONEN: dict[str, dict[str, Any]] = {
-    "starter": {"titel": "Starter", "preis_monat": 149, "features": ["disposition", "crm", "rechnungen", "portal", "online_buchung", "auswertungen"],
+    "starter": {"titel": "Basis", "preis_monat": 349, "einrichtung": 1490,
+                "features": ["voice", "crm", "disposition", "portal", "website", "auswertungen"],
                 "limits": {"mitarbeiter": 3, "kunden": 1000, "sprachminuten_monat": 300}},
-    "pro": {"titel": "Pro", "preis_monat": 249, "features": ["disposition", "crm", "voice", "rechnungen", "portal", "online_buchung", "website", "upsell", "whatsapp",
-                                                            "online_zahlung", "finanzanbindung", "lager", "dienstplan", "auswertungen", "api", "eigene_stimme"],
-            "limits": {"mitarbeiter": 10, "kunden": 10000, "sprachminuten_monat": 1500}},
-    "enterprise": {"titel": "Enterprise", "preis_monat": 582, "features": list(FEATURES), "limits": {"mitarbeiter": 50, "kunden": 100000, "sprachminuten_monat": 6000}},
+    "pro": {"titel": "Pro", "preis_monat": 649, "einrichtung": 2990,
+            "features": ["voice", "crm", "disposition", "portal", "website", "auswertungen", "online_buchung", "rechnungen", "upsell", "whatsapp",
+                         "online_zahlung", "finanzanbindung", "lager", "dienstplan", "api", "eigene_stimme"],
+            "limits": {"mitarbeiter": 10, "kunden": 10000, "sprachminuten_monat": 600}},
+    "enterprise": {"titel": "Premium", "preis_monat": 999, "einrichtung": 4990, "features": list(FEATURES),
+                   "limits": {"mitarbeiter": 50, "kunden": 100000, "sprachminuten_monat": 1000}},
 }
 
 
@@ -131,14 +138,14 @@ def status(m: Mandant, heute: date) -> dict[str, Any]:
     tage = (gueltig_bis - heute).days if gueltig_bis else None
     hinweis = None
     if quelle_ == "testphase":
-        hinweis = f"Testphase mit allen Funktionen, noch {tage} Tage. Danach gilt Starter; Lizenz unter Einstellungen eintragen."
+        hinweis = f"Testphase mit allen Funktionen, noch {tage} Tage. Danach gilt Basis; Lizenz unter Einstellungen eintragen."
     elif quelle_ == "starter" and liz.get("edition"):
-        hinweis = f"Lizenz {liz.get('edition')} ist am {liz.get('gueltig_bis')} abgelaufen; Funktionen auf Starter begrenzt."
+        hinweis = f"Lizenz {liz.get('edition')} ist am {liz.get('gueltig_bis')} abgelaufen; Funktionen auf Basis begrenzt."
     elif tage is not None and tage <= 14:
         hinweis = f"Lizenz läuft in {tage} Tagen ab."
     return {"edition": edition, "titel": e["titel"], "quelle": quelle_, "gueltig_bis": gueltig_bis.isoformat() if gueltig_bis else None, "tage_rest": tage,
             "features": list(e["features"]), "limits": dict(e["limits"]), "testphase_bis": tp.isoformat(), "hinweis": hinweis,
-            "lizenz_kunde": liz.get("kunde"), "editionen": {k: {"titel": v["titel"], "preis_monat": v["preis_monat"], "features": v["features"], "limits": v["limits"]}
+            "lizenz_kunde": liz.get("kunde"), "editionen": {k: {"titel": v["titel"], "preis_monat": v["preis_monat"], "einrichtung": v["einrichtung"], "features": v["features"], "limits": v["limits"]}
                                                            for k, v in EDITIONEN.items()}, "feature_texte": FEATURES}
 
 
@@ -190,10 +197,10 @@ def testphase_verlaengern(m: Mandant, tage: int, heute: date) -> date:
 
 # --- White-Label und Produktinfo ----------------------------------------------------------------
 def produkt() -> dict[str, Any]:
-    return {"name": os.environ.get("PRODUKT_NAME") or "SHK-Backoffice", "anbieter": os.environ.get("PRODUKT_ANBIETER") or "",
+    return {"name": os.environ.get("PRODUKT_NAME") or "KUHN", "anbieter": os.environ.get("PRODUKT_ANBIETER") or "",
             "farbe": os.environ.get("PRODUKT_FARBE") or "", "logo": os.environ.get("PRODUKT_LOGO_URL") or "", "version": __version__,
             "support_url": os.environ.get("PRODUKT_SUPPORT_URL") or "", "registrierung_offen": registrierung_offen(), "testphase_tage": TESTPHASE_TAGE,
-            "editionen": {k: {"titel": v["titel"], "preis_monat": v["preis_monat"], "features": [FEATURES[f] for f in v["features"]], "limits": v["limits"]}
+            "mehrminute_netto": str(MEHRMINUTE_NETTO), "editionen": {k: {"titel": v["titel"], "preis_monat": v["preis_monat"], "einrichtung": v["einrichtung"], "features": [FEATURES[f] for f in v["features"]], "limits": v["limits"]}
                           for k, v in EDITIONEN.items()}}
 
 
@@ -204,6 +211,7 @@ def registrierung_offen() -> bool:
 # --- Betreiberkonsole ---------------------------------------------------------------------------
 def mandanten_uebersicht(s: Session, heute: date) -> list[dict[str, Any]]:
     from core.domaene import als_utc
+    from core.stimme import sprachminuten
     seit = datetime.combine(heute - timedelta(days=30), datetime.min.time(), timezone.utc)
     ergebnis = []
     for m in s.scalars(select(Mandant).order_by(Mandant.erstellt.desc())):
@@ -212,20 +220,32 @@ def mandanten_uebersicht(s: Session, heute: date) -> list[dict[str, Any]]:
         faelle = s.scalar(select(func.count()).select_from(Servicefall).where(Servicefall.mandant_id == m.id, Servicefall.erstellt >= seit)) or 0
         termine = s.scalar(select(func.count()).select_from(Termin).join(Termin.servicefall).where(Servicefall.mandant_id == m.id, Termin.beginn >= seit)) or 0
         letzter = s.scalar(select(func.max(Servicefall.erstellt)).where(Servicefall.mandant_id == m.id))
+        minuten = sprachminuten(s, m, heute)
+        mehr = mehrminuten(minuten, st["limits"].get("sprachminuten_monat"))
         ergebnis.append({"id": m.id, "name": m.name, "gewerk": m.gewerk, "erstellt": als_utc(m.erstellt).isoformat() if m.erstellt else None,
                          "edition": st["edition"], "quelle": st["quelle"], "gueltig_bis": st["gueltig_bis"], "tage_rest": st["tage_rest"], "kunden": kunden,
                          "vorgaenge_30d": faelle, "termine_30d": termine, "letzter_vorgang": als_utc(letzter).isoformat() if letzter else None,
-                         "website": bool((m.stammdaten or {}).get("website", {}).get("aktiv")), "lizenz_kunde": (m.lizenz or {}).get("kunde")})
+                         "website": bool((m.stammdaten or {}).get("website", {}).get("aktiv")), "lizenz_kunde": (m.lizenz or {}).get("kunde"),
+                         "sprachminuten_monat": minuten, "mehrminuten": mehr, "mehrminuten_netto": str(mehr * MEHRMINUTE_NETTO)})
     return ergebnis
+
+
+def mehrminuten(verbraucht: float | int | None, inklusive: int | None) -> int:
+    """Abrechenbare Mehrminuten (je angefangene Minute über dem Inklusivkontingent); Anrufe werden nie abgewiesen."""
+    if not verbraucht or not inklusive:
+        return 0
+    import math
+    return max(0, math.ceil(float(verbraucht) - inklusive))
 
 
 def summen(uebersicht: list[dict[str, Any]]) -> dict[str, Any]:
     je = {k: 0 for k in EDITIONEN}
     quellen = {"lizenz": 0, "betreiber": 0, "testphase": 0, "starter": 0}
-    mrr = 0
+    mrr, mehr = 0, Decimal("0")
     for e in uebersicht:
+        mehr += Decimal(e.get("mehrminuten_netto") or "0")
         je[e["edition"]] += 1
         quellen[e["quelle"]] += 1
         if e["quelle"] in ("lizenz", "betreiber"):
             mrr += EDITIONEN[e["edition"]]["preis_monat"]
-    return {"mandanten": len(uebersicht), "je_edition": je, "je_quelle": quellen, "mrr_listenpreis": mrr, "aktiv_30d": sum(1 for e in uebersicht if e["vorgaenge_30d"])}
+    return {"mandanten": len(uebersicht), "je_edition": je, "je_quelle": quellen, "mrr_listenpreis": mrr, "mehrminuten_netto": str(mehr), "aktiv_30d": sum(1 for e in uebersicht if e["vorgaenge_30d"])}

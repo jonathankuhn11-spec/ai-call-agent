@@ -63,6 +63,8 @@ def status(s: Session, m: Mandant) -> dict[str, Any]:
         {"schluessel": "buchung", "titel": "Online-Buchung aktiv", "erledigt": bool(st.get("buchung_token")) or not b.online_buchung, "hinweis": "Kunden buchen freie Zeiten selbst." if b.online_buchung else "für diese Branche nicht vorgesehen", "pfad": "einstellungen", "optional": True},
         {"schluessel": "einwilligungen", "titel": "Datenschutz: Impressum und Datenschutzerklärung verlinkt", "erledigt": bool(st.get("impressum_url") and st.get("datenschutz_url")), "hinweis": "Pflicht im Portal und auf der Buchungsseite.", "pfad": "einstellungen"},
         {"schluessel": "telefonie", "titel": "Telefonassistent verbunden (SIP-Trunk, Sprachdienst)", "erledigt": bool(st.get("telefonie_aktiv")), "hinweis": "Siehe TELEFONIE.md; bis dahin Anrufsimulator.", "pfad": "anruf", "optional": True},
+        {"schluessel": "rufumleitung", "titel": "Rufumleitung bei Nichtannahme auf den Telefonassistenten", "erledigt": bool(st.get("rufumleitung_eingerichtet")),
+         "hinweis": "Bisherige Nummer behalten (auch Handy): Codes unter Einrichtung › Rufumleitung.", "pfad": "einrichtung", "optional": True},
     ]
     pflicht = [x for x in schritte if not x.get("optional")]
     erledigt = sum(1 for x in pflicht if x["erledigt"])

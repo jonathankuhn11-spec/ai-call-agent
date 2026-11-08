@@ -25,7 +25,7 @@ def test_ui_bibliotheken_und_pwa_werden_ausgeliefert(umgebung):
     assert 'lib/leaflet.js' in html and 'lib/uplot.min.js' in html and 'manifest.webmanifest' in html and 'data-ansicht="betreiber"' in html
     assert c.get("/health").json()["version"] == produkt.__version__ and produkt.__version__.count(".") == 2
     p = c.get("/produkt").json()
-    assert p["name"] == "SHK-Backoffice" and set(p["editionen"]) == {"starter", "pro", "enterprise"} and p["version"] == produkt.__version__
+    assert p["name"] == "KUHN" and set(p["editionen"]) == {"starter", "pro", "enterprise"} and p["version"] == produkt.__version__
 
 
 def test_excel_exporte_sind_lesbare_arbeitsmappen(umgebung):
@@ -104,10 +104,10 @@ def test_lizenzschluessel_editionen_testphase_und_feature_gates(umgebung, monkey
     assert "abgelaufen" in c.put("/betrieb/lizenz", headers=h, json={"schluessel": alt}).json()["detail"]
     r = c.put("/betrieb/lizenz", headers=h, json={"schluessel": schl}).json()
     assert r["edition"] == "pro" and r["quelle"] == "lizenz" and r["lizenz_kunde"] == "Demo Haustechnik GmbH" and "mehrbetrieb" not in r["features"]
-    # Pro darf Website und WhatsApp; Starter nicht (402), Limits greifen
+    # Pro darf WhatsApp und Dienstplan; Basis (starter) nicht (402), Website gehört seit Runde 13 zur Basis; Limits greifen
     assert c.put("/betrieb/website", headers=h, json={"aktiv": True, "claim": "Test"}).status_code == 200
     assert c.put("/betreiber/mandanten/{}/edition".format(ids["mandant"]), json={"edition": "starter"}).json()["quelle"] == "betreiber"
-    assert c.put("/betrieb/website", headers=h, json={"aktiv": True}).status_code == 402
+    assert c.put("/betrieb/website", headers=h, json={"aktiv": True}).status_code == 200
     assert c.get("/dienstplan", headers=h).status_code == 402 and c.get("/upsell/uebersicht", headers=h).status_code == 402
     r = c.put("/integrationen/endkunde", headers=h, json={"kanaele": ["email", "whatsapp"], "email": {"absender": "a@b.de", "host": "h"}, "whatsapp": {"phone_number_id": "1", "token": "t"}})
     assert r.status_code == 402 and "WhatsApp" in r.json()["detail"]
@@ -149,7 +149,7 @@ def test_selbstregistrierung_legt_betrieb_mit_testphase_an(umgebung, monkeypatch
     assert c.get("/registrieren").status_code == 404 and c.post("/registrierung", json={"name": "X"}).status_code == 404
     monkeypatch.setenv("REGISTRIERUNG_OFFEN", "1")
     seite = c.get("/registrieren")
-    assert seite.status_code == 200 and 'name="website"' in seite.text and "30 Tage kostenlos" in seite.text and "Enterprise" in seite.text
+    assert seite.status_code == 200 and 'name="website"' in seite.text and "30 Tage kostenlos" in seite.text and "Premium" in seite.text
     assert c.post("/registrierung", json={"name": "Neu", "email": "x", "datenschutz": True}).status_code == 422
     assert c.post("/registrierung", json={"name": "Neuer Betrieb", "email": "neu@beispiel.de", "datenschutz": False}).status_code == 422
     bot = c.post("/registrierung", json={"name": "Bot GmbH", "email": "bot@beispiel.de", "datenschutz": True, "website": "http://spam"}).json()

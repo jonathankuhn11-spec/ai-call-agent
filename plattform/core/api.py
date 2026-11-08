@@ -8,6 +8,7 @@ Jeder Endpunkt verlangt ein Recht (lesen, status, bearbeiten, freigeben, verwalt
 from __future__ import annotations
 
 import base64
+import hashlib
 import html
 import os
 import time
@@ -55,6 +56,9 @@ from core import (
     dubletten,
     einrichtung,
     einsatz,
+    karriere,
+    rufumleitung,
+    webcheck,
     export,
     feiertage,
     foerderung,
@@ -119,6 +123,7 @@ from core.modelle import (
     Anhang,
     Anlage,
     Artikel,
+    Bewerbung,
     Bauteil,
     Beleg,
     Bereitschaft,
@@ -711,6 +716,22 @@ class WebsiteEinstellungen(_Schema):
     bewertungen_min_sterne: int | None = Field(None, ge=1, le=5)
     leistungen_text: dict[str, str] | None = None
     faq: list[dict[str, str]] | None = None
+    stellen: list[dict[str, Any]] | None = Field(None, max_length=20)
+
+
+class RufumleitungEinstellen(_Schema):
+    ziel: str | None = Field(None, max_length=40)
+    eingerichtet: bool | None = None
+
+
+class WebsiteCheckAnfrage(_Schema):
+    url: str = Field(..., min_length=4, max_length=500)
+
+
+class BewerbungAendern(_Schema):
+    status: Literal["neu", "in_pruefung", "gespraech", "zusage", "eingestellt", "absage", "zurueckgezogen"] | None = None
+    notiz: str | None = Field(None, max_length=3000)
+    talentpool: Literal[False] | None = None
 
 
 class BewertungVeroeffentlichen(_Schema):
@@ -2987,7 +3008,9 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         felder = {k: (str(v).strip() if v is not None else None) for k, v in felder.items()}
         if felder.get("website"):  # Honeypot: Bots füllen das unsichtbare Feld
             return {"status": "angenommen"}
-        kennung = felder.get("kennung") or f"web:{abs(hash((felder.get('telefon'), felder.get('email'), felder.get('nachricht'), app.state.uhr().strftime('%Y%m%d%H%M'))))}"
+        # deterministisch (sha256 statt hash(), der je Prozess zufällig gesalzen ist): Doppelabsendungen bleiben über Worker hinweg idempotent
+        kennung = (felder.get("kennung") or "")[:200] or "web:" + hashlib.sha256(
+            f"{m.id}|{felder.get('telefon')}|{felder.get('email')}|{felder.get('nachricht')}|{app.state.uhr().strftime('%Y%m%d%H%M')}".encode()).hexdigest()[:24]
         if not (felder.get("telefon") or felder.get("email")):
             raise HTTPException(422, "Telefon oder E-Mail wird benötigt")
         anfragen.anfrage_verarbeiten(s, m, "web", kennung, felder.get("name"), felder.get("telefon"), felder.get("email"), felder.get("betreff"),
@@ -3276,7 +3299,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     @app.put("/betrieb/website", dependencies=[Depends(recht("verwalten")), Depends(feature("website"))])
     def website_einstellen(daten: WebsiteEinstellungen, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
         werte = daten.model_dump(exclude_unset=True)
-        k = fachlich(lambda: website.speichern(s, m, werte))
+        k = fachlich(lambda: website.speichern(s, m, werte, app.state.uhr().date()))
         domaene.protokollieren(s, m.id, "website.geaendert", "mandant", m.id, "mensch", {n: k.get(n) for n in ("aktiv", "slug", "domain") if n in werte}, p.name)
         s.commit()
         domain_cache.clear()
@@ -3306,7 +3329,9 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     @app.get("/web/{slug}", include_in_schema=False, response_class=HTMLResponse)
     def website_start(slug: str, gesendet: int = 0, vorschau: int = 0, s: Session = Depends(system_sitzung)) -> HTMLResponse:
         m = website_mandant(s, slug, bool(vorschau))
-        return HTMLResponse(website.startseite(s, m, bool(gesendet), bool(vorschau)), headers={"Cache-Control": "public, max-age=300"} if not vorschau else {})
+        privat = bool(vorschau or gesendet)   # Bestätigungsseiten nicht in geteilten Caches ablegen
+        return HTMLResponse(website.startseite(s, m, min(max(gesendet, 0), 2), bool(vorschau), heute=app.state.uhr().date()),
+                            headers={"Cache-Control": "private, no-store" if privat else "public, max-age=300"})
 
     @app.get("/web/{slug}/impressum", include_in_schema=False, response_class=HTMLResponse)
     def website_impressum(slug: str, s: Session = Depends(system_sitzung)) -> HTMLResponse:
@@ -3318,7 +3343,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
 
     @app.get("/web/{slug}/sitemap.xml", include_in_schema=False)
     def website_sitemap(slug: str, s: Session = Depends(system_sitzung)) -> Response:
-        return Response(website.sitemap(website_mandant(s, slug)), media_type="application/xml")
+        return Response(website.sitemap(website_mandant(s, slug), app.state.uhr().date()), media_type="application/xml")
 
     @app.get("/web/{slug}/robots.txt", include_in_schema=False)
     def website_robots(slug: str, s: Session = Depends(system_sitzung)) -> Response:
@@ -3326,28 +3351,139 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
 
     website_zaehler: dict[str, list[float]] = {}
 
+    def drosseln(schluessel: str, grenze: int) -> None:
+        jetzt = time.monotonic()
+        fenster = [x for x in website_zaehler.get(schluessel, []) if jetzt - x < 3600]
+        if len(fenster) >= grenze:
+            raise HTTPException(429, "Zu viele Anfragen, bitte rufen Sie uns an")
+        website_zaehler[schluessel] = fenster + [jetzt]
+
+    async def formular_lesen(request: Request, dateifeld: str, max_dateien: int, max_bytes: int) -> tuple[dict[str, str], list[tuple[str, bytes]]]:
+        """Formularfelder als Text und Dateien als (Name, Inhalt); liest höchstens max_dateien + 1 Dateien zu je max_bytes + 1 Byte."""
+        roh = await request.form(max_files=max_dateien + 2, max_fields=40)
+        felder = {k: str(v) for k, v in roh.items() if isinstance(v, str)}
+        dateien = []
+        for v in roh.getlist(dateifeld)[:max_dateien + 1]:
+            if hasattr(v, "read"):
+                inhalt = await v.read(max_bytes + 1)
+                if inhalt:
+                    dateien.append(((v.filename or "datei")[:200], inhalt))
+        return felder, dateien
+
+    def website_ziel(request: Request, m: Mandant, slug: str) -> str:
+        return "" if website.konfig(m).get("domain") and request.headers.get("host", "").split(":")[0] != "localhost" and "/web/" not in str(request.headers.get("referer", "/web/")) else f"/web/{slug}"
+
     @app.post("/web/{slug}/anfrage", include_in_schema=False)
     async def website_anfrage(slug: str, request: Request, s: Session = Depends(system_sitzung)):
-        """Kontaktformular ohne JavaScript: Honeypot, 30 Anfragen je Stunde und Betrieb, danach Umleitung mit Bestätigung."""
+        """Kontaktformular ohne JavaScript: Honeypot, 30 Anfragen je Stunde und Betrieb, bis zu drei Fotos, Notfall-Kennzeichnung;
+        danach Umleitung mit Bestätigung (gesendet=2 zeigt bei Notfällen zusätzlich die Notdienstnummer)."""
         m = website_mandant(s, slug)
-        form = {k: str(v) for k, v in (await request.form()).items()}
-        jetzt = time.monotonic()
-        fenster = [x for x in website_zaehler.get(slug, []) if jetzt - x < 3600]
-        if len(fenster) >= 30:
-            raise HTTPException(429, "Zu viele Anfragen, bitte rufen Sie uns an")
-        website_zaehler[slug] = fenster + [jetzt]
-        ziel = "/" if website.konfig(m).get("domain") and request.headers.get("host", "").split(":")[0] != "localhost" and "/web/" not in str(request.headers.get("referer", "/web/")) else f"/web/{slug}"
+        drosseln(slug, 30)
+        form, fotos = await formular_lesen(request, "fotos", website.MAX_FOTOS, website.MAX_FOTO)
+        ziel = website_ziel(request, m, slug) or "/"
         try:
-            website.anfrage(s, m, form, app.state.uhr())
+            ergebnis = website.anfrage(s, m, form, app.state.uhr(), fotos)
         except ValueError as e:
             if "json" in (request.headers.get("accept") or ""):
                 raise HTTPException(422, str(e)) from e
             s.rollback()
-            return HTMLResponse(website.startseite(s, m, False, False, str(e)), status_code=422)
+            return HTMLResponse(website.startseite(s, m, False, False, str(e), heute=app.state.uhr().date()), status_code=422)
+        s.commit()
+        if "json" in (request.headers.get("accept") or ""):
+            return {"status": "angenommen", "notdienst": ergebnis.get("notdienst", False), "fotos": ergebnis.get("fotos", 0)}
+        return RedirectResponse(f"{ziel}?gesendet={2 if ergebnis.get('notdienst') else 1}#kontakt", status_code=303)
+
+    # --- Karriereseite und Bewerbungen (core.karriere) ---------------------------------------------
+    @app.get("/web/{slug}/karriere", include_in_schema=False, response_class=HTMLResponse)
+    def website_karriere(slug: str, gesendet: int = 0, vorschau: int = 0, s: Session = Depends(system_sitzung)) -> HTMLResponse:
+        m = website_mandant(s, slug, bool(vorschau))
+        if not website.konfig(m)["bereiche"].get("karriere", True):
+            raise HTTPException(404, "Seite nicht gefunden")
+        return HTMLResponse(website.karriere_seite(s, m, app.state.uhr().date(), bool(gesendet)),
+                            headers={"Cache-Control": "private, no-store" if (gesendet or vorschau) else "public, max-age=300"})
+
+    @app.get("/web/{slug}/karriere/{stelle_id}", include_in_schema=False, response_class=HTMLResponse)
+    def website_stelle(slug: str, stelle_id: str, vorschau: int = 0, s: Session = Depends(system_sitzung)) -> HTMLResponse:
+        m = website_mandant(s, slug, bool(vorschau))
+        seite = website.stelle_seite(s, m, stelle_id, app.state.uhr().date()) if website.konfig(m)["bereiche"].get("karriere", True) else None
+        if seite is None:
+            raise HTTPException(404, "Diese Stelle ist nicht mehr ausgeschrieben")
+        return HTMLResponse(seite, headers={"Cache-Control": "public, max-age=300"} if not vorschau else {})
+
+    @app.post("/web/{slug}/karriere/bewerbung", include_in_schema=False)
+    async def website_bewerbung(slug: str, request: Request, s: Session = Depends(system_sitzung)):
+        """Kurzbewerbung: Honeypot, 20 Bewerbungen je Stunde und Betrieb, bis zu drei Unterlagen (PDF/JPEG/PNG, Signaturprüfung)."""
+        m = website_mandant(s, slug)
+        if not website.konfig(m)["bereiche"].get("karriere", True):
+            raise HTTPException(404, "Seite nicht gefunden")
+        drosseln(f"bewerbung:{slug}", 20)
+        form, dateien = await formular_lesen(request, "unterlagen", karriere.MAX_UNTERLAGEN, karriere.MAX_DATEI)
+        ziel = website_ziel(request, m, slug)
+        try:
+            karriere.bewerbung_annehmen(s, m, form, dateien, app.state.uhr())
+        except ValueError as e:
+            s.rollback()
+            if "json" in (request.headers.get("accept") or ""):
+                raise HTTPException(422, str(e)) from e
+            heute_ = app.state.uhr().date()
+            sid = form.get("stelle_id")
+            seite = (website.stelle_seite(s, m, sid, heute_, str(e)) if sid else None) or website.karriere_seite(s, m, heute_, False, str(e))
+            return HTMLResponse(seite, status_code=422)
         s.commit()
         if "json" in (request.headers.get("accept") or ""):
             return {"status": "angenommen"}
-        return RedirectResponse(f"{ziel}?gesendet=1#kontakt", status_code=303)
+        return RedirectResponse(f"{ziel}/karriere?gesendet=1", status_code=303)
+
+    @app.get("/bewerbungen", dependencies=[Depends(recht("bearbeiten"))])
+    def bewerbungen_listen(status: str | None = None, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> list[dict[str, Any]]:
+        return karriere.liste(s, m, status)
+
+    @app.patch("/bewerbungen/{bewerbung_id}", dependencies=[Depends(recht("bearbeiten"))])
+    def bewerbung_aendern(bewerbung_id: str, daten: BewerbungAendern, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                          p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        b = holen(s, Bewerbung, bewerbung_id, m)
+        fachlich(lambda: karriere.aendern(s, m, b, daten.model_dump(exclude_unset=True), app.state.uhr(), p.name))
+        s.commit()
+        return karriere.als_dict(s, b)
+
+    @app.delete("/bewerbungen/{bewerbung_id}", status_code=204, dependencies=[Depends(recht("bearbeiten"))])
+    def bewerbung_loeschen(bewerbung_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)):
+        b = holen(s, Bewerbung, bewerbung_id, m)
+        domaene.protokollieren(s, m.id, "loeschung.bewerbung", "bewerbung", b.id, "mensch", {"stelle": b.stelle_titel}, p.name)
+        karriere.loeschen(s, b)
+        s.commit()
+        return Response(status_code=204)
+
+    @app.get("/bewerbungen/{bewerbung_id}/unterlagen/{anhang_id}", dependencies=[Depends(recht("bearbeiten"))])
+    def bewerbung_unterlage(bewerbung_id: str, anhang_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> Response:
+        a = holen(s, Anhang, anhang_id, m)
+        if a.bezug_typ != "bewerbung" or a.bezug_id != bewerbung_id:
+            raise HTTPException(404, "Unterlage nicht gefunden")
+        name = a.name.replace('"', "").replace("\r", "").replace("\n", "")
+        return Response(a.inhalt, media_type=a.mime, headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "private, no-store",
+                                                             "X-Content-Type-Options": "nosniff"})
+
+    # --- Rufumleitung auf den Telefonassistenten (core.rufumleitung, P7) -----------------------------
+    @app.get("/betrieb/rufumleitung", dependencies=[Depends(recht("verwalten"))])
+    def rufumleitung_anleitung(sekunden: int = 20, ziel: str | None = None, m: Mandant = Depends(mandant_kontext)) -> dict[str, Any]:
+        return rufumleitung.anleitung(m, sekunden, ziel)
+
+    @app.put("/betrieb/rufumleitung", dependencies=[Depends(recht("verwalten"))])
+    def rufumleitung_speichern(daten: RufumleitungEinstellen, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                               p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        ergebnis = fachlich(lambda: rufumleitung.speichern(m, daten.ziel, daten.eingerichtet))
+        domaene.protokollieren(s, m.id, "rufumleitung.geaendert", "mandant", m.id, "mensch", {"ziel": ergebnis["ziel"], "eingerichtet": ergebnis["eingerichtet"]}, p.name)
+        s.commit()
+        return ergebnis
+
+    # --- Website-Check für die Akquise (core.webcheck; nur Betreiber) -------------------------------
+    @app.post("/betreiber/website-check", dependencies=[Depends(recht("plattform"))])
+    def betreiber_website_check(daten: WebsiteCheckAnfrage) -> dict[str, Any]:
+        try:
+            e = webcheck.pruefen(daten.url, getattr(app.state, "webcheck_transport", None), heute())
+        except webcheck.Fehler as f:
+            raise HTTPException(422, str(f)) from f
+        return {**e, "bericht": webcheck.bericht_text(e)}
 
     # --- Upsell -----------------------------------------------------------------------------------
     @app.get("/kunden/{kunde_id}/empfehlungen", dependencies=[Depends(recht("bearbeiten"))])
