@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Brief · [[firma]] · {{auftritt.marke}}</title>
+<!--
+  Personalisierter Werbebrief je Lead (Paket-Agent). DIN 5008 Form B, Layout wie vorlagen/brief-pilot.html.
+  {{…}} aus stammdaten.toml (build.rendern), [[…]] je Lead aus kundenpaket/dokumente.py.
+  Rechtsrahmen: Briefwerbung an Unternehmer ohne Einwilligung zulässig, solange kein Widerspruch vorliegt
+  (§ 7 Abs. 1 UWG); Kurzinformation nach Art. 14 DSGVO im Fuß von Seite 1.
+-->
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 10.5pt/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; color: #1b2129; }
+  .seite { width: 210mm; height: 297mm; position: relative; padding: 0 20mm 0 25mm; page-break-after: always; overflow: hidden; }
+  .seite:last-child { page-break-after: auto; }
+  .kopf { position: absolute; top: 12mm; left: 25mm; right: 20mm; display: flex; justify-content: space-between; align-items: center; }
+  .marke { font-weight: 850; letter-spacing: .16em; font-size: 16pt; display: flex; align-items: center; gap: 3mm; }
+  .marke svg { width: 9mm; height: 9mm; }
+  .kontakt { text-align: right; font-size: 8.5pt; color: #59636f; }
+  .anschrift { position: absolute; top: 45mm; left: 25mm; width: 85mm; height: 45mm; }
+  .ruecksende { font-size: 7pt; color: #59636f; border-bottom: .2mm solid #b4bcc6; padding-bottom: .5mm; height: 5mm; white-space: nowrap; overflow: hidden; }
+  .empfaenger { padding-top: 3mm; font-size: 10.5pt; line-height: 1.35; }
+  .info { position: absolute; top: 50mm; left: 125mm; right: 20mm; font-size: 8.5pt; color: #59636f; }
+  .info b { color: #1b2129; font-weight: 600; }
+  .inhalt { position: absolute; top: 98.5mm; left: 25mm; right: 20mm; }
+  .inhalt2 { position: absolute; top: 30mm; left: 25mm; right: 20mm; }
+  h1 { font-size: 11.5pt; margin: 0 0 5mm; }
+  h2 { font-size: 11pt; margin: 0 0 3mm; }
+  p { margin: 0 0 3mm; }
+  ul { margin: 0 0 3mm; padding-left: 5mm; }
+  li { margin: .8mm 0; }
+  .inhalt { font-size: 10pt; line-height: 1.4; }
+  .kasten { border-left: 1.2mm solid #b25a26; background: #f6e6da; padding: 2.6mm 4mm; margin: 3.5mm 0; }
+  .kasten b { color: #8c4318; }
+  table { width: 100%; border-collapse: collapse; font-size: 8.6pt; margin-bottom: 5mm; }
+  th, td { text-align: left; vertical-align: top; padding: 1.4mm 2mm; border-bottom: .2mm solid #d5dbe2; }
+  th { background: #f2f0ec; font-weight: 600; }
+  td:first-child { white-space: nowrap; color: #8c4318; font-weight: 600; }
+  .bilder { display: flex; gap: 5mm; align-items: flex-start; margin: 2mm 0 4mm; }
+  .bilder img { border: .3mm solid #c9d0d8; border-radius: 2mm; }
+  .bilder .desk { width: 118mm; height: 74mm; object-fit: cover; object-position: top; }
+  .bilder .mobil { width: 38mm; height: 74mm; object-fit: cover; object-position: top; }
+  .klein { font-size: 8pt; color: #59636f; }
+  .gruss { margin-top: 4mm; }
+  .fuss { position: absolute; bottom: 10mm; left: 25mm; right: 20mm; font-size: 7pt; line-height: 1.35; color: #59636f;
+          border-top: .2mm solid #b4bcc6; padding-top: 2mm; }
+  .falz { position: absolute; left: 6mm; width: 4mm; border-top: .2mm solid #b4bcc6; }
+  @media screen { body { background: #ebe7e1; } .seite { background: #fff; margin: 8mm auto; box-shadow: 0 2px 10px rgba(0,0,0,.12); } }
+</style>
+</head>
+<body>
+<div class="seite">
+  <div class="falz" style="top:105mm"></div><div class="falz" style="top:148.5mm"></div><div class="falz" style="top:210mm"></div>
+  <div class="kopf">
+    <div class="marke"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#b25a26"/><path d="M11 8v16M22 8l-9 8 9 8" stroke="#fff" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>{{auftritt.marke}}</div>
+    <div class="kontakt">{{anbieter.bezeichnung}}<br>{{anbieter.strasse}} · {{anbieter.plz_ort}}<br>{{kontakt.telefon}} · {{kontakt.email}} · {{auftritt.domain}}</div>
+  </div>
+  <div class="anschrift">
+    <div class="ruecksende">{{anbieter.bezeichnung}} · {{anbieter.strasse}} · {{anbieter.plz_ort}}</div>
+    <div class="empfaenger">[[firma]]<br>[[zu_haenden]][[strasse]]<br>[[plz]] [[ort]]</div>
+  </div>
+  <div class="info">
+    <b>Ihr Ansprechpartner</b><br>{{anbieter.gesellschafter_1}}<br>{{kontakt.telefon}}<br>{{kontakt.email}}<br><br>
+    <b>Datum</b><br>[[datum]]
+  </div>
+  <div class="inhalt">
+    <h1>[[betreff]]</h1>
+    <p>[[anrede]]</p>
+    <p>wir haben uns Ihren Betrieb angesehen und vorbereitet, was Ihnen im Alltag die meiste Arbeit abnimmt:</p>
+    <ul>[[punkte]]</ul>
+    <p>{{auftritt.marke}} ist ein digitales Backoffice für Handwerks- und Servicebetriebe; hinaus geht nichts ohne Ihre Freigabe. [[demo]]</p>
+    <div class="kasten">
+      <b>Pilotprogramm:</b> [[pilot_wochen]] Wochen im Paket [[paket]] <b>ohne Grundgebühr und ohne Einrichtung</b>, Ihre Nummer bleibt,
+      Ausstieg jederzeit. Bedarfsanalyse, Website-Entwurf und Konditionen: Rückseite.
+    </div>
+    <p>Ich melde mich in den nächsten Tagen kurz telefonisch. Wenn Sie das nicht möchten, genügt eine Nachricht an {{kontakt.email}}.</p>
+    <p class="gruss">Mit freundlichen Grüßen</p>
+    <p style="margin-top:6mm">{{anbieter.gesellschafter_1}}<br><span style="color:#59636f">{{auftritt.marke}}</span></p>
+  </div>
+  <div class="fuss">
+    <b>Datenschutzhinweis (Art. 14 DSGVO):</b> Verantwortlich ist {{anbieter.bezeichnung}}, {{anbieter.strasse}}, {{anbieter.plz_ort}}, {{kontakt.email}}.
+    Ihre Geschäftsanschrift und die Angaben zu Ihrem Betrieb stammen aus öffentlich zugänglichen Quellen ([[quelle]]) bzw. Ihrem Impressum.
+    Wir verarbeiten sie zur Vorstellung unseres Angebots auf Grundlage unseres berechtigten Interesses (Art. 6 Abs. 1 lit. f DSGVO, Direktwerbung)
+    und löschen sie spätestens zwölf Monate nach dem letzten Kontakt. Sie können der Verarbeitung für Werbezwecke jederzeit formlos widersprechen
+    (Art. 21 Abs. 2 DSGVO); danach kontaktieren wir Sie nicht mehr. Weitere Rechte und Einzelheiten: {{auftritt.domain}}/datenschutz.html
+  </div>
+</div>
+
+<div class="seite">
+  <div class="kopf">
+    <div class="marke"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#b25a26"/><path d="M11 8v16M22 8l-9 8 9 8" stroke="#fff" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>{{auftritt.marke}}</div>
+    <div class="kontakt">Bedarfsanalyse für [[firma]]<br>Stand [[datum]]</div>
+  </div>
+  <div class="inhalt2">
+    <h2>Ihre Bedarfsanalyse</h2>
+    <table><thead><tr><th>Nr.</th><th>Beobachtung</th><th>Baustein</th><th>Wirkung</th></tr></thead><tbody>[[tabelle]]</tbody></table>
+    <h2>Entwurf: [[website_modus]]</h2>
+    [[bilder]]
+    <p class="klein">Unverbindlicher, nicht veröffentlichter Entwurf aus Ihren öffentlich verfügbaren Angaben. Texte, Bilder und Leistungen stimmen wir mit Ihnen ab;
+      die Website ist ohne Cookies und Fremdskripte gebaut und läuft auf Ihrer eigenen Domain.</p>
+    <h2>Konditionen</h2>
+    <table><tbody>
+      <tr><td>Paket</td><td>[[paket]] – [[minuten]] Gesprächsminuten je Monat inklusive</td></tr>
+      <tr><td>Monatlich</td><td>[[monat]] netto, Einrichtung einmalig [[einrichtung]] netto</td></tr>
+      <tr><td>Pilot</td><td>[[pilot_wochen]] Wochen ohne Grundgebühr und ohne Einrichtung; bei Übergang als Gründungspartner [[nachlass_einrichtung]] % Nachlass auf die
+        Einrichtung und [[nachlass_monat]] % auf die Monatspauschale im ersten Vertragsjahr</td></tr>
+      <tr><td>Ihre Nummer</td><td>bleibt; Anrufe erreichen den Agenten per Rufumleitung, Sie können sie jederzeit zurücknehmen</td></tr>
+    </tbody></table>
+    <p class="klein">Alle Preise zuzüglich Umsatzsteuer. Ein ausführliches Angebot liegt bei bzw. senden wir Ihnen gern zu.</p>
+  </div>
+</div>
+</body>
+</html>
