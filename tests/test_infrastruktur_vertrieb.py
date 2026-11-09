@@ -17,6 +17,7 @@ sys.path.insert(0, str(INFRA))
 
 import vertriebsagent
 from vertrieb import erfassung, kadenz, scoring, speicher, upsell, versand
+from vertrieb import pipeline
 
 KOPF_WELLE = ["Welle", "Klasse", "Score", "Quelle", "Firma", "Gewerk", "PLZ", "Ort", "Straße", "Telefon", "E-Mail", "Website", "Entscheider",
               "Stellenanzeige", "Alter (Tage)", "Infrastruktur", "Probleme", "KUHN-Lösung", "Angebot", "Befund", "Status", "Quell-URL",
@@ -192,3 +193,15 @@ def test_versandfaehig():
     assert not versand.versandfaehig(le)
     le.werte["strasse"] = "Weg 1"
     assert versand.versandfaehig(le)
+
+
+def test_veraltete_ids_ohne_historie_entfallen(wurzel: Path, tmp_path: Path):
+    db = tmp_path / "p.db"
+    pipeline.lauf(wurzel, db, dt.date(2026, 11, 8), neue_charge=False)
+    con = speicher.oeffnen(db)
+    con.execute("INSERT INTO leads SELECT 'Lalt0000000', firma, werte, probleme, score, akut, gesperrt, sperrgrund, ausgeschlossen, "
+                "herkunft, erstmals, aktualisiert FROM leads LIMIT 1")
+    con.commit()
+    con.close()
+    erg = pipeline.lauf(wurzel, db, dt.date(2026, 11, 9), neue_charge=False)
+    assert "Lalt0000000" not in {r["lead"].id for r in erg.zeilen}

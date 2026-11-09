@@ -47,8 +47,10 @@ def lauf(wurzel: Path, db_pfad: Path, heute: dt.date, charge_groesse: int | None
     neu, protokoll = erfassung.alle_lesen(pfade)
     speicher.leads_schreiben(db, neu, heute.isoformat())
     speicher.sperre_auf_rufnummer(db)
-    leads = _db_leads(db)
     historie = speicher.historie(db)
+    # Nur Leads des aktuellen Bestands; ältere IDs (z. B. nach korrigierter Firmierung/PLZ) bleiben nur, wenn sie Historie haben
+    aktuell = {le.id for le in neu}
+    leads = [le for le in _db_leads(db) if le.id in aktuell or le.id in historie]
 
     zuordnung = {le.id: upsell.zuordnen(le, katalog, preise) for le in leads}
     modell = scoring.Modell(leads, historie, katalog, heute, {i: z.branche for i, z in zuordnung.items()})
