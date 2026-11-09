@@ -4,6 +4,8 @@ Geführter Modus: Der Gesprächsleitfaden läuft als Zustandsautomat im Code.
 Das Sprachmodell hat nur noch zwei eng begrenzte Aufgaben:
   1. Extraktion:   Was hat der Kunde gerade gesagt? (JSON nach Schema, Temperatur 0)
   2. Formulierung: Den vom Code bestimmten nächsten Satz natürlich aussprechen.
+Beide lassen sich abschalten: EXTRACTOR = "jev" lässt Jev die Kategorien bestimmen (Zahlen
+liefern die Regeln), FORMULATE = False spricht nur Vorlagen. Zusammen läuft der Agent ohne LLM.
 Welche Frage als Nächstes kommt, ob der Lead qualifiziert ist, wann Termine angeboten,
 gebucht oder das Gespräch beendet wird, entscheidet der Code. Fällt die Formulierung
 durch die Guardrails oder fällt das LLM aus, wird der Vorlagensatz gesprochen.
@@ -13,6 +15,7 @@ einen Schritt weiter oder beendet es. Das macht kleine Modelle brauchbar und den
 
 Start:  python agent.py --guided           -> Tastatur spielt den Kunden
         python simulate.py --mode guided   -> UAT (Standard)
+        python simulate.py --no-llm        -> Agent ohne LLM: Jev, Regeln und Vorlagen
 """
 import json
 import re
@@ -23,11 +26,14 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 import agent
+import jev
 from agent import AGENT_NAME, Tools, guardrail_check, log
 
 MAX_TURNS = 10          # jeder Turn bringt den Leitfaden weiter, mehr sind nie nötig
 MAX_ASKS = 2            # so oft wird eine unbeantwortete Frage wiederholt
 FORMULATE = True        # False = nur Vorlagensätze (schnellster, vollständig deterministischer Betrieb)
+EXTRACTOR = "llm"       # "jev" = Kategorien von Jev, Zahlen von den Regeln; fällt Jev aus, übernimmt das LLM
+LLM_FALLBACK = True     # False = nie ein LLM aufrufen (zusammen mit EXTRACTOR="jev" und FORMULATE=False)
 
 MUST = ["eigentuemer", "gebaeudetyp"]                   # ohne diese keine Qualifizierung
 SHOULD = ["dachflaeche_m2", "jahresverbrauch_kwh"]       # Soll-Angaben: fehlen sie, wird trotzdem gebucht
@@ -306,6 +312,27 @@ PLAUSIBLE = {
 EXTRACTION_SCHEMA = extraction_schema()
 
 
+def extract_jev(user: str, question: str, offered: list) -> Optional[Antwort]:
+    """Extraktion über Jev. None, wenn Jev nicht antwortet. Die Absicht (Opt-out, keine Zeit,
+    falsche Person) hat Jev vorher schon im Intent-Routing entschieden, hier geht es nur um Fakten."""
+    facts = jev.extract_facts(user, question or "Begrüßung", offered)
+    if facts is None:
+        return None
+    if not offered:
+        facts.pop("termin_wahl", None)
+    return Antwort(**facts)
+
+
+def extract_any(user: str, question: str, offered: list) -> Optional[Antwort]:
+    """Wählt den Extraktor. Jev zuerst, wenn eingestellt und erreichbar; sonst das LLM, sofern erlaubt."""
+    if EXTRACTOR == "jev" and jev.available():
+        antwort = extract_jev(user, question, offered)
+        if antwort is not None:
+            return antwort
+        log("   [EXTRAKTION] Jev ohne Antwort" + (", LLM übernimmt" if LLM_FALLBACK else ""))
+    return extract(user, question, offered) if LLM_FALLBACK else None
+
+
 def extract(user: str, question: str, offered: list) -> Optional[Antwort]:
     """Strukturierte Extraktion aus der Kundenaussage. None, wenn das LLM nicht antwortet."""
     context = f'Der Agent hat gefragt: "{question}"' if question else "Der Agent hat sich vorgestellt."
@@ -536,7 +563,7 @@ def run_guided_call(con, lead_id: int, get_input=None) -> dict:
             flags.append(f"entscheidung_{source}")
         else:
             question = QUESTIONS.get(plan.pending, "") if plan.pending else ""
-            antwort = extract(user, question, [z for _, z in plan.offered])
+            antwort = extract_any(user, question, [z for _, z in plan.offered])
             if antwort is None and parsed:          # Regeln haben verstanden, das Modell nicht
                 antwort = Antwort()
             if antwort is not None:
@@ -552,7 +579,7 @@ def run_guided_call(con, lead_id: int, get_input=None) -> dict:
                 llm_failures += 1
                 flags.append("llm_fehler")
                 if llm_failures >= 2:                         # ohne Extraktion kein Gespräch: sauber beenden
-                    tools.run("update_lead", {"status": "rueckruf", "notiz": "LLM nicht erreichbar"})
+                    tools.run("update_lead", {"status": "rueckruf", "notiz": "Extraktion nicht erreichbar"})
                     tools.ended = "rueckruf_vereinbart"
                     reply = CALLBACK
                     messages.append({"role": "assistant", "content": reply})

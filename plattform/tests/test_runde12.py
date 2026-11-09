@@ -68,7 +68,7 @@ def test_stimmprofil_mit_einwilligung_aktivieren_und_widerrufen(umgebung, stimmd
     konf = c.get("/voice/konfiguration", headers=h).json()
     assert konf["stimme"]["id"] == p["id"] and konf["stimme"]["sprecher"] == "Jonathan Kuhn" and konf["stimme"]["dienst_url"] == "http://stimme"
     assert "nachgebildeten Stimme von Jonathan Kuhn" in konf["begruessung"] and "KI-System" in konf["begruessung"]
-    assert konf["weiterleitung"]["erlaubt"] is False and konf["sprachminuten"] == {"verbraucht": 0.0, "limit": 6000, "erschoepft": False}
+    assert konf["weiterleitung"]["erlaubt"] is False and konf["sprachminuten"] == {"verbraucht": 0.0, "limit": 1000, "erschoepft": False}
 
     # Hörprobe über den Stimmdienst (WAV), Aufnahme abrufbar, Probe für den Dienst nur mit Maschinenschlüssel
     r = c.post(f"/betrieb/stimme/{p['id']}/vorschau", headers=h, json={"text": "Guten Tag. Wie kann ich helfen?"})

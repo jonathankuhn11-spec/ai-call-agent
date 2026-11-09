@@ -108,5 +108,19 @@
     "halluzinationen": 0,
     "tool_fehler": 0,
     "latenz": 4.306966099739075
+  },
+  {
+    "zeit": "2026-10-22 11:34",
+    "label": "ohne LLM",
+    "modus": "guided",
+    "formulierung": false,
+    "modell": "keins",
+    "jev": true,
+    "extraktion": "jev",
+    "gespraeche": 50,
+    "pass_rate": 1.0,
+    "halluzinationen": 0,
+    "tool_fehler": 0,
+    "latenz": 0.7463524489402771
   }
 ]

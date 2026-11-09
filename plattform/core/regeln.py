@@ -26,11 +26,12 @@ SICHERHEIT = [
     (re.compile(r"gas\s?geruch|riech\w*.{0,20}nach gas|nach gas riech", re.I),
      "Bitte verlassen Sie sofort das Gebäude, betätigen Sie keine elektrischen Schalter und rufen Sie "
      "von draußen den Entstörungsdienst Ihres Gasnetzbetreibers oder die 112 an."),
-    (re.compile(r"\bco\b|kohlenmonoxid|abgas.*(warn|melder)", re.I),
+    (re.compile(r"kohlenmonoxid|\bco[\s-]?(warn|melder|alarm)|abgas.*(warn|melder)|\bco\b(?![.\s]*(?:kg|ohg)\b)(?!\.)", re.I),
      "Bitte verlassen Sie sofort die Räume, lüften Sie nur, wenn es gefahrlos möglich ist, und rufen Sie die 112 an."),
 ]
 NOTDIENST = re.compile(r"rohrbruch|wasser (läuft|tritt) aus|überschwemm|steht unter wasser", re.I)
-AUSFALL = re.compile(r"(heizung|therme|kessel|wärmepumpe).{0,30}(aus|kalt|geht nicht|defekt|störung)|kein warm(es )?wasser|kalt in der wohnung", re.I)
+# „aus\b“ statt „aus“: „Heizung austauschen“ (Angebotswunsch) ist kein Ausfall
+AUSFALL = re.compile(r"(heizung|therme|kessel|wärmepumpe).{0,30}(aus\b|ausgefallen|kalt|geht nicht|funktioniert nicht|defekt|störung)|kein warm(es )?wasser|kalt in der wohnung", re.I)
 
 
 def telefon_normalisieren(nummer: str | None) -> str | None:

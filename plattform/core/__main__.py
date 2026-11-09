@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -82,6 +83,11 @@ def main() -> None:
     liz_p = liz_u.add_parser("pruefen")
     liz_p.add_argument("schluessel")
     liz_p.add_argument("--mandant", default="*")
+    wc = unter.add_parser("website-check", help="Website eines Interessenten gegen P1–P10 prüfen (Vertrieb)")
+    wc.add_argument("url", nargs="?")
+    wc.add_argument("--datei", help="Textdatei mit einer Adresse je Zeile")
+    wc.add_argument("--csv", help="Ergebnis als CSV schreiben (mit --datei)")
+    wc.add_argument("--json", action="store_true", help="vollständiges Ergebnis als JSON")
     unter.add_parser("version")
     imp = unter.add_parser("import-kunden", help="Kunden aus CSV importieren (Spalten werden erkannt; Kennzeichen legt Fahrzeuge an)")
     imp.add_argument("datei", type=Path)
@@ -140,6 +146,32 @@ def main() -> None:
             print(json.dumps({"mandant": m.id, "name": m.name, "branche": st["branche"], "mitarbeiter_angelegt": ergebnis["mitarbeiter_angelegt"],
                               "sachmittel_angelegt": ergebnis["sachmittel_angelegt"], "fortschritt": st["fortschritt"],
                               "naechste_schritte": [x["titel"] for x in st["naechste"]]}, ensure_ascii=False, indent=2), flush=True)
+    elif args.befehl == "website-check":
+        import csv
+        from core import webcheck
+        adressen = [args.url] if args.url else []
+        if args.datei:
+            adressen += [z.strip() for z in open(args.datei, encoding="utf-8") if z.strip() and not z.startswith("#")]
+        if not adressen:
+            sys.exit("Adresse oder --datei angeben")
+        zeilen = []
+        for adresse in adressen:
+            try:
+                e = webcheck.pruefen(adresse)
+            except webcheck.Fehler as f:
+                e = {"url": adresse, "probleme": [], "befunde": [], "bedarf_score": None, "zusammenfassung": f"nicht geprüft: {f}", "geprueft_am": ""}
+            zeilen.append(e)
+            if not args.csv:
+                print(json.dumps(e, ensure_ascii=False, indent=2) if args.json else webcheck.bericht_text(e) if e.get("geprueft_am") else f"{adresse}: {e['zusammenfassung']}")
+                print()
+        if args.csv:
+            with open(args.csv, "w", newline="", encoding="utf-8-sig") as f:
+                w = csv.writer(f, delimiter=";")
+                w.writerow(["url", "bedarf_score", "probleme", "cms", "befunde", "loesungen"])
+                for e in zeilen:
+                    w.writerow([e["url"], e.get("bedarf_score"), ", ".join(e["probleme"]), e.get("cms") or "", " | ".join(f"{b['code']}: {b['titel']}" for b in e["befunde"]),
+                                " | ".join(f"{c}: {v}" for c, v in (e.get("loesungen") or {}).items())])
+            print(f"{len(zeilen)} Adressen geprüft → {args.csv}")
     elif args.befehl == "version":
         from core.produkt import __version__
         print(__version__)

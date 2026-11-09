@@ -107,6 +107,81 @@ REPLY_QUESTIONS = {
 }
 
 
+# Extraktion im geführten Modus. Jev liefert Kategorien und Wahrscheinlichkeiten, keine Zahlen
+# aus dem Text: Dachfläche und Verbrauch bleiben bei den Regeln in guided.parse_number.
+EXTRACTION_THRESHOLD = 0.70
+
+EXTRACTION_QUESTIONS = {
+    "eigentuemer": {
+        "type": "choice",
+        "instructions": ("Ein Vertriebsagent fragt am Telefon zu einer Solaranlage, `letzte_agentenfrage` war die "
+                         "Frage. Sagt die Person mit `kundenaussage`, ob ihr die Immobilie gehört?"),
+        "criteria": {
+            "ja": "Die Person ist Eigentümer oder das Haus gehört ihr bzw. der Familie",
+            "nein": "Die Person wohnt zur Miete, pachtet oder das Haus gehört jemand anderem",
+            "unbekannt": "Die Aussage sagt nichts über Eigentum, auch ein bloßes 'Hallo' oder Rückfragen",
+        },
+    },
+    "gebaeudetyp": {
+        "type": "choice",
+        "instructions": "Welches Gebäude beschreibt die Person in `kundenaussage`?",
+        "criteria": {
+            "einfamilienhaus": "Freistehendes Einfamilienhaus, Bungalow, Villa",
+            "doppelhaushaelfte": "Doppelhaushälfte",
+            "reihenhaus": "Reihenhaus, Reihenend- oder Reihenmittelhaus",
+            "mehrfamilienhaus": "Mehrfamilienhaus, Wohnung, Eigentumswohnung, Haus mit mehreren Parteien",
+            "gewerbe": "Gewerbeimmobilie, Halle, Betrieb, Büro",
+            "unbekannt": "Die Aussage nennt kein Gebäude",
+        },
+    },
+    "weiss_nicht": {
+        "type": "noul",
+        "instructions": "Sagt die Person in `kundenaussage`, dass sie die Antwort auf `letzte_agentenfrage` nicht kennt?",
+    },
+    "fragt_nach_preis": {
+        "type": "noul",
+        "instructions": "Fragt die Person in `kundenaussage` nach Preis, Kosten, Förderung oder Rendite?",
+    },
+}
+
+TERMIN_QUESTION = {
+    "type": "choice",
+    "instructions": ("Der Agent hat zwei Beratungstermine angeboten, `termin_1` und `termin_2`. "
+                     "Welchen wählt die Person mit `kundenaussage`?"),
+    "criteria": {
+        "erster": "Den ersten Termin, oder sie sagt allgemein zu, ohne einen bestimmten zu nennen",
+        "zweiter": "Den zweiten Termin",
+        "keiner": "Keiner der beiden passt",
+        "unbekannt": "Die Aussage wählt nichts, etwa eine Rückfrage",
+    },
+}
+
+
+def extract_facts(kundenaussage: str, letzte_agentenfrage: str, termine: list):
+    """Kategoriale Fakten als dict für guided.Antwort oder None, wenn Jev nicht antwortet.
+
+    Unsichere Urteile unter der Schwelle werden 'unbekannt' bzw. False: Der Leitfaden fragt dann
+    lieber noch einmal nach, als einen Lead auf einen schwachen Hinweis hin zu disqualifizieren.
+    """
+    state = {"kundenaussage": kundenaussage, "letzte_agentenfrage": letzte_agentenfrage}
+    if termine:                     # Terminphase: Qualifizierung ist abgeschlossen, nur die Wahl zählt
+        state.update({f"termin_{i + 1}": z for i, z in enumerate(termine[:2])})
+        questions = {"termin_wahl": TERMIN_QUESTION,
+                     "fragt_nach_preis": EXTRACTION_QUESTIONS["fragt_nach_preis"]}
+    else:
+        questions = dict(EXTRACTION_QUESTIONS)
+    answers = ask(state, questions)
+    if not answers:
+        return None
+    out = {}
+    for key, a in answers.items():
+        if "choice" in a:
+            out[key] = a["choice"] if a.get("confidence", 0.0) >= EXTRACTION_THRESHOLD else "unbekannt"
+        elif "noul" in a:
+            out[key] = a["noul"] >= EXTRACTION_THRESHOLD
+    return out
+
+
 def classify_intent(kundenaussage: str, letzte_agentenfrage: str):
     """-> (label, confidence) oder None, wenn Jev nicht verfügbar oder unsicher."""
     answers = ask({"kundenaussage": kundenaussage, "letzte_agentenfrage": letzte_agentenfrage},

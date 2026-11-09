@@ -629,6 +629,7 @@ if __name__ == "__main__":
     ap.add_argument("--kpis", action="store_true")
     ap.add_argument("--model", help="Ollama-Modell, Standard: " + MODEL)
     ap.add_argument("--guided", action="store_true", help="geführter Modus: Leitfaden im Code (guided.py)")
+    ap.add_argument("--no-llm", action="store_true", help="geführt ohne LLM: Jev-Extraktion und Vorlagensätze")
     a = ap.parse_args()
     if a.model:
         MODEL = a.model
@@ -639,8 +640,12 @@ if __name__ == "__main__":
         lid = a.lead or (con.execute("SELECT MIN(id) FROM leads WHERE status = 'offen'").fetchone()[0])
         if lid is None:
             print("Keine offenen Leads. Mit --reset neu aufsetzen.")
-        elif a.guided:
+        elif a.guided or a.no_llm:
             import guided
+            if a.no_llm:
+                if not jev.available():
+                    ap.error("--no-llm braucht TYPESAFE_API_KEY in .env")
+                guided.EXTRACTOR, guided.FORMULATE, guided.LLM_FALLBACK = "jev", False, False
             guided.run_guided_call(con, lid)
         else:
             run_call(con, lid)

@@ -8,6 +8,7 @@ Jeder Endpunkt verlangt ein Recht (lesen, status, bearbeiten, freigeben, verwalt
 from __future__ import annotations
 
 import base64
+import hashlib
 import html
 import os
 import time
@@ -37,7 +38,7 @@ from fastapi.responses import (
     RedirectResponse,
 )
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from schwifty import IBAN
 from schwifty.exceptions import SchwiftyException
 from sqlalchemy import or_, select
@@ -55,6 +56,9 @@ from core import (
     dubletten,
     einrichtung,
     einsatz,
+    karriere,
+    rufumleitung,
+    webcheck,
     export,
     feiertage,
     foerderung,
@@ -119,6 +123,7 @@ from core.modelle import (
     Anhang,
     Anlage,
     Artikel,
+    Bewerbung,
     Bauteil,
     Beleg,
     Bereitschaft,
@@ -467,6 +472,7 @@ class VoiceZeitfenster(_Schema):
 
 
 class VoiceServicefall(_Schema):
+    """Felder kommen vom Sprachmodell: zu lange Werte werden gekürzt statt abgewiesen, damit kein Anruf verloren geht."""
     telefon: str
     name: str
     strasse: str | None = None
@@ -476,6 +482,14 @@ class VoiceServicefall(_Schema):
     symptom: str | None = None
     anlagentyp: str | None = None
     hersteller: str | None = None
+
+    @model_validator(mode="after")
+    def _kuerzen(self):
+        for feld, n in (("telefon", 32), ("name", 200), ("strasse", 200), ("plz", 10), ("ort", 100), ("anlagentyp", 50), ("hersteller", 100), ("anliegen", 2000)):
+            wert = getattr(self, feld)
+            if isinstance(wert, str) and len(wert) > n:
+                setattr(self, feld, wert[:n])
+        return self
     dringlichkeit: Dringlichkeit | None = None
     ressource_id: str | None = Field(None, description="aus voice/zeitfenster, wenn der Anrufer ein Fenster gewählt hat")
     beginn: datetime | None = None
@@ -653,15 +667,15 @@ class GutscheinEinloesen(_Schema):
 
 
 class BuchungNeu(_Schema):
-    leistung_id: str
-    ressource_id: str
+    leistung_id: str = Field(..., max_length=32)
+    ressource_id: str = Field(..., max_length=32)
     beginn: datetime
     name: str = Field(..., min_length=2, max_length=200)
-    telefon: str | None = None
-    email: str | None = None
-    strasse: str | None = None
-    plz: str | None = None
-    ort: str | None = None
+    telefon: str | None = Field(None, max_length=32)
+    email: str | None = Field(None, max_length=200)
+    strasse: str | None = Field(None, max_length=200)
+    plz: str | None = Field(None, max_length=10)
+    ort: str | None = Field(None, max_length=100)
     hinweis: str | None = Field(None, max_length=500)
     einwilligung_email: bool = False
     website: str | None = None  # Honeypot
@@ -711,6 +725,22 @@ class WebsiteEinstellungen(_Schema):
     bewertungen_min_sterne: int | None = Field(None, ge=1, le=5)
     leistungen_text: dict[str, str] | None = None
     faq: list[dict[str, str]] | None = None
+    stellen: list[dict[str, Any]] | None = Field(None, max_length=20)
+
+
+class RufumleitungEinstellen(_Schema):
+    ziel: str | None = Field(None, max_length=40)
+    eingerichtet: bool | None = None
+
+
+class WebsiteCheckAnfrage(_Schema):
+    url: str = Field(..., min_length=4, max_length=500)
+
+
+class BewerbungAendern(_Schema):
+    status: Literal["neu", "in_pruefung", "gespraech", "zusage", "eingestellt", "absage", "zurueckgezogen"] | None = None
+    notiz: str | None = Field(None, max_length=3000)
+    talentpool: Literal[False] | None = None
 
 
 class BewertungVeroeffentlichen(_Schema):
@@ -2643,12 +2673,20 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
                                                       quelle="telefon"), "ki")
         antwort: dict[str, Any] = {"servicefall_id": f.id, "dringlichkeit": f.dringlichkeit, "termin": None}
         if daten.ressource_id and daten.beginn:
-            t, freigabe = fachlich(lambda: termin_vorschlagen(s, m, f, TerminNeu(ressource_id=daten.ressource_id,
-                                                                                 beginn=daten.beginn), "ki"))
-            antwort["termin"] = {"termin_id": t.id, "beginn": t.beginn.isoformat(),
-                                 "verbindlich": freigabe.status == "freigegeben",
-                                 "hinweis": None if freigabe.status == "freigegeben"
-                                 else "Termin ist vorgemerkt; das Büro bestätigt ihn per SMS oder Rückruf."}
+            # Ist das Fenster inzwischen belegt (oder nennt das Sprachmodell eine nicht angebotene Zeit), bleibt der Vorgang
+            # trotzdem erhalten: Savepoint statt Abbruch der ganzen Transaktion, sonst ginge das Anliegen des Anrufers verloren.
+            try:
+                with s.begin_nested():
+                    t, freigabe = termin_vorschlagen(s, m, f, TerminNeu(ressource_id=daten.ressource_id, beginn=daten.beginn), "ki")
+                antwort["termin"] = {"termin_id": t.id, "beginn": t.beginn.isoformat(),
+                                     "verbindlich": freigabe.status == "freigegeben",
+                                     "hinweis": None if freigabe.status == "freigegeben"
+                                     else "Termin ist vorgemerkt; das Büro bestätigt ihn per SMS oder Rückruf."}
+            except (domaene.Domaenenfehler, ValueError, HTTPException) as e:
+                grund = str(getattr(e, "detail", None) or e)[:200]
+                domaene.protokollieren(s, m.id, "termin.nicht_moeglich", "servicefall", f.id, "ki", {"grund": grund, "beginn": daten.beginn.isoformat()})
+                antwort["termin_fehler"] = grund
+                antwort["hinweis"] = "Der gewünschte Termin ist nicht mehr frei. Das Anliegen ist aufgenommen; bitte eine andere Zeit anbieten oder Rückruf durch das Büro zusagen."
         s.commit()
         return antwort
 
@@ -2987,7 +3025,9 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         felder = {k: (str(v).strip() if v is not None else None) for k, v in felder.items()}
         if felder.get("website"):  # Honeypot: Bots füllen das unsichtbare Feld
             return {"status": "angenommen"}
-        kennung = felder.get("kennung") or f"web:{abs(hash((felder.get('telefon'), felder.get('email'), felder.get('nachricht'), app.state.uhr().strftime('%Y%m%d%H%M'))))}"
+        # deterministisch (sha256 statt hash(), der je Prozess zufällig gesalzen ist): Doppelabsendungen bleiben über Worker hinweg idempotent
+        kennung = (felder.get("kennung") or "")[:200] or "web:" + hashlib.sha256(
+            f"{m.id}|{felder.get('telefon')}|{felder.get('email')}|{felder.get('nachricht')}|{app.state.uhr().strftime('%Y%m%d%H%M')}".encode()).hexdigest()[:24]
         if not (felder.get("telefon") or felder.get("email")):
             raise HTTPException(422, "Telefon oder E-Mail wird benötigt")
         anfragen.anfrage_verarbeiten(s, m, "web", kennung, felder.get("name"), felder.get("telefon"), felder.get("email"), felder.get("betreff"),
@@ -3188,6 +3228,8 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
             raise HTTPException(409, "Es gibt bereits einen bestätigten Termin; bitte zuerst absagen oder anrufen.")
         if als_utc(daten.beginn) < als_utc(app.state.uhr()):
             raise HTTPException(422, "Der Termin liegt in der Vergangenheit")
+        if (grund := portal.wunsch_pruefen(s, m, f, daten.beginn, daten.ressource_id, app.state.uhr())) is not None:
+            raise HTTPException(409, grund)
         t, _ = fachlich(lambda: termin_vorschlagen(s, m, f, TerminNeu(ressource_id=daten.ressource_id, beginn=daten.beginn, sachmittel_id=daten.sachmittel_id), "mensch"))
         ergebnis = portal.alternative_gewaehlt(s, m, f, t, app.state.uhr())
         s.commit()
@@ -3276,7 +3318,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     @app.put("/betrieb/website", dependencies=[Depends(recht("verwalten")), Depends(feature("website"))])
     def website_einstellen(daten: WebsiteEinstellungen, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
         werte = daten.model_dump(exclude_unset=True)
-        k = fachlich(lambda: website.speichern(s, m, werte))
+        k = fachlich(lambda: website.speichern(s, m, werte, app.state.uhr().date()))
         domaene.protokollieren(s, m.id, "website.geaendert", "mandant", m.id, "mensch", {n: k.get(n) for n in ("aktiv", "slug", "domain") if n in werte}, p.name)
         s.commit()
         domain_cache.clear()
@@ -3306,7 +3348,9 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
     @app.get("/web/{slug}", include_in_schema=False, response_class=HTMLResponse)
     def website_start(slug: str, gesendet: int = 0, vorschau: int = 0, s: Session = Depends(system_sitzung)) -> HTMLResponse:
         m = website_mandant(s, slug, bool(vorschau))
-        return HTMLResponse(website.startseite(s, m, bool(gesendet), bool(vorschau)), headers={"Cache-Control": "public, max-age=300"} if not vorschau else {})
+        privat = bool(vorschau or gesendet)   # Bestätigungsseiten nicht in geteilten Caches ablegen
+        return HTMLResponse(website.startseite(s, m, min(max(gesendet, 0), 2), bool(vorschau), heute=app.state.uhr().date()),
+                            headers={"Cache-Control": "private, no-store" if privat else "public, max-age=300"})
 
     @app.get("/web/{slug}/impressum", include_in_schema=False, response_class=HTMLResponse)
     def website_impressum(slug: str, s: Session = Depends(system_sitzung)) -> HTMLResponse:
@@ -3318,7 +3362,7 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
 
     @app.get("/web/{slug}/sitemap.xml", include_in_schema=False)
     def website_sitemap(slug: str, s: Session = Depends(system_sitzung)) -> Response:
-        return Response(website.sitemap(website_mandant(s, slug)), media_type="application/xml")
+        return Response(website.sitemap(website_mandant(s, slug), app.state.uhr().date()), media_type="application/xml")
 
     @app.get("/web/{slug}/robots.txt", include_in_schema=False)
     def website_robots(slug: str, s: Session = Depends(system_sitzung)) -> Response:
@@ -3326,28 +3370,148 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
 
     website_zaehler: dict[str, list[float]] = {}
 
+    def drosseln(schluessel: str, grenze: int, request: Request | None = None, je_adresse: int | None = None) -> None:
+        """Gleitendes Stundenfenster je Betrieb und – mit `request` – je Absenderadresse. Ohne die Adressgrenze könnte ein
+        einzelner Bot das Kontingent des Betriebs aufbrauchen und echte Kundenanfragen blockieren."""
+        jetzt = time.monotonic()
+        if len(website_zaehler) > 20000:   # Speicher begrenzen: abgelaufene Schlüssel entfernen
+            for k in [k for k, v in website_zaehler.items() if not v or jetzt - v[-1] >= 3600]:
+                website_zaehler.pop(k, None)
+        pruefen = [(schluessel, grenze)]
+        if request is not None and je_adresse and request.client:
+            pruefen.insert(0, (f"{schluessel}|{request.client.host}", je_adresse))
+        for k, g in pruefen:
+            if len([x for x in website_zaehler.get(k, []) if jetzt - x < 3600]) >= g:
+                raise HTTPException(429, "Zu viele Anfragen, bitte rufen Sie uns an")
+        for k, _ in pruefen:
+            website_zaehler[k] = [x for x in website_zaehler.get(k, []) if jetzt - x < 3600] + [jetzt]
+
+    async def formular_lesen(request: Request, dateifeld: str, max_dateien: int, max_bytes: int) -> tuple[dict[str, str], list[tuple[str, bytes]]]:
+        """Formularfelder als Text und Dateien als (Name, Inhalt); liest höchstens max_dateien + 1 Dateien zu je max_bytes + 1 Byte."""
+        roh = await request.form(max_files=max_dateien + 2, max_fields=40)
+        felder = {k: str(v) for k, v in roh.items() if isinstance(v, str)}
+        dateien = []
+        for v in roh.getlist(dateifeld)[:max_dateien + 1]:
+            if hasattr(v, "read"):
+                inhalt = await v.read(max_bytes + 1)
+                if inhalt:
+                    dateien.append(((v.filename or "datei")[:200], inhalt))
+        return felder, dateien
+
+    def website_ziel(request: Request, m: Mandant, slug: str) -> str:
+        return "" if website.konfig(m).get("domain") and request.headers.get("host", "").split(":")[0] != "localhost" and "/web/" not in str(request.headers.get("referer", "/web/")) else f"/web/{slug}"
+
     @app.post("/web/{slug}/anfrage", include_in_schema=False)
     async def website_anfrage(slug: str, request: Request, s: Session = Depends(system_sitzung)):
-        """Kontaktformular ohne JavaScript: Honeypot, 30 Anfragen je Stunde und Betrieb, danach Umleitung mit Bestätigung."""
+        """Kontaktformular ohne JavaScript: Honeypot, 10 Anfragen je Stunde und Absender, 120 je Betrieb, bis zu drei Fotos, Notfall-Kennzeichnung;
+        danach Umleitung mit Bestätigung (gesendet=2 zeigt bei Notfällen zusätzlich die Notdienstnummer)."""
         m = website_mandant(s, slug)
-        form = {k: str(v) for k, v in (await request.form()).items()}
-        jetzt = time.monotonic()
-        fenster = [x for x in website_zaehler.get(slug, []) if jetzt - x < 3600]
-        if len(fenster) >= 30:
-            raise HTTPException(429, "Zu viele Anfragen, bitte rufen Sie uns an")
-        website_zaehler[slug] = fenster + [jetzt]
-        ziel = "/" if website.konfig(m).get("domain") and request.headers.get("host", "").split(":")[0] != "localhost" and "/web/" not in str(request.headers.get("referer", "/web/")) else f"/web/{slug}"
+        drosseln(slug, 120, request, 10)
+        form, fotos = await formular_lesen(request, "fotos", website.MAX_FOTOS, website.MAX_FOTO)
+        ziel = website_ziel(request, m, slug) or "/"
         try:
-            website.anfrage(s, m, form, app.state.uhr())
+            ergebnis = website.anfrage(s, m, form, app.state.uhr(), fotos)
         except ValueError as e:
             if "json" in (request.headers.get("accept") or ""):
                 raise HTTPException(422, str(e)) from e
             s.rollback()
-            return HTMLResponse(website.startseite(s, m, False, False, str(e)), status_code=422)
+            return HTMLResponse(website.startseite(s, m, False, False, str(e), heute=app.state.uhr().date()), status_code=422)
+        s.commit()
+        if "json" in (request.headers.get("accept") or ""):
+            return {"status": "angenommen", "notdienst": ergebnis.get("notdienst", False), "fotos": ergebnis.get("fotos", 0)}
+        return RedirectResponse(f"{ziel}?gesendet={2 if ergebnis.get('notdienst') else 1}#kontakt", status_code=303)
+
+    # --- Karriereseite und Bewerbungen (core.karriere) ---------------------------------------------
+    @app.get("/web/{slug}/karriere", include_in_schema=False, response_class=HTMLResponse)
+    def website_karriere(slug: str, gesendet: int = 0, vorschau: int = 0, s: Session = Depends(system_sitzung)) -> HTMLResponse:
+        m = website_mandant(s, slug, bool(vorschau))
+        if not website.konfig(m)["bereiche"].get("karriere", True):
+            raise HTTPException(404, "Seite nicht gefunden")
+        return HTMLResponse(website.karriere_seite(s, m, app.state.uhr().date(), bool(gesendet)),
+                            headers={"Cache-Control": "private, no-store" if (gesendet or vorschau) else "public, max-age=300"})
+
+    @app.get("/web/{slug}/karriere/{stelle_id}", include_in_schema=False, response_class=HTMLResponse)
+    def website_stelle(slug: str, stelle_id: str, vorschau: int = 0, s: Session = Depends(system_sitzung)) -> HTMLResponse:
+        m = website_mandant(s, slug, bool(vorschau))
+        seite = website.stelle_seite(s, m, stelle_id, app.state.uhr().date()) if website.konfig(m)["bereiche"].get("karriere", True) else None
+        if seite is None:
+            raise HTTPException(404, "Diese Stelle ist nicht mehr ausgeschrieben")
+        return HTMLResponse(seite, headers={"Cache-Control": "public, max-age=300"} if not vorschau else {})
+
+    @app.post("/web/{slug}/karriere/bewerbung", include_in_schema=False)
+    async def website_bewerbung(slug: str, request: Request, s: Session = Depends(system_sitzung)):
+        """Kurzbewerbung: Honeypot, 10 Bewerbungen je Stunde und Absender, 60 je Betrieb, bis zu drei Unterlagen (PDF/JPEG/PNG, Signaturprüfung)."""
+        m = website_mandant(s, slug)
+        if not website.konfig(m)["bereiche"].get("karriere", True):
+            raise HTTPException(404, "Seite nicht gefunden")
+        drosseln(f"bewerbung:{slug}", 60, request, 10)
+        form, dateien = await formular_lesen(request, "unterlagen", karriere.MAX_UNTERLAGEN, karriere.MAX_DATEI)
+        ziel = website_ziel(request, m, slug)
+        try:
+            karriere.bewerbung_annehmen(s, m, form, dateien, app.state.uhr())
+        except ValueError as e:
+            s.rollback()
+            if "json" in (request.headers.get("accept") or ""):
+                raise HTTPException(422, str(e)) from e
+            heute_ = app.state.uhr().date()
+            sid = form.get("stelle_id")
+            seite = (website.stelle_seite(s, m, sid, heute_, str(e)) if sid else None) or website.karriere_seite(s, m, heute_, False, str(e))
+            return HTMLResponse(seite, status_code=422)
         s.commit()
         if "json" in (request.headers.get("accept") or ""):
             return {"status": "angenommen"}
-        return RedirectResponse(f"{ziel}?gesendet=1#kontakt", status_code=303)
+        return RedirectResponse(f"{ziel}/karriere?gesendet=1", status_code=303)
+
+    @app.get("/bewerbungen", dependencies=[Depends(recht("bearbeiten"))])
+    def bewerbungen_listen(status: str | None = None, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> list[dict[str, Any]]:
+        return karriere.liste(s, m, status)
+
+    @app.patch("/bewerbungen/{bewerbung_id}", dependencies=[Depends(recht("bearbeiten"))])
+    def bewerbung_aendern(bewerbung_id: str, daten: BewerbungAendern, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                          p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        b = holen(s, Bewerbung, bewerbung_id, m)
+        fachlich(lambda: karriere.aendern(s, m, b, daten.model_dump(exclude_unset=True), app.state.uhr(), p.name))
+        s.commit()
+        return karriere.als_dict(s, b)
+
+    @app.delete("/bewerbungen/{bewerbung_id}", status_code=204, dependencies=[Depends(recht("bearbeiten"))])
+    def bewerbung_loeschen(bewerbung_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung), p: Prinzipal = Depends(prinzipal)):
+        b = holen(s, Bewerbung, bewerbung_id, m)
+        domaene.protokollieren(s, m.id, "loeschung.bewerbung", "bewerbung", b.id, "mensch", {"stelle": b.stelle_titel}, p.name)
+        karriere.loeschen(s, b)
+        s.commit()
+        return Response(status_code=204)
+
+    @app.get("/bewerbungen/{bewerbung_id}/unterlagen/{anhang_id}", dependencies=[Depends(recht("bearbeiten"))])
+    def bewerbung_unterlage(bewerbung_id: str, anhang_id: str, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung)) -> Response:
+        a = holen(s, Anhang, anhang_id, m)
+        if a.bezug_typ != "bewerbung" or a.bezug_id != bewerbung_id:
+            raise HTTPException(404, "Unterlage nicht gefunden")
+        name = a.name.replace('"', "").replace("\r", "").replace("\n", "")
+        return Response(a.inhalt, media_type=a.mime, headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "private, no-store",
+                                                             "X-Content-Type-Options": "nosniff"})
+
+    # --- Rufumleitung auf den Telefonassistenten (core.rufumleitung, P7) -----------------------------
+    @app.get("/betrieb/rufumleitung", dependencies=[Depends(recht("verwalten"))])
+    def rufumleitung_anleitung(sekunden: int = 20, ziel: str | None = None, m: Mandant = Depends(mandant_kontext)) -> dict[str, Any]:
+        return rufumleitung.anleitung(m, sekunden, ziel)
+
+    @app.put("/betrieb/rufumleitung", dependencies=[Depends(recht("verwalten"))])
+    def rufumleitung_speichern(daten: RufumleitungEinstellen, m: Mandant = Depends(mandant_kontext), s: Session = Depends(sitzung),
+                               p: Prinzipal = Depends(prinzipal)) -> dict[str, Any]:
+        ergebnis = fachlich(lambda: rufumleitung.speichern(m, daten.ziel, daten.eingerichtet))
+        domaene.protokollieren(s, m.id, "rufumleitung.geaendert", "mandant", m.id, "mensch", {"ziel": ergebnis["ziel"], "eingerichtet": ergebnis["eingerichtet"]}, p.name)
+        s.commit()
+        return ergebnis
+
+    # --- Website-Check für die Akquise (core.webcheck; nur Betreiber) -------------------------------
+    @app.post("/betreiber/website-check", dependencies=[Depends(recht("plattform"))])
+    def betreiber_website_check(daten: WebsiteCheckAnfrage) -> dict[str, Any]:
+        try:
+            e = webcheck.pruefen(daten.url, getattr(app.state, "webcheck_transport", None), heute())
+        except webcheck.Fehler as f:
+            raise HTTPException(422, str(f)) from f
+        return {**e, "bericht": webcheck.bericht_text(e)}
 
     # --- Upsell -----------------------------------------------------------------------------------
     @app.get("/kunden/{kunde_id}/empfehlungen", dependencies=[Depends(recht("bearbeiten"))])
@@ -3673,8 +3837,8 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         if not (daten.telefon or daten.email):
             raise HTTPException(422, "Rufnummer oder E-Mail wird benötigt")
         le = fachlich(lambda: buchung.leistung_laden(s, m, daten.leistung_id))
-        if als_utc(daten.beginn) < als_utc(app.state.uhr()) + timedelta(hours=int(m.stammdaten.get("buchung_vorlauf_stunden", 2) or 2)):
-            raise HTTPException(409, "Zeit liegt zu kurzfristig oder in der Vergangenheit")
+        if (grund := buchung.buchbar(s, m, le, daten.beginn, daten.ressource_id, app.state.uhr())) is not None:
+            raise HTTPException(409, grund)
         k, neu = buchung.kunde_finden_oder_anlegen(s, m, daten.name, daten.telefon, daten.email, daten.strasse, daten.plz, daten.ort, daten.einwilligung_email)
         if neu:
             domaene.protokollieren(s, m.id, "kunde.angelegt", "kunde", k.id, "system", {"quelle": "buchung"})

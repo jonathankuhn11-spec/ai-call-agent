@@ -142,7 +142,7 @@ $("#abmelden").addEventListener("click", () => abmelden());
 const ANSICHTEN = { einrichtung: einrichtungAnsicht, cockpit, anruf, freigaben, vorgaenge, plantafel, kunden, wartung, ontologie, rechnungen, protokoll, einstellungen,
   einsatz: einsatzAnsicht, belege: belegeAnsicht, zeiten: zeitenAnsicht, betrieb: betriebAnsicht, angebote: angeboteAnsicht,
   forderungen: forderungenAnsicht, vertraege: vertraegeAnsicht, anfragen: anfragenAnsicht, auswertungen: auswertungenAnsicht, lager: lagerAnsicht, gutscheine: gutscheineAnsicht,
-  warteliste: wartelisteAnsicht, dienstplan: dienstplanAnsicht, website: websiteAnsicht, upsell: upsellAnsicht, integrationen: integrationenAnsicht, betreiber: betreiberAnsicht };
+  warteliste: wartelisteAnsicht, dienstplan: dienstplanAnsicht, website: websiteAnsicht, bewerbungen: bewerbungenAnsicht, upsell: upsellAnsicht, integrationen: integrationenAnsicht, betreiber: betreiberAnsicht };
 async function zeigen() {
   if (!speicher("mandant")) return anmelden();
   $("#mandant-name").textContent = speicher("mandantName") || "";
@@ -1012,7 +1012,7 @@ async function stimmeErgaenzen(ziel) {
 }
 
 // --- Produkt: Edition und Lizenz, Textvorlagen (Einstellungen) ---------------------------------------------
-const QUELLE_TEXT = { lizenz: "per Lizenzschlüssel", betreiber: "vom Betreiber zugewiesen", testphase: "Testphase", starter: "ohne Lizenz (Starter)" };
+const QUELLE_TEXT = { lizenz: "per Lizenzschlüssel", betreiber: "vom Betreiber zugewiesen", testphase: "Testphase", starter: "ohne Lizenz (Basis)" };
 async function produktErgaenzen(ziel) {
   const [liz, vorl] = await Promise.all([api("/betrieb/lizenz"), api("/betrieb/vorlagen")]);
   const teil = document.createElement("div");
@@ -1966,7 +1966,9 @@ async function einrichtungAnsicht(ziel) {
         ${BRANCHE?.online_buchung !== false ? `<label><span><input type="checkbox" name="online_buchung" ${sd.buchung_token ? "checked disabled" : ""}> Online-Buchung aktivieren</span></label>` : ""}</div>
       <div class="aktionen" style="margin-top:12px"><button type="submit">Speichern und weiter</button></div></form>
     <div class="karte" style="margin-bottom:16px"><h2>Kunden aus der bisherigen Software übernehmen</h2><p class="unterzeile">CSV-Export (Excel: „Speichern unter → CSV“). Spalten wie Name, Vorname/Nachname, Telefon, E-Mail, Straße, PLZ, Ort werden erkannt${BRANCHE?.anlagentypen?.includes("fahrzeug") ? "; eine Spalte „Kennzeichen“ (mit Marke, Modell, HU bis, Kilometerstand) legt je Kunde das Fahrzeug an" : ""}. Dubletten (Rufnummer, E-Mail) werden übersprungen.</p>
-      <form id="ei" class="zeile"><input type="file" name="datei" accept=".csv,text/csv,.txt" required><button type="button" class="leise" id="ei-pruefen">Prüfen</button><button type="submit">Importieren</button></form><div id="ei-ergebnis"></div></div>`;
+      <form id="ei" class="zeile"><input type="file" name="datei" accept=".csv,text/csv,.txt" required><button type="button" class="leise" id="ei-pruefen">Prüfen</button><button type="submit">Importieren</button></form><div id="ei-ergebnis"></div></div>
+    <div class="karte" id="rufumleitung"></div>`;
+  rufumleitungKarte($("#rufumleitung", ziel));
   $("#ea").addEventListener("submit", async (ev) => {
     ev.preventDefault(); const fd = new FormData(ev.target); const stammdaten = {};
     for (const k of ["strasse", "plz", "ort", "telefon", "email", "iban", "basis_url", "impressum_url", "datenschutz_url"]) if (fd.get(k)) stammdaten[k] = fd.get(k);
@@ -1994,8 +1996,68 @@ async function einrichtungAnsicht(ziel) {
   $("#ei").addEventListener("submit", (ev) => { ev.preventDefault(); importieren(false); });
 }
 
+// --- Runde 13: Rufumleitung auf den Telefonassistenten (P7) ------------------------------------
+async function rufumleitungKarte(box, sekunden = 20) {
+  let r; try { r = await api(`/betrieb/rufumleitung?sekunden=${sekunden}`); } catch (e) { box.innerHTML = `<p class="fehler">${esc(e.message)}</p>`; return; }
+  const code = (c) => `<a class="knopf leise" href="${esc(c.tel)}"><code>${esc(c.code)}</code></a>`;
+  box.innerHTML = `<h2>Rufumleitung auf den Telefonassistenten ${r.eingerichtet ? tag("eingerichtet", "aktuell") : tag("offen", "offen")}</h2>
+    <p class="unterzeile">Die bisherige Nummer bleibt – auch eine Handynummer. Sie nehmen selbst ab, wenn Sie können; nach ${esc(r.sekunden)} Sekunden, bei Besetzt oder ohne Netz übernimmt der Telefonassistent.${r.hauptnummer_mobil ? " Ihre Hauptnummer ist eine Mobilnummer." : ""}</p>
+    <form id="ru" class="zeile"><label>Nummer des Telefonassistenten <input name="ziel" type="tel" value="${esc(r.ziel || "")}" placeholder="z. B. 0221 2223330"></label>
+      <label>Nach Sekunden <select name="sekunden">${[5, 10, 15, 20, 25, 30].map((s) => `<option ${s === r.sekunden ? "selected" : ""}>${s}</option>`).join("")}</select></label><button type="submit">Übernehmen</button></form>
+    ${r.codes ? `<ol class="schritte-liste"><li>Zuerst alte Umleitungen und Mailbox löschen: ${code(r.codes.vorher_alle_loeschen)}</li>
+      <li>Alle bedingten Umleitungen setzen: ${code(r.codes.alle_bedingten.aktivieren)}<br><small>einzeln: Nichtannahme ${code(r.codes.nichtannahme.aktivieren)} · Besetzt ${code(r.codes.besetzt.aktivieren)} · nicht erreichbar ${code(r.codes.nicht_erreichbar.aktivieren)}</small></li>
+      <li>Prüfen mit ${code(r.codes.nichtannahme.status)} und Testanruf von einem zweiten Telefon (nicht abnehmen).</li>
+      <li>Rückgängig: ${code(r.codes.alle_bedingten.deaktivieren)}</li></ol>
+      <p class="unterzeile">Codes auf dem Handy antippen, dann wählt das Telefon direkt. ${esc(r.geraete.iphone)} ${esc(r.geraete.fritzbox)}</p>
+      <div class="aktionen"><button type="button" id="ru-fertig" class="${r.eingerichtet ? "leise" : ""}">${r.eingerichtet ? "Als nicht eingerichtet markieren" : "Rufumleitung ist eingerichtet"}</button></div>` : ""}
+    ${r.hinweise.map((h) => `<p class="unterzeile">${esc(h)}</p>`).join("")}`;
+  $("#ru", box).addEventListener("submit", async (ev) => {
+    ev.preventDefault(); const fd = new FormData(ev.target);
+    try { await api("/betrieb/rufumleitung", { methode: "PUT", daten: { ziel: fd.get("ziel") || "" } }); rufumleitungKarte(box, Number(fd.get("sekunden"))); } catch (e) { melden(e.message); }
+  });
+  $("#ru-fertig", box)?.addEventListener("click", async () => {
+    try { await api("/betrieb/rufumleitung", { methode: "PUT", daten: { eingerichtet: !r.eingerichtet } }); melden("Gespeichert", "ok"); rufumleitungKarte(box, r.sekunden); } catch (e) { melden(e.message); }
+  });
+}
+
+// --- Runde 13: Bewerbungen (Karriereseite, P10) ---------------------------------------------------
+const BEWERBUNG_STATUS = { neu: "neu", in_pruefung: "in Prüfung", gespraech: "Gespräch vereinbart", zusage: "Zusage", eingestellt: "eingestellt", absage: "Absage", zurueckgezogen: "zurückgezogen" };
+async function bewerbungenAnsicht(ziel) {
+  const liste = await api("/bewerbungen");
+  const offen = liste.filter((b) => !["eingestellt", "absage", "zurueckgezogen"].includes(b.status)).length;
+  ziel.innerHTML = `<h1>Bewerbungen</h1><p class="unterzeile">Kurzbewerbungen von der Karriereseite der Website. Abgeschlossene Verfahren werden nach sechs Monaten automatisch gelöscht, mit Talentpool-Einwilligung nach zwei Jahren (Löschkonzept). Stellen pflegen Sie unter <a href="#website">Website</a>.</p>
+    <div class="kacheln"><div class="karte kachel"><div class="wert">${offen}</div><div class="bez">offene Bewerbungen</div></div><div class="karte kachel"><div class="wert">${liste.length}</div><div class="bez">insgesamt gespeichert</div></div></div>
+    ${liste.length ? `<div class="karte"><table><thead><tr><th>Eingang</th><th>Person</th><th>Stelle</th><th>Unterlagen</th><th>Status und Notiz</th><th></th></tr></thead><tbody>${liste.map((b) => `<tr>
+      <td>${esc(zeit(b.eingegangen))}</td>
+      <td><strong>${esc(b.name)}</strong><br><small>${b.telefon ? `<a href="tel:${esc(b.telefon)}">${esc(b.telefon)}</a> ` : ""}${b.email ? `<a href="mailto:${esc(b.email)}">${esc(b.email)}</a>` : ""}${b.fruehester_start ? `<br>Start: ${esc(b.fruehester_start)}` : ""}${b.talentpool ? `<br>${tag("Talentpool", "neutral")}` : ""}</small>${b.nachricht ? `<p><small>${esc(b.nachricht)}</small></p>` : ""}</td>
+      <td>${esc(b.stelle_titel)}</td>
+      <td>${b.unterlagen.map((u) => `<a href="#" data-unterlage="${esc(u.id)}" data-bewerbung="${esc(b.id)}" data-name="${esc(u.name)}">${esc(u.name)}</a>`).join("<br>") || "–"}</td>
+      <td><select data-status="${esc(b.id)}">${Object.entries(BEWERBUNG_STATUS).map(([k, v]) => `<option value="${k}" ${k === b.status ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>
+        <textarea data-notiz="${esc(b.id)}" rows="2" placeholder="Notiz">${esc(b.notiz || "")}</textarea></td>
+      <td><button class="leise" data-loeschen="${esc(b.id)}">Löschen</button></td></tr>`).join("")}</tbody></table></div>` : `<div class="karte"><p>Noch keine Bewerbungen. Sobald unter Website Stellen eingetragen sind, erscheint die Karriereseite mit Kurzbewerbung.</p></div>`}`;
+  const speichern = async (id, daten) => { try { await api(`/bewerbungen/${id}`, { methode: "PATCH", daten }); melden("Gespeichert", "ok"); } catch (e) { melden(e.message); } };
+  ziel.querySelectorAll("[data-status]").forEach((s) => s.addEventListener("change", () => speichern(s.dataset.status, { status: s.value })));
+  ziel.querySelectorAll("[data-notiz]").forEach((n) => n.addEventListener("change", () => speichern(n.dataset.notiz, { notiz: n.value })));
+  ziel.querySelectorAll("[data-unterlage]").forEach((a) => a.addEventListener("click", (ev) => { ev.preventDefault(); dateiLaden(`/bewerbungen/${a.dataset.bewerbung}/unterlagen/${a.dataset.unterlage}`, a.dataset.name); }));
+  ziel.querySelectorAll("[data-loeschen]").forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm("Bewerbung samt Unterlagen endgültig löschen?")) return;
+    try { await api(`/bewerbungen/${b.dataset.loeschen}`, { methode: "DELETE" }); bewerbungenAnsicht(ziel); } catch (e) { melden(e.message); }
+  }));
+}
+
 // --- Runde 8: Betriebswebsite -----------------------------------------------------------------
-const WEBSITE_BEREICHE = [["leistungen", "Leistungen"], ["preise", "Preise (Leistungskatalog mit Preisen)"], ["buchung", "Online-Terminbuchung"], ["bewertungen", "Kundenstimmen"], ["team", "Team"], ["notdienst", "Notdienst-Leiste"], ["anfahrt", "Anfahrt und Einzugsgebiet"], ["ablauf", "So läuft es ab (3 Schritte)"], ["faq", "Häufige Fragen"], ["kontakt", "Kontaktformular und Kontaktwege"]];
+const WEBSITE_BEREICHE = [["leistungen", "Leistungen"], ["preise", "Preise (Leistungskatalog mit Preisen)"], ["buchung", "Online-Terminbuchung"], ["bewertungen", "Kundenstimmen"], ["team", "Team"], ["notdienst", "Notdienst-Leiste"], ["anfahrt", "Anfahrt und Einzugsgebiet"], ["ablauf", "So läuft es ab (3 Schritte)"], ["faq", "Häufige Fragen"], ["kontakt", "Kontaktformular und Kontaktwege"], ["fotos", "Fotos im Anfrageformular"], ["karriere", "Karriereseite mit Kurzbewerbung"]];
+const STELLEN_ARTEN = { vollzeit: "Vollzeit", teilzeit: "Teilzeit", minijob: "Minijob", ausbildung: "Ausbildung", praktikum: "Praktikum", aushilfe: "Aushilfe" };
+function stelleFormular(s, i, darf) {
+  const f = (n, b, extra = "") => `<label>${esc(b)} <input name="${n}" value="${esc(s[n] ?? "")}" ${darf ? "" : "disabled"} ${extra}></label>`;
+  const liste = (n, b) => `<label>${esc(b)} (je Zeile ein Punkt) <textarea name="${n}" rows="3" ${darf ? "" : "disabled"}>${esc((s[n] || []).join("\n"))}</textarea></label>`;
+  return `<fieldset class="karte stelle-form" data-stelle="${i}" style="margin-bottom:12px"><legend>${s.titel ? esc(s.titel) : "Neue Stelle"}</legend><input type="hidden" name="id" value="${esc(s.id || "")}">
+    <div class="raster">${f("titel", "Titel (z. B. Anlagenmechaniker SHK (m/w/d))")}<label>Art <select name="art" ${darf ? "" : "disabled"}>${Object.entries(STELLEN_ARTEN).map(([k, v]) => `<option value="${k}" ${k === (s.art || "vollzeit") ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+    ${f("ort", "Einsatzort")}${f("stunden", "Arbeitszeit (z. B. 39 Std./Woche)")}${f("start", "Start (z. B. sofort)")}${f("gehalt", "Vergütung (optional, steigert Bewerbungen)")}${f("gueltig_bis", "Ausgeschrieben bis (optional)", 'type="date"')}</div>
+    <label>Kurzbeschreibung <textarea name="text" rows="2" ${darf ? "" : "disabled"}>${esc(s.text || "")}</textarea></label>
+    <div class="raster">${liste("aufgaben", "Aufgaben")}${liste("profil", "Profil")}${liste("wir_bieten", "Wir bieten")}</div>
+    <label><span><input type="checkbox" name="aktiv" ${s.aktiv !== false ? "checked" : ""} ${darf ? "" : "disabled"}> veröffentlicht</span></label>${s.id ? ` <small>seit ${esc(s.veroeffentlicht || "")} · <a href="${esc(s._url)}" target="_blank" rel="noopener">Stellenseite</a></small>` : ""}</fieldset>`;
+}
 async function websiteAnsicht(ziel) {
   const st = await api("/betrieb/website");
   const k = st.konfig, darf = ICH?.rechte?.includes("verwalten");
@@ -2029,6 +2091,9 @@ async function websiteAnsicht(ziel) {
       </form>
       <div>
         <div class="karte" style="margin-bottom:16px"><h2>Vorschau</h2><iframe id="ws-vorschau" src="${esc(st.vorschau)}" title="Vorschau der Website" style="width:100%;height:520px;border:1px solid var(--linie);border-radius:8px;background:#fff"></iframe></div>
+        <form id="ws-stellen" class="karte" style="margin-bottom:16px"><h2>Karriere: Stellenangebote</h2><p class="unterzeile">Erscheinen unter <a href="${esc(st.pfad)}/karriere${k.aktiv ? "" : "?vorschau=1"}" target="_blank" rel="noopener">/karriere</a> mit Kurzbewerbung ohne Anschreiben und Auszeichnung für Google for Jobs. Leeren Titel speichern entfernt eine Stelle.</p>
+          ${[...(k.stellen || []).map((s) => ({ ...s, _url: `${st.pfad}/karriere/${s.id}${k.aktiv ? "" : "?vorschau=1"}` })), {}].map((s, i) => stelleFormular(s, i, darf)).join("")}
+          ${darf ? `<div class="aktionen"><button type="submit">Stellen speichern</button><a class="knopf leise" href="#bewerbungen">Bewerbungen ansehen</a></div>` : ""}</form>
         <div class="karte"><h2>Kundenstimmen freigeben</h2><p class="unterzeile">Texte erscheinen erst nach Freigabe und nur ab ${esc(k.bewertungen_min_sterne)} Sternen; der Durchschnitt zählt alle Bewertungen. Namen werden gekürzt (Datenminimierung).</p>
           ${st.bewertungen.texte.length ? `<table><tbody>${st.bewertungen.texte.map((b) => `<tr><td>${"★".repeat(b.sterne || 0)}${"☆".repeat(5 - (b.sterne || 0))}<br><small>${esc(b.name)} · ${esc(b.zeit)}</small></td><td>${esc(b.text)}</td><td style="text-align:right">${darf ? `<button class="leise" data-bewertung="${esc(b.id)}" data-wert="${b.veroeffentlicht ? "0" : "1"}">${b.veroeffentlicht ? "Zurückziehen" : "Veröffentlichen"}</button>` : (b.veroeffentlicht ? tag("öffentlich", "aktuell") : tag("intern", "neutral"))}</td></tr>`).join("")}</tbody></table>` : "<p>Noch keine Bewertungstexte. Kunden bewerten nach dem Einsatz im Kundenportal.</p>"}</div>
       </div>
@@ -2040,6 +2105,15 @@ async function websiteAnsicht(ziel) {
     daten.aktiv = ev.target.aktiv.checked; daten.bewertungen_min_sterne = Number(daten.bewertungen_min_sterne || 4);
     daten.faq = (ev.target.faq.value || "").split("\n").map((z) => z.split("|")).filter((p) => p.length >= 2).map(([frage, ...rest]) => ({ frage: frage.trim(), antwort: rest.join("|").trim() }));
     try { await api("/betrieb/website", { methode: "PUT", daten }); melden("Website gespeichert", "ok"); websiteAnsicht(ziel); } catch (e) { melden(e.message); }
+  });
+  $("#ws-stellen", ziel)?.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const stellen = [...ev.target.querySelectorAll(".stelle-form")].map((fs) => {
+      const w = (n) => fs.querySelector(`[name="${n}"]`); const zeilen = (n) => w(n).value.split("\n").map((z) => z.trim()).filter(Boolean);
+      return { id: w("id").value || null, titel: w("titel").value.trim(), art: w("art").value, ort: w("ort").value, stunden: w("stunden").value, start: w("start").value, gehalt: w("gehalt").value,
+        gueltig_bis: w("gueltig_bis").value || null, text: w("text").value, aufgaben: zeilen("aufgaben"), profil: zeilen("profil"), wir_bieten: zeilen("wir_bieten"), aktiv: w("aktiv").checked };
+    }).filter((s) => s.titel);
+    try { await api("/betrieb/website", { methode: "PUT", daten: { stellen } }); melden("Stellen gespeichert", "ok"); websiteAnsicht(ziel); } catch (e) { melden(e.message); }
   });
   ziel.querySelectorAll("[data-bewertung]").forEach((b) => b.addEventListener("click", async () => {
     try { await api(`/bewertungen/${b.dataset.bewertung}/veroeffentlichen`, { methode: "POST", daten: { veroeffentlicht: b.dataset.wert === "1" } }); websiteAnsicht(ziel); } catch (e) { melden(e.message); }

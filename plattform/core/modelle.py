@@ -671,3 +671,26 @@ class Anfrage(_Mandantenbezug, Basis):
     servicefall_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("servicefall.id"))
     status: Mapped[str] = mapped_column(String(20), default="neu")  # neu, uebernommen, verworfen
     eingegangen: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
+
+
+class Bewerbung(_Mandantenbezug, Basis):
+    """Kurzbewerbung über die Karriereseite der Betriebswebsite (core.karriere). Unterlagen liegen als Anhang
+    (bezug_typ „bewerbung“). Löschung: abgeschlossene Verfahren nach `bewerbung_tage` (Standard 180, AGG-Frist § 15 Abs. 4
+    plus Klagefrist § 61b ArbGG), mit Einwilligung in den Talentpool nach `talentpool_tage` (Standard 730)."""
+    __tablename__ = "bewerbung"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=neue_id)
+    stelle_id: Mapped[str | None] = mapped_column(String(40))          # None = Initiativbewerbung
+    stelle_titel: Mapped[str] = mapped_column(String(200))
+    name: Mapped[str] = mapped_column(String(200))
+    telefon: Mapped[str | None] = mapped_column(String(40))
+    email: Mapped[str | None] = mapped_column(String(200))
+    nachricht: Mapped[str | None] = mapped_column(Text)
+    fruehester_start: Mapped[str | None] = mapped_column(String(60))
+    quelle: Mapped[str] = mapped_column(String(20), default="website")
+    status: Mapped[str] = mapped_column(String(20), default="neu")  # neu, in_pruefung, gespraech, zusage, eingestellt, absage, zurueckgezogen
+    talentpool: Mapped[bool] = mapped_column(Boolean, default=False)
+    notiz: Mapped[str | None] = mapped_column(Text)
+    externe_id: Mapped[str] = mapped_column(String(64))
+    eingegangen: Mapped[datetime] = mapped_column(UtcZeit, default=jetzt)
+    abgeschlossen: Mapped[datetime | None] = mapped_column(UtcZeit)
+    __table_args__ = (UniqueConstraint("mandant_id", "externe_id"),)

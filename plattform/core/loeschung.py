@@ -31,7 +31,8 @@ from core.modelle import (Abwesenheit, Anfrage, Angebot, Anhang, Anlage, Bauteil
 
 STANDARD_FRISTEN = {"transkript_tage": 90, "kommunikation_lose_tage": 30, "outbox_tage": 90, "outbox_tot_tage": 365,
                     "ereignis_tage": 1095, "vorgang_tage": 1095, "kunde_inaktiv_tage": 1095, "rechnung_tage": 3650,
-                    "beleg_tage": 3650, "zeit_tage": 730, "angebot_tage": 1095, "vertrag_tage": 1095, "anfrage_tage": 365}
+                    "beleg_tage": 3650, "zeit_tage": 730, "angebot_tage": 1095, "vertrag_tage": 1095, "anfrage_tage": 365,
+                    "bewerbung_tage": 180, "talentpool_tage": 730}
 ABGESCHLOSSEN = ("uebergeben", "storniert", "abgerechnet")
 DAUERHAFT = ("rechnung.", "freigabe.", "loeschung.", "kunde.geloescht")
 ANONYM = "Gelöschte Person"
@@ -218,6 +219,13 @@ def loeschlauf(s: Session, m: Mandant, jetzt: datetime | None = None, trocken: b
     z["anfragen_geloescht"] = len(list(s.scalars(alte_anfragen)))
     s.execute(delete(Anfrage).where(Anfrage.id.in_(alte_anfragen)))
     s.execute(delete(Abwesenheit).where(Abwesenheit.mandant_id == mid, Abwesenheit.bis < vor(f["zeit_tage"]).date()))
+
+    from core import karriere
+    bewerbungen = karriere.faellige(s, m, jetzt, f["bewerbung_tage"], f["talentpool_tage"])
+    z["bewerbungen_geloescht"] = len(bewerbungen)
+    for b in bewerbungen:
+        karriere.loeschen(s, b)
+    s.flush()
 
     z["kunden_anonymisiert"] = 0
     for kunde in s.scalars(select(Kunde).where(Kunde.mandant_id == mid, Kunde.name != ANONYM, Kunde.vertragsstatus != "wartungsvertrag",
