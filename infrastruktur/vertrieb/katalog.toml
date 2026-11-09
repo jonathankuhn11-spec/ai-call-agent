@@ -1,0 +1,119 @@
+# Vertriebssteuerung KUHN: Parameter der Priorisierung, Zusatzmodule (Upsell), Nachfasskadenz und Versandkosten.
+# Editionspreise kommen aus unterlagen/preise.toml (eine Quelle der Wahrheit); hier stehen nur Zusatzleistungen.
+# Alle Beträge netto in Euro. "status" kennzeichnet Preise, die noch nicht beschlossen sind.
+
+[modell]
+# Prior der positiven Reaktion je Brief (Antwort, Rückruf, Termin) in Abhängigkeit vom Abschluss-Score der Liste:
+#   p0 = basis + spanne * (score/100)^exponent, akute Leads (frische Büroanzeige, verifiziert) * faktor_akut
+basis = 0.008
+spanne = 0.062
+exponent = 2.0
+faktor_akut = 1.5
+# Konzern-/Gruppenbetrieb oder Niederlassung (Kfz-Liste „Konzern/Gruppe = ja“, „NL der …“): Entscheidung fällt zentral.
+faktor_filiale = 0.4
+p_max = 0.25
+# Stärke des Segment-Priors in Pseudo-Beobachtungen (Empirical Bayes, Beta-Binomial). Höher = träger.
+prior_staerke = 30
+# Anteil der Charge, der per Thompson-Sampling zur Exploration vergeben wird (0 = rein gierig).
+exploration = 0.2
+# Bedingte Abschlusswahrscheinlichkeit nach positiver Reaktion (Termin -> Vertrag), bis eigene Daten vorliegen.
+p_abschluss_nach_reaktion = 0.25
+# Erwartete Vertragsdauer in Monaten für den Kundenwert (Mindestlaufzeit 12, Annahme Churn ~3 %/Monat).
+vertragsmonate = 24
+# Deckungsbeitragsquote auf den Monatsbetrag (variable Kosten je Kunde ca. 30–40 €/Monat, Plattform-Memo).
+db_quote = 0.88
+
+[versand]
+porto_standardbrief = 0.95      # Deutsche Post Standardbrief bis 20 g
+druck_kuvert = 0.35             # 2 Blatt Farbe + DIN-lang-Fenster
+minuten_je_brief = 4            # Kuvertieren, Frankieren, Unterschrift
+stundensatz_intern = 40
+chargengroesse = 25
+max_anteil_branche = 0.4        # Diversifikation: höchstens 40 % einer Charge aus einer Branche
+sperrfrist_tage = 90            # erneuter Erstkontakt frühestens nach 90 Tagen
+
+# Nachfasskadenz. Erstkontakt und Nachfass erfolgen schriftlich (Brief, § 7 Abs. 1 UWG: zulässig, solange kein
+# erkennbarer Widerspruch). Telefon/E-Mail/WhatsApp erst nach dokumentierter Einwilligung bzw. Rückmeldung.
+[kadenz]
+nachfassbrief_nach_tagen = 14
+kadenzende_nach_tagen = 35      # nach Brief 2 ohne Reaktion: Kadenz endet, Wiedervorlage
+wiedervorlage_nach_tagen = 120
+rueckruf_binnen_stunden = 24
+angebot_nachfassen_nach_tagen = 7
+
+# Zusatzmodule. Auslöser: P-Codes (any), Branchen (any), Schlagwörter in Stellenanzeige/Befund (any).
+# Ein Modul wird vorgeschlagen, wenn mindestens eine Auslösergruppe greift und es nicht schon in der Edition steckt.
+[[modul]]
+code = "WV"
+name = "Wartungsverträge und Erneuerungskalender"
+monat = 0
+einmalig = 0
+in_edition = "pro"
+branchen = ["shk", "elektro", "schluesseldienst", "kfz", "dachdecker"]
+grund = "Wiederkehrender Wartungsumsatz (Heizung, E-Check, Alarmanlage, HU/Inspektion); Erinnerungen laufen automatisch."
+status = "in Edition Pro enthalten"
+
+[[modul]]
+code = "DB"
+name = "Belegübergabe an DATEV, Lexware, sevDesk"
+monat = 0
+einmalig = 0
+in_edition = "pro"
+codes = ["P8"]
+schlagworte = ["buchhaltung", "büro", "rechnung", "kaufm", "verwaltung", "bürokraft", "bürofach"]
+grund = "Büro ist unterbesetzt: Eingangsbelege und Rechnungen gehen ohne Abtippen an die Steuerberatung."
+status = "in Edition Pro enthalten"
+
+[[modul]]
+code = "WA"
+name = "WhatsApp-Kanal (Business API)"
+monat = 39
+einmalig = 0
+codes = ["P7"]
+grund = "Mobilnummer als Hauptnummer: Kunden schreiben ohnehin per WhatsApp; Nachrichten landen als Vorgang."
+status = "Vorschlag (nicht beschlossen)"
+
+[[modul]]
+code = "KS"
+name = "Karriereseite und Stellenposts"
+monat = 0
+einmalig = 490
+codes = ["P10", "P8"]
+grund = "Laufende Personalsuche: Stellen erscheinen in Google for Jobs, Kurzbewerbung in zwei Minuten."
+status = "Vorschlag (nicht beschlossen)"
+
+[[modul]]
+code = "W1"
+name = "Website Start"
+monat = 29
+einmalig = 990
+codes = ["P1"]
+grund = "Keine eigene Website: Onepager mit Anfrageformular und eigener Domain."
+status = "Vorschlag (nicht beschlossen)"
+
+[[modul]]
+code = "W3"
+name = "Website-Relaunch und Betreuung"
+monat = 149
+einmalig = 1490
+codes = ["P6", "P9"]
+grund = "Veraltete Website bzw. Rechtsrisiko (Impressum, Consent): Ablösung und laufende Pflege."
+status = "Vorschlag (nicht beschlossen)"
+
+[[modul]]
+code = "DI"
+name = "Disposition und Tourenplanung (Upgrade Premium)"
+monat = 350
+einmalig = 2000
+schlagworte = ["disponent", "disposition", "kundendienst", "serviceberater", "serviceannahme", "auftragsannahme"]
+grund = "Anzeige für Disposition/Serviceannahme: Tourenoptimierung und Monteur-Ansicht ersetzen manuelle Planung."
+status = "Differenz Pro -> Premium laut preise.toml"
+
+[[modul]]
+code = "S1"
+name = "Social-Media-Paket"
+monat = 349
+einmalig = 490
+codes = ["P10"]
+grund = "Employer Branding begleitend zur Personalsuche."
+status = "Vorschlag (nicht beschlossen)"

@@ -64,7 +64,7 @@ def _im_prozess(port: int, tool_secret: str):
                 break
         except httpx.HTTPError:
             time.sleep(0.1)
-    return server, app
+    return server, app, thread
 
 
 def gespraech(client: httpx.Client, basis: str, kopf: dict, lead_id: int, zeiten: list[tuple[str, float]], fehler: list[str]):
@@ -106,10 +106,10 @@ def main() -> int:
     ap.add_argument("--aufwaermen", type=int, default=2, help="Gespräche vor der Messung, nicht gewertet (Kaltstart)")
     a = ap.parse_args()
 
-    server = None
+    server = thread = None
     basis = a.url.rstrip("/") if a.url else f"http://127.0.0.1:{a.port}"
     if not a.url:
-        server, app = _im_prozess(a.port, a.secret)
+        server, app, thread = _im_prozess(a.port, a.secret)
     kopf = {"Authorization": f"Bearer {a.secret}"}
     zeiten: list[tuple[str, float]] = []
     fehler: list[str] = []
@@ -131,7 +131,10 @@ def main() -> int:
             t.join()
     dauer = time.perf_counter() - t_start
     if server is not None:
+        # Server-Thread geordnet beenden, bevor der Interpreter endet: läuft der uvicorn-Thread (mit DuckDB-Verbindung
+        # und Planer) beim Shutdown noch, bricht der Prozess sporadisch mit „terminate called without an active exception“ ab.
         server.should_exit = True
+        thread.join(timeout=10)
 
     ms = sorted(z for _, z in zeiten)
     if not ms:
