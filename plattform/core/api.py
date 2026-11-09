@@ -38,7 +38,7 @@ from fastapi.responses import (
     RedirectResponse,
 )
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from schwifty import IBAN
 from schwifty.exceptions import SchwiftyException
 from sqlalchemy import or_, select
@@ -472,6 +472,7 @@ class VoiceZeitfenster(_Schema):
 
 
 class VoiceServicefall(_Schema):
+    """Felder kommen vom Sprachmodell: zu lange Werte werden gekürzt statt abgewiesen, damit kein Anruf verloren geht."""
     telefon: str
     name: str
     strasse: str | None = None
@@ -481,6 +482,14 @@ class VoiceServicefall(_Schema):
     symptom: str | None = None
     anlagentyp: str | None = None
     hersteller: str | None = None
+
+    @model_validator(mode="after")
+    def _kuerzen(self):
+        for feld, n in (("telefon", 32), ("name", 200), ("strasse", 200), ("plz", 10), ("ort", 100), ("anlagentyp", 50), ("hersteller", 100), ("anliegen", 2000)):
+            wert = getattr(self, feld)
+            if isinstance(wert, str) and len(wert) > n:
+                setattr(self, feld, wert[:n])
+        return self
     dringlichkeit: Dringlichkeit | None = None
     ressource_id: str | None = Field(None, description="aus voice/zeitfenster, wenn der Anrufer ein Fenster gewählt hat")
     beginn: datetime | None = None
@@ -658,15 +667,15 @@ class GutscheinEinloesen(_Schema):
 
 
 class BuchungNeu(_Schema):
-    leistung_id: str
-    ressource_id: str
+    leistung_id: str = Field(..., max_length=32)
+    ressource_id: str = Field(..., max_length=32)
     beginn: datetime
     name: str = Field(..., min_length=2, max_length=200)
-    telefon: str | None = None
-    email: str | None = None
-    strasse: str | None = None
-    plz: str | None = None
-    ort: str | None = None
+    telefon: str | None = Field(None, max_length=32)
+    email: str | None = Field(None, max_length=200)
+    strasse: str | None = Field(None, max_length=200)
+    plz: str | None = Field(None, max_length=10)
+    ort: str | None = Field(None, max_length=100)
     hinweis: str | None = Field(None, max_length=500)
     einwilligung_email: bool = False
     website: str | None = None  # Honeypot
@@ -2664,12 +2673,20 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
                                                       quelle="telefon"), "ki")
         antwort: dict[str, Any] = {"servicefall_id": f.id, "dringlichkeit": f.dringlichkeit, "termin": None}
         if daten.ressource_id and daten.beginn:
-            t, freigabe = fachlich(lambda: termin_vorschlagen(s, m, f, TerminNeu(ressource_id=daten.ressource_id,
-                                                                                 beginn=daten.beginn), "ki"))
-            antwort["termin"] = {"termin_id": t.id, "beginn": t.beginn.isoformat(),
-                                 "verbindlich": freigabe.status == "freigegeben",
-                                 "hinweis": None if freigabe.status == "freigegeben"
-                                 else "Termin ist vorgemerkt; das Büro bestätigt ihn per SMS oder Rückruf."}
+            # Ist das Fenster inzwischen belegt (oder nennt das Sprachmodell eine nicht angebotene Zeit), bleibt der Vorgang
+            # trotzdem erhalten: Savepoint statt Abbruch der ganzen Transaktion, sonst ginge das Anliegen des Anrufers verloren.
+            try:
+                with s.begin_nested():
+                    t, freigabe = termin_vorschlagen(s, m, f, TerminNeu(ressource_id=daten.ressource_id, beginn=daten.beginn), "ki")
+                antwort["termin"] = {"termin_id": t.id, "beginn": t.beginn.isoformat(),
+                                     "verbindlich": freigabe.status == "freigegeben",
+                                     "hinweis": None if freigabe.status == "freigegeben"
+                                     else "Termin ist vorgemerkt; das Büro bestätigt ihn per SMS oder Rückruf."}
+            except (domaene.Domaenenfehler, ValueError, HTTPException) as e:
+                grund = str(getattr(e, "detail", None) or e)[:200]
+                domaene.protokollieren(s, m.id, "termin.nicht_moeglich", "servicefall", f.id, "ki", {"grund": grund, "beginn": daten.beginn.isoformat()})
+                antwort["termin_fehler"] = grund
+                antwort["hinweis"] = "Der gewünschte Termin ist nicht mehr frei. Das Anliegen ist aufgenommen; bitte eine andere Zeit anbieten oder Rückruf durch das Büro zusagen."
         s.commit()
         return antwort
 
@@ -3211,6 +3228,8 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
             raise HTTPException(409, "Es gibt bereits einen bestätigten Termin; bitte zuerst absagen oder anrufen.")
         if als_utc(daten.beginn) < als_utc(app.state.uhr()):
             raise HTTPException(422, "Der Termin liegt in der Vergangenheit")
+        if (grund := portal.wunsch_pruefen(s, m, f, daten.beginn, daten.ressource_id, app.state.uhr())) is not None:
+            raise HTTPException(409, grund)
         t, _ = fachlich(lambda: termin_vorschlagen(s, m, f, TerminNeu(ressource_id=daten.ressource_id, beginn=daten.beginn, sachmittel_id=daten.sachmittel_id), "mensch"))
         ergebnis = portal.alternative_gewaehlt(s, m, f, t, app.state.uhr())
         s.commit()
@@ -3351,12 +3370,21 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
 
     website_zaehler: dict[str, list[float]] = {}
 
-    def drosseln(schluessel: str, grenze: int) -> None:
+    def drosseln(schluessel: str, grenze: int, request: Request | None = None, je_adresse: int | None = None) -> None:
+        """Gleitendes Stundenfenster je Betrieb und – mit `request` – je Absenderadresse. Ohne die Adressgrenze könnte ein
+        einzelner Bot das Kontingent des Betriebs aufbrauchen und echte Kundenanfragen blockieren."""
         jetzt = time.monotonic()
-        fenster = [x for x in website_zaehler.get(schluessel, []) if jetzt - x < 3600]
-        if len(fenster) >= grenze:
-            raise HTTPException(429, "Zu viele Anfragen, bitte rufen Sie uns an")
-        website_zaehler[schluessel] = fenster + [jetzt]
+        if len(website_zaehler) > 20000:   # Speicher begrenzen: abgelaufene Schlüssel entfernen
+            for k in [k for k, v in website_zaehler.items() if not v or jetzt - v[-1] >= 3600]:
+                website_zaehler.pop(k, None)
+        pruefen = [(schluessel, grenze)]
+        if request is not None and je_adresse and request.client:
+            pruefen.insert(0, (f"{schluessel}|{request.client.host}", je_adresse))
+        for k, g in pruefen:
+            if len([x for x in website_zaehler.get(k, []) if jetzt - x < 3600]) >= g:
+                raise HTTPException(429, "Zu viele Anfragen, bitte rufen Sie uns an")
+        for k, _ in pruefen:
+            website_zaehler[k] = [x for x in website_zaehler.get(k, []) if jetzt - x < 3600] + [jetzt]
 
     async def formular_lesen(request: Request, dateifeld: str, max_dateien: int, max_bytes: int) -> tuple[dict[str, str], list[tuple[str, bytes]]]:
         """Formularfelder als Text und Dateien als (Name, Inhalt); liest höchstens max_dateien + 1 Dateien zu je max_bytes + 1 Byte."""
@@ -3375,10 +3403,10 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
 
     @app.post("/web/{slug}/anfrage", include_in_schema=False)
     async def website_anfrage(slug: str, request: Request, s: Session = Depends(system_sitzung)):
-        """Kontaktformular ohne JavaScript: Honeypot, 30 Anfragen je Stunde und Betrieb, bis zu drei Fotos, Notfall-Kennzeichnung;
+        """Kontaktformular ohne JavaScript: Honeypot, 10 Anfragen je Stunde und Absender, 120 je Betrieb, bis zu drei Fotos, Notfall-Kennzeichnung;
         danach Umleitung mit Bestätigung (gesendet=2 zeigt bei Notfällen zusätzlich die Notdienstnummer)."""
         m = website_mandant(s, slug)
-        drosseln(slug, 30)
+        drosseln(slug, 120, request, 10)
         form, fotos = await formular_lesen(request, "fotos", website.MAX_FOTOS, website.MAX_FOTO)
         ziel = website_ziel(request, m, slug) or "/"
         try:
@@ -3412,11 +3440,11 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
 
     @app.post("/web/{slug}/karriere/bewerbung", include_in_schema=False)
     async def website_bewerbung(slug: str, request: Request, s: Session = Depends(system_sitzung)):
-        """Kurzbewerbung: Honeypot, 20 Bewerbungen je Stunde und Betrieb, bis zu drei Unterlagen (PDF/JPEG/PNG, Signaturprüfung)."""
+        """Kurzbewerbung: Honeypot, 10 Bewerbungen je Stunde und Absender, 60 je Betrieb, bis zu drei Unterlagen (PDF/JPEG/PNG, Signaturprüfung)."""
         m = website_mandant(s, slug)
         if not website.konfig(m)["bereiche"].get("karriere", True):
             raise HTTPException(404, "Seite nicht gefunden")
-        drosseln(f"bewerbung:{slug}", 20)
+        drosseln(f"bewerbung:{slug}", 60, request, 10)
         form, dateien = await formular_lesen(request, "unterlagen", karriere.MAX_UNTERLAGEN, karriere.MAX_DATEI)
         ziel = website_ziel(request, m, slug)
         try:
@@ -3809,8 +3837,8 @@ def app_erzeugen(db: Datenbank | None = None, uhr=lambda: datetime.now(timezone.
         if not (daten.telefon or daten.email):
             raise HTTPException(422, "Rufnummer oder E-Mail wird benötigt")
         le = fachlich(lambda: buchung.leistung_laden(s, m, daten.leistung_id))
-        if als_utc(daten.beginn) < als_utc(app.state.uhr()) + timedelta(hours=int(m.stammdaten.get("buchung_vorlauf_stunden", 2) or 2)):
-            raise HTTPException(409, "Zeit liegt zu kurzfristig oder in der Vergangenheit")
+        if (grund := buchung.buchbar(s, m, le, daten.beginn, daten.ressource_id, app.state.uhr())) is not None:
+            raise HTTPException(409, grund)
         k, neu = buchung.kunde_finden_oder_anlegen(s, m, daten.name, daten.telefon, daten.email, daten.strasse, daten.plz, daten.ort, daten.einwilligung_email)
         if neu:
             domaene.protokollieren(s, m.id, "kunde.angelegt", "kunde", k.id, "system", {"quelle": "buchung"})

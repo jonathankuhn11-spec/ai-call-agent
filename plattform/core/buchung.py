@@ -9,7 +9,7 @@ Portal-Link (bestätigen/absagen). Drosselung je Token, Honeypot gegen Bots, Dub
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -86,6 +86,24 @@ def zeiten(s: Session, m: Mandant, leistung: Artikel, ab: datetime, ressource_id
     return {"leistung": {"id": leistung.id, "bezeichnung": leistung.bezeichnung, "dauer_minuten": leistung.dauer_minuten or 60}, "tage": tage_aus}
 
 
+def buchbar(s: Session, m: Mandant, leistung: Artikel, beginn: datetime, ressource_id: str, jetzt: datetime) -> str | None:
+    """Prüft eine öffentlich gewünschte Zeit gegen dieselben Regeln wie die angebotenen Zeiten (Vorlauf, Buchungshorizont,
+    Arbeitszeit, Raster, Qualifikation, Sachmittel, Kollision). Liefert None oder den Ablehnungsgrund. Ohne diese Prüfung
+    ließe sich per API jede Uhrzeit buchen (Sonntag 3 Uhr, in einem Jahr), weil die Oberfläche nur Vorschläge anzeigt."""
+    st = m.stammdaten or {}
+    beginn, jetzt = als_utc(beginn), als_utc(jetzt)
+    if beginn < jetzt + timedelta(hours=int(st.get("buchung_vorlauf_stunden", 2) or 2)):
+        return "Zeit liegt zu kurzfristig oder in der Vergangenheit"
+    if beginn > jetzt + timedelta(days=int(st.get("buchung_vorlauf_tage", 14) or 14) + 1):
+        return "Zeit liegt außerhalb des Buchungszeitraums"
+    tagesbeginn = beginn.astimezone(ZEITZONE).replace(hour=0, minute=0, second=0, microsecond=0)
+    fenster = freie_zeitfenster(s, m, max(tagesbeginn.astimezone(timezone.utc), jetzt), tage=1, dauer_minuten=leistung.dauer_minuten or 60,
+                                qualifikation=leistung.qualifikation, anzahl=2000, je_ressource=1000, sachmittel=leistung.sachmittel)
+    if any(als_utc(z.beginn) == beginn and z.ressource_id == ressource_id for z in fenster):
+        return None
+    return "Diese Zeit ist nicht buchbar; bitte eine der angebotenen Zeiten wählen"
+
+
 def kunde_finden_oder_anlegen(s: Session, m: Mandant, name: str, telefon: str | None, email: str | None, strasse: str | None = None,
                               plz: str | None = None, ort: str | None = None, einwilligung_email: bool = False) -> tuple[Kunde, bool]:
     tel = telefon_normalisieren(telefon) if telefon else None
@@ -97,7 +115,7 @@ def kunde_finden_oder_anlegen(s: Session, m: Mandant, name: str, telefon: str | 
     neu = k is None
     if neu:
         k = Kunde(mandant_id=m.id, name=name.strip()[:200], telefon=tel, email=(email or "").strip().lower() or None, strasse=strasse, plz=plz, ort=ort,
-                  einwilligungen={"email": True, "einwilligung_email_am": datetime.now().isoformat()} if einwilligung_email and email else {})
+                  einwilligungen={"email": True, "einwilligung_email_am": datetime.now(timezone.utc).isoformat()} if einwilligung_email and email else {})
         s.add(k)
         s.flush()
     else:

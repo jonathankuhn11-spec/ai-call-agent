@@ -3,6 +3,19 @@
 Versionsschema: MAJOR.MINOR.PATCH (`VERSION`, `python -m core version`, `/health`). Jede Runde erhöht MINOR; Hotfixes PATCH.
 Datenbankänderungen stehen bei der jeweiligen Version mit Migrationsnummer; `python -m core migrate` vor dem Start der neuen Version.
 
+## 0.14.0 – 2026-11-09 (Runde 14, keine Migration)
+
+Robustheit der öffentlichen Eingänge und des Telefonagenten (Fehlersuche gegen reale Missbrauchs- und Störfälle).
+
+- Online-Buchung: Die API nahm jede Uhrzeit an, auch Sonntag 3 Uhr oder ein Jahr im Voraus, weil nur die Oberfläche Vorschläge zeigte. Jetzt prüft `buchung.buchbar` Vorlauf, Buchungshorizont, Arbeitszeit, Raster, Qualifikation, Sachmittel und Kollision mit denselben Regeln wie das Angebot. Feldlängen sind begrenzt.
+- Portal-Wunschtermin: nur noch frei angebotene Fenster und nur für offene Vorgänge (`portal.wunsch_pruefen`).
+- E-Mail-Eingang: Zustellfehler (MAILER-DAEMON), Newsletter (List-Unsubscribe, Precedence: bulk) und Autoreplies (Auto-Submitted, RFC 3834) werden verworfen statt zu Kunden und Vorgängen. Bisher entstand aus ihrem Betreff ein Servicefall. Die Kennung ohne Message-ID ist eine sha256-Prüfsumme statt `hash()`, HTML-Mails werden sauber dekodiert, und unbekannte Zeichensätze führen nicht mehr zum Abbruch.
+- Telefonagent: Ist der gewählte Termin inzwischen belegt, bleibt der Vorgang erhalten (Savepoint). Der Agent bekommt einen Hinweis für eine Alternative oder einen Rückruf. Bisher ging das gesamte Anliegen des Anrufers verloren. Überlange Felder des Sprachmodells werden gekürzt statt abgewiesen.
+- Öffentliche Eingänge (Website, Webformular, WhatsApp, E-Mail) werden auf die Spaltenlängen gekürzt. Unter PostgreSQL führten überlange Bot-Eingaben bisher zu HTTP 500.
+- Drosselung je Absenderadresse (Website-Anfragen 10/h, Bewerbungen 10/h) zusätzlich zur Grenze je Betrieb. Ein einzelner Bot kann das Kontingent des Betriebs nicht mehr aufbrauchen.
+- Buchungsseite und Kundenportal: Verbindungsfehler werden angezeigt statt den Knopf dauerhaft zu sperren. Nach einem Terminkonflikt lädt die Buchungsseite die freien Zeiten neu.
+- Einwilligungszeitpunkt der Online-Buchung wird mit Zeitzone (UTC) gespeichert.
+
 ## 0.13.0 – 2026-11-08 (Runde 13, Migration 0016)
 
 Verkaufsreife gegen die belegten Probleme der Leads (Problemkatalog P1–P10, `VERKAUF.md`).

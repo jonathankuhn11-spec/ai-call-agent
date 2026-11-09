@@ -5,6 +5,8 @@ Die Arbeitsmappen entstehen im Speicher und werden als Download ausgeliefert; Za
 funktionieren. Keine Formeln, keine Makros."""
 from __future__ import annotations
 
+import hashlib
+
 from datetime import date, datetime
 from decimal import Decimal
 from io import BytesIO
@@ -61,7 +63,7 @@ def tabelle(wb: Workbook, titel: str, kopf: list[str], zeilen: Iterable[list[Any
         ws.column_dimensions[get_column_letter(i)].width = min(60, max(10, breite + 2))
     if n:
         ref = f"A1:{get_column_letter(len(kopf))}{n + 1}"
-        t = Table(displayName=f"T{abs(hash(titel)) % 10_000_000}", ref=ref)
+        t = Table(displayName=f"T{int(hashlib.sha256(titel.encode()).hexdigest()[:12], 16) % 10_000_000}", ref=ref)
         t.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
         ws.add_table(t)
     ws.freeze_panes = "A2"

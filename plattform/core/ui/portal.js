@@ -9,6 +9,12 @@
   const q = `?token=${encodeURIComponent(token || "")}`;
   if (!fallId || !token) { main.innerHTML = `<div class="karte"><h2>Link unvollständig</h2><p>Bitte öffnen Sie den Link aus Ihrer Terminbestätigung.</p></div>`; return; }
   let sterneWahl = 0;
+  // Netzwerkfehler (Funkloch, Server neu gestartet) nicht still verschlucken: sichtbare Meldung statt toter Knöpfe
+  window.addEventListener("unhandledrejection", (ev) => {
+    const m = document.getElementById("meldung") || main;
+    if (m) m.insertAdjacentHTML("afterbegin", `<div class="fehler">Keine Verbindung. Bitte prüfen Sie Ihre Internetverbindung und laden Sie die Seite neu.</div>`);
+    ev.preventDefault();
+  });
 
   function verlauf(d) {
     return `<div class="karte"><h2>Wo steht Ihr Auftrag?</h2><ul class="verlauf">${d.verlauf.map((s) => `<li class="${esc(s.zustand)}"><span class="punkt"></span><span class="titel">${esc(s.titel)}</span>${s.hinweis ? `<small>${esc(s.hinweis)}</small>` : ""}</li>`).join("")}</ul></div>`;

@@ -188,6 +188,18 @@ def alternativen(s: Session, m: Mandant, f: Servicefall, jetzt: datetime, anzahl
     return aus
 
 
+def wunsch_pruefen(s: Session, m: Mandant, f: Servicefall, beginn: datetime, ressource_id: str, jetzt: datetime) -> str | None:
+    """Der Wunschtermin muss eines der Fenster sein, die `alternativen` anbieten würde (Vorlauf 2 h, 10 Tage, Qualifikation,
+    Sachmittel, frei); sonst ließe sich über die öffentliche Portal-API jede beliebige Uhrzeit vormerken."""
+    from core.disposition import freie_zeitfenster
+    if f.status not in ("eingegangen", "qualifiziert", "eingeplant"):
+        return "Für diesen Vorgang kann kein Termin mehr gewählt werden"
+    fenster = freie_zeitfenster(s, m, als_utc(jetzt) + timedelta(hours=2), 10, f.dauer_minuten, f.benoetigte_qualifikation, 2000, je_ressource=1000, sachmittel=f.sachmittel)
+    if any(als_utc(z.beginn) == als_utc(beginn) and z.ressource_id == ressource_id for z in fenster):
+        return None
+    return "Dieser Termin ist nicht mehr frei; bitte einen der angebotenen Termine wählen"
+
+
 def alternative_gewaehlt(s: Session, m: Mandant, f: Servicefall, neu: Termin, jetzt: datetime) -> dict[str, Any]:
     """Nach dem Anlegen des Wunschtermins: bisherige Vorschläge zurückziehen, Büro informieren."""
     for t in f.termine:

@@ -86,9 +86,19 @@
     const daten = { leistung_id: zustand.leistung.id, ressource_id: zustand.zeit.ressource_id, beginn: zustand.zeit.beginn, name: wert("name"), telefon: wert("telefon"),
       email: wert("email"), strasse: wert("strasse"), plz: wert("plz"), ort: wert("ort"), hinweis: wert("hinweis"),
       einwilligung_email: document.getElementById("einwilligung_email").checked, website: wert("website") || "" };
-    const r = await fetch(basis, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(daten) });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) { knopf.disabled = false; m.innerHTML = `<div class="fehler">${esc(typeof d.detail === "string" ? d.detail : "Die Buchung hat nicht geklappt. Bitte rufen Sie uns an.")}</div>`; return; }
+    let r, d;
+    try {
+      r = await fetch(basis, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(daten) });
+      d = await r.json().catch(() => ({}));
+    } catch {   // Funkloch oder Server nicht erreichbar: Knopf wieder freigeben statt dauerhaft gesperrt
+      knopf.disabled = false; m.innerHTML = `<div class="fehler">Keine Verbindung. Bitte prüfen Sie Ihre Internetverbindung und versuchen Sie es erneut.</div>`; return;
+    }
+    if (!r.ok) {
+      knopf.disabled = false;
+      m.innerHTML = `<div class="fehler">${esc(typeof d.detail === "string" ? d.detail : "Die Buchung hat nicht geklappt. Bitte rufen Sie uns an.")}</div>`;
+      if (r.status === 409) { zustand.zeit = null; zeitenLaden(); m.insertAdjacentHTML("beforeend", `<p class="info">Die freien Zeiten wurden aktualisiert – bitte wählen Sie erneut.</p>`); }
+      return;
+    }
     const wann = new Intl.DateTimeFormat("de-DE", { dateStyle: "full", timeStyle: "short" }).format(new Date(d.beginn));
     main.innerHTML = `<header><h1>${esc(zustand.angebot.betrieb.name)}</h1></header><div class="karte erfolg"><div class="haken" aria-hidden="true">✓</div><h2>Vielen Dank, Ihr Termin ist eingetragen!</h2><p><strong>${esc(zustand.leistung.bezeichnung)}</strong><br>${esc(wann)} Uhr</p>
       <div class="hinweis">${esc(d.hinweis)}</div><p style="margin-top:12px">Auf <a href="${esc(d.portal)}">Ihrer Terminseite</a> sehen Sie jederzeit, wo Ihr Auftrag steht, können den Termin in den Kalender übernehmen oder absagen.</p>

@@ -8,7 +8,9 @@ Das Webformular braucht keinen API-Key: Der Betrieb bindet seinen Formular-Token
 from __future__ import annotations
 
 import email
+import email.message
 import email.policy
+import email.utils
 import imaplib
 import re
 import secrets
@@ -38,19 +40,23 @@ def _kunde_finden(s: Session, m: Mandant, telefon: str | None, mail: str | None)
 
 def anfrage_verarbeiten(s: Session, m: Mandant, kanal: str, externe_id: str, name: str | None, telefon: str | None, mail: str | None,
                         betreff: str | None, nachricht: str | None, jetzt: datetime, strasse: str | None = None, plz: str | None = None,
-                        ort: str | None = None, notfall: bool = False) -> Anfrage | None:
+                        ort: str | None = None, notfall: bool = False, verwerfen: bool = False) -> Anfrage | None:
     """Idempotent je externe_id. Legt Anfrage, Kunde (falls neu), Servicefall und Kommunikation an. `notfall`: vom Absender
     ausdrücklich als Notfall markiert (Website-Formular); hebt die Dringlichkeit auf „notdienst“, auch ohne Regeltreffer."""
     if s.scalar(select(Anfrage).where(Anfrage.mandant_id == m.id, Anfrage.externe_id == externe_id)):
         return None
+    # öffentliche Eingänge auf die Spaltenlängen kürzen: Bots umgehen maxlength, PostgreSQL bricht sonst mit HTTP 500 ab
+    name = (name or "").strip()[:200] or None
+    telefon = (telefon or "").strip()[:32] or None
     tel = telefon_normalisieren(telefon) if telefon else None
-    mail = (mail or "").strip().lower() or None
+    mail = (mail or "").strip().lower()[:200] or None
+    strasse, plz, ort = (strasse or "")[:200] or None, (plz or "")[:10] or None, (ort or "")[:100] or None
     kunde = _kunde_finden(s, m, tel, mail)
     text = f"{betreff or ''}\n{nachricht or ''}".strip()
     a = Anfrage(mandant_id=m.id, kanal=kanal, externe_id=externe_id[:200], name=name, telefon=tel or telefon, email=mail, betreff=(betreff or "")[:300] or None,
                 nachricht=nachricht, eingegangen=jetzt)
     s.add(a)
-    if not text or len(text) < 5:
+    if verwerfen or not text or len(text) < 5:   # verwerfen: automatische Post (Zustellfehler, Newsletter, Autoreply)
         a.status = "verworfen"
         s.flush()
         return a
@@ -136,16 +142,45 @@ class ImapPostfach:
             pass
 
 
+AUTO_BETREFF = ("auto-reply", "autoreply", "automatische antwort", "out of office", "newsletter", "unsubscribe",
+                "undelivered", "unzustellbar", "delivery status notification", "mail delivery", "returned mail")
+AUTO_ABSENDER = re.compile(r"^(mailer-daemon|postmaster|no-?reply|do-?not-?reply|bounce[s]?)[@+.-]", re.I)
+
+
+def ist_automatisch(n: email.message.EmailMessage, absender: str, betreff: str) -> bool:
+    """Autoreplies, Zustellfehler, Newsletter und Massenmails nach RFC 3834 (Auto-Submitted), RFC 2369 (List-*) und
+    üblichen Kopfzeilen; solche Nachrichten werden verworfen statt zu Kunden und Vorgängen zu werden."""
+    if (n.get("Auto-Submitted") or "no").strip().lower() != "no":
+        return True
+    if (n.get("Precedence") or "").strip().lower() in ("bulk", "list", "junk", "auto_reply"):
+        return True
+    if any(n.get(k) for k in ("List-Unsubscribe", "List-Id", "X-Autoreply", "X-Autorespond", "X-Auto-Response-Suppress")):
+        return True
+    if AUTO_ABSENDER.match(absender or ""):
+        return True
+    return any(k in (betreff or "").lower() for k in AUTO_BETREFF)
+
+
 def nachricht_lesen(roh: bytes) -> dict[str, Any]:
+    import hashlib
+    import html as html_
     n = email.message_from_bytes(roh, policy=email.policy.default)
     koerper = n.get_body(preferencelist=("plain", "html"))
-    text = koerper.get_content() if koerper else ""
+    try:
+        text = koerper.get_content() if koerper else ""
+    except (LookupError, ValueError):   # unbekannter Zeichensatz: tolerant dekodieren statt die Nachricht zu verlieren
+        text = (koerper.get_payload(decode=True) or b"").decode("utf-8", "replace") if koerper else ""
     if koerper is not None and koerper.get_content_type() == "text/html":
-        text = re.sub(r"<[^>]+>", " ", text)
+        text = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", text)
+        text = html_.unescape(re.sub(r"<[^>]+>", " ", text))
+        text = re.sub(r"[ \t]+", " ", text)
     absender = email.utils.parseaddr(n.get("From", ""))
+    betreff = str(n.get("Subject") or "")
     tel = MUSTER_TELEFON.search(text or "")
-    return {"externe_id": n.get("Message-ID") or f"ohne-id:{hash(roh)}", "name": absender[0] or None, "email": absender[1] or None,
-            "betreff": n.get("Subject"), "nachricht": (text or "").strip()[:5000], "telefon": tel.group(0) if tel else None}
+    # ohne Message-ID: Inhaltsprüfsumme (sha256, prozessübergreifend stabil; hash() ist je Prozess zufällig gesalzen)
+    return {"externe_id": n.get("Message-ID") or f"ohne-id:{hashlib.sha256(roh).hexdigest()[:40]}", "name": absender[0] or None, "email": absender[1] or None,
+            "betreff": betreff or None, "nachricht": (text or "").strip()[:5000], "telefon": tel.group(0) if tel else None,
+            "automatisch": ist_automatisch(n, absender[1], betreff)}
 
 
 def postfach_abrufen(s: Session, m: Mandant, postfach: Postfach, jetzt: datetime) -> dict[str, int]:
@@ -154,9 +189,9 @@ def postfach_abrufen(s: Session, m: Mandant, postfach: Postfach, jetzt: datetime
     for i, roh in enumerate(postfach.ungelesene()):
         ergebnis["gelesen"] += 1
         d = nachricht_lesen(roh)
-        auto = any(k in (d["betreff"] or "").lower() for k in ("auto-reply", "automatische antwort", "out of office", "newsletter", "unsubscribe"))
+        auto = d["automatisch"]
         a = anfrage_verarbeiten(s, m, "email", d["externe_id"], d["name"], d["telefon"], d["email"], d["betreff"],
-                                None if auto else d["nachricht"], jetzt)
+                                None if auto else d["nachricht"], jetzt, verwerfen=auto)
         if a is None:
             ergebnis["bekannt"] += 1
         elif a.status == "uebernommen":
